@@ -1,0 +1,75 @@
+name: Universal Supernova Distributed Scraper
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Run daily at midnight
+  workflow_dispatch:
+    inputs:
+      sector:
+        description: 'Sector to scrape'
+        required: true
+        default: 'artificial intelligence'
+      region:
+        description: 'Region to scrape'
+        required: true
+        default: 'india'
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    outputs:
+      job_id: ${{ steps.discover.outputs.job_id }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Install and start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 5
+      - name: Run Discovery
+        id: discover
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          cd backend
+          OUTPUT=$(python distributed_runner.py --mode discovery --sector "${{ github.event.inputs.sector || 'artificial intelligence' }}" --region "${{ github.event.inputs.region || 'india' }}")
+          echo "$OUTPUT"
+          JOB_ID=$(echo "$OUTPUT" | grep JOB_ID | cut -d'=' -f2)
+          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
+
+  scrape-workers:
+    needs: discovery
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Install and start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 5
+      - name: Run Scrape Worker
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          cd backend
+          python distributed_runner.py --mode worker --job_id ${{ needs.discovery.outputs.job_id }} --index ${{ matrix.index }} --total 20

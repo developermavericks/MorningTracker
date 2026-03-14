@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: nexus_user
+      POSTGRES_PASSWORD: nexus_password
+      POSTGRES_DB: nexus_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: always
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://nexus_user:nexus_password@db:5432/nexus_db
+      REDIS_URL: redis://redis:6379/0
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+  worker:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://nexus_user:nexus_password@db:5432/nexus_db
+      REDIS_URL: redis://redis:6379/0
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      MAX_CONCURRENT_BROWSERS: 5
+    command: celery -A scraper.tasks.celery_app worker --loglevel=info --concurrency=10 --pool=prefork
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+volumes:
+  pgdata:

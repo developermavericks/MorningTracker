@@ -1,0 +1,3 @@
+@echo off
+echo Starting NEXUS using start.ps1...
+powershell -ExecutionPolicy Bypass -File "%~dp0start.ps1"

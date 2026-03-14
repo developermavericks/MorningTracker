@@ -1,0 +1,44 @@
+# Core API
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.7.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.1
+
+# Database & Persistence
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+asyncpg>=0.29.0
+aiosqlite>=0.20.0
+redis>=5.0.0
+
+# Scraper Engine
+playwright>=1.44.0
+playwright-stealth>=1.0.6
+beautifulsoup4>=4.12.0
+feedparser>=6.0.10
+trafilatura>=1.8.0
+lxml>=5.2.0
+
+# LLM & AI
+groq>=0.9.0
+ollama>=0.2.0
+
+# Auth & Security
+python-jose[cryptography]>=3.3.0
+bcrypt==3.1.7
+passlib[bcrypt]>=1.7.4
+authlib>=1.3.0
+
+# Tasks & Scheduling
+celery>=5.4.0
+apscheduler>=3.10.4
+
+# Utilities
+httpx>=0.27.0
+python-dateutil>=2.9.0
+openpyxl>=3.1.2
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

@@ -1,0 +1,19 @@
+NEXEUS ENTERPRISE LEVEL FUNCTIONAL TEST
+==========================================
+
+[1/5] Checking API Connectivity...
+  [OK] API Root: OK (Crexito Scrape Distributed API is running)
+
+[2/5] Verifying Service Health...
+  [OK] Health: GREEN (Articles: 11)
+
+[3/5] Checking for Active Jobs...
+  [FAIL] Job fetch failed: 401
+
+[4/5] Testing Article Data Integrity...
+  [FAIL] Article fetch failed: 401
+
+==========================================
+ ENTERPRISE TEST COMPLETE 
+==========================================
+

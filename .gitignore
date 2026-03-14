@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+scraper.log
+backend.log
+news_scraper.db
+
+# Node
+node_modules/
+dist/
+dist-ssr
+*.local
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.local-browsers
+
+# OS
+.DS_Store
+Thumbs.db
