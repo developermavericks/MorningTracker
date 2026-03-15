@@ -28,11 +28,9 @@ const Signup = () => {
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 500);
       
-      if (err.response) {
-        setError(err.response.data?.detail || 'Registration failed. Please try again.');
-      } else {
-        setError('Connection error. Please check if the backend is running.');
-      }
+      // Improve error message extraction
+      const message = err.response?.data?.detail || err.message || "Registration failed. Please try again.";
+      setError(message);
     } finally {
       setLoading(false);
     }
