@@ -125,7 +125,7 @@ async def delete_job(job_id: str, current_user: TokenData = Depends(get_current_
             raise HTTPException(404, "Job not found")
         
         # C-X: Signal cancellation to workers via Redis
-        from scraper.engine import get_redis
+        from scraper.llm import get_redis
         try:
             r = await get_redis()
             await r.sadd("nexus:cancelled_jobs", job_id)

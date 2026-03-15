@@ -26,6 +26,7 @@ from scraper.google_news import resolve_google_news_url
 
 from db.database import get_db, Article, ScrapeJob
 from scraper.config import SECTOR_KEYWORDS, REGION_MAP, SEARCH_MODIFIERS, USER_AGENTS
+from scraper.llm import get_redis
 
 # --- Windows Support ---
 if sys.platform == 'win32':

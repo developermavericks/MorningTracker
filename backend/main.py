@@ -173,7 +173,7 @@ async def health():
     }
     
     try:
-        from scraper.engine import get_redis
+        from scraper.llm import get_redis
         
         # 1. Check DB (minimal)
         try:
