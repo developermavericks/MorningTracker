@@ -47,7 +47,7 @@ class ErrorBoundary extends React.Component {
           >
             ↻ REFRESH INTERFACE
           </button>
-          {process.env.NODE_ENV === 'development' && (
+          {import.meta.env.DEV && (
             <pre style={{ 
               marginTop: '40px', 
               padding: '20px', 

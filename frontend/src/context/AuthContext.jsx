@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -16,24 +16,22 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('token', token);
       // Clean up URL
       window.history.replaceState(null, null, window.location.pathname);
-      fetchUser(token);
+      fetchUser();
       return;
     }
 
     const token = localStorage.getItem('token');
     if (token) {
-      fetchUser(token);
+      fetchUser();
     } else {
       setLoading(false);
     }
   }, []);
 
-  const fetchUser = async (token) => {
+  const fetchUser = async () => {
     try {
-      const resp = await axios.get('/api/auth/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setUser(resp.data);
+      const userData = await api.get('/auth/me');
+      setUser(userData);
     } catch (err) {
       console.error("Auth verify failed", err);
       localStorage.removeItem('token');
@@ -49,13 +47,11 @@ export const AuthProvider = ({ children }) => {
       params.append('username', email); // OAuth2PasswordRequestForm expects 'username'
       params.append('password', password);
       
-      const resp = await axios.post('/api/auth/login', params, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
+      const data = await api.post('/auth/login', params);
       
-      const { access_token } = resp.data;
+      const { access_token } = data;
       localStorage.setItem('token', access_token);
-      await fetchUser(access_token);
+      await fetchUser();
       return { success: true };
     } catch (err) {
       console.error("Login failed", err);
@@ -65,7 +61,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (email, password, name) => {
     try {
-      await axios.post('/api/auth/register', { email, password, name });
+      await api.post('/auth/register', { email, password, name });
       return { success: true };
     } catch (err) {
       console.error("Registration failed", err);
