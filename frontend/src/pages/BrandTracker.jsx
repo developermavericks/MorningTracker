@@ -7,7 +7,7 @@ export default function BrandTracker({ onNavigate }) {
     const [newKeywords, setNewKeywords] = useState("");
     const [loading, setLoading] = useState(false);
     const [msg, setMsg] = useState(null);
-    const [days, setDays] = useState(30);
+    const [days, setDays] = useState(1);
     const [search, setSearch] = useState("");
     const [newRegion, setNewRegion] = useState("india");
     const [downloading, setDownloading] = useState(null);
