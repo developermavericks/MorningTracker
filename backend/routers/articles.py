@@ -138,6 +138,16 @@ async def export_xlsx(
             raise HTTPException(404, "Job not found")
         
         # Get articles
+        count_stmt = select(func.count()).where(Article.scrape_job_id == job_id, Article.user_id == current_user.id)
+        total_count = (await db.execute(count_stmt)).scalar() or 0
+        
+        if total_count == 0:
+            raise HTTPException(400, "No articles found for this job. Ensure discovery is complete.")
+            
+        if total_count > 5000:
+            # Hard limit for XLSX to prevent OOM
+            raise HTTPException(400, "Job too large for XLSX (Max 5,000 articles). Use CSV export instead.")
+
         stmt = select(Article).where(Article.scrape_job_id == job_id, Article.user_id == current_user.id).order_by(Article.published_at.desc())
         res = await db.execute(stmt)
         articles = res.scalars().all()

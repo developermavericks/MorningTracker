@@ -260,17 +260,22 @@ async def discover_articles(keywords: List[str], day: date, geo: str, region_nam
             follow_redirects=True,
             proxy=proxy_url if proxy_url else None
         ) as client:
-            async def fetch_rss(q, start_time, end_time):
+            async def fetch_rss(q, start_time, end_time, retry_count=0):
                 if await is_job_cancelled(job_id):
                     return
 
                 full_after = f"{day.isoformat()}T{start_time}"
                 full_before = f"{day.isoformat()}T{end_time}"
                 
-                g_url = f"https://news.google.com/rss/search?q={quote_plus(q)}+after:{full_after}+before:{full_before}&gl={geo}"
+                # C-X: Use region-specific domain
+                domain = REGION_MAP.get(geo, "google.com")
+                rss_url = f"https://news.{domain}/rss/search?q={quote_plus(q)}&hl=en-IN&gl=IN&ceid=IN:en&start={full_after}&end={full_before}"
+                
                 try:
-                    await asyncio.sleep(random.uniform(0.5, 2.0))
-                    resp = await client.get(g_url, headers={"User-Agent": random_ua()})
+                    resp = await client.get(rss_url, headers={"User-Agent": random.choice(USER_AGENTS)})
+                    if resp.status_code == 429:
+                        raise Exception("Rate limited by Google News")
+                    
                     if resp.status_code == 200:
                         feed = feedparser.parse(resp.text)
                         batch_entries = 0
@@ -302,10 +307,14 @@ async def discover_articles(keywords: List[str], day: date, geo: str, region_nam
                         raise ProxyFailureError(f"HTTP {resp.status_code}")
                     else:
                         resp.raise_for_status()
-                except ProxyFailureError:
-                    raise
                 except Exception as e:
-                    log(f"Discovery Error for {q}: {e}")
+                    if retry_count < 2:
+                        wait_sec = (retry_count + 1) * 3 + random.uniform(1, 4)
+                        log(f"  [Window {start_time}] Discovery Retry {retry_count+1} for '{q}' due to {e}")
+                        await asyncio.sleep(wait_sec)
+                        return await fetch_rss(q, start_time, end_time, retry_count + 1)
+                    else:
+                        log(f"Discovery failed for {q} after 3 attempts: {e}")
             
             # Construct query list for this window
             window_queries = []
@@ -380,32 +389,51 @@ async def scrape_only(article: dict, job_id: str, sector: str, region: str, user
                 page = await context.new_page()
                 await Stealth().apply_stealth_async(page)
                 
-                # Optimized navigation/extraction
-                await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                
-                if "consent.google.com" in page.url:
-                    try:
-                        await page.click('button[aria-label="Accept all"]')
-                        await page.wait_for_load_state("domcontentloaded")
-                    except: pass
+                # Phase 1: Navigation
+                try:
+                    resp = await page.goto(article["url"], wait_until="domcontentloaded", timeout=45000)
+                    if not resp or resp.status >= 400:
+                        log(f"  [Scraper] Failed to load {article['url']} (Status: {resp.status if resp else 'No Resp'})")
+                        return None
+                except Exception as e:
+                    log(f"  [Scraper] Timeout/Error loading {article['url']}: {e}")
+                    return None
 
+                # Phase 2: Stealth waiting & Scroll
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(1000)
-                html = await page.content()
+                await page.wait_for_timeout(random.randint(2000, 4000))
+                
+                # Phase 3: Extraction
+                content = await page.content()
                 
                 # C-3: Detect proxy deaths/silent failures in browser
-                if "403 Forbidden" in html or "429 Too Many Requests" in html or "Access Denied" in html:
+                if "403 Forbidden" in content or "429 Too Many Requests" in content or "Access Denied" in content:
                     raise ProxyFailureError("Browser detected block page")
 
-                body = extract_body(html)
-                author = extract_author(html)
+                body = trafilatura.extract(content, include_comments=False, include_tables=True, no_fallback=False)
                 
-                # Refine publication date from HTML
-                extracted_date = extract_date(html)
+                # Fallback to BeautifulSoup if extraction is too thin
+                if not body or len(body) < 200:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(content, "lxml")
+                    for s in soup(["script", "style", "nav", "header", "footer"]):
+                        s.decompose()
+                    body = soup.get_text(separator="\n", strip=True)
+                    if len(body) > 200:
+                        log(f"  [Scraper] Trafilatura failed. Used BeautifulSoup fallback for {article['url']}")
+
+                if not body or is_junk_body(body):
+                    log(f"  [Scraper] No meaningful content found in {article['url']}")
+                    return None
+                
+                # Metadata extraction
+                author = extract_author(content)
+                extracted_date = extract_date(content)
                 if extracted_date:
                     final_pub_at = extracted_date
+
             except Exception as outer_e:
-                print(f"DEBUG: Scrape failed: {outer_e}")
+                log(f"  [Scraper] Extraction Error for {article['url']}: {outer_e}")
                 body, author = "", None
             finally:
                 if context: await context.close()

@@ -161,25 +161,35 @@ async def extract_metadata_with_ollama(body: str, url: str = "", context_agency:
         log(f"Raw Ollama Meta: {content[:100]}...")
         
         try:
-            data = json.loads(content)
+            # Clean control characters that sometimes break JSON parsing
+            clean_content = "".join(ch for ch in content if ord(ch) >= 32 or ch == "\n")
+            data = json.loads(clean_content)
         except json.JSONDecodeError:
-            # Fallback: find json block in text
+            # Fallback 1: Extract JSON block
             import re
-            match = re.search(r'\{.*\}', content, re.DOTALL)
+            match = re.search(r'\{(?:[^{}]|(?R))*\}', content, re.DOTALL)
+            if not match:
+                match = re.search(r'\{.*\}', content, re.DOTALL)
+            
             if match:
                 try:
                     data = json.loads(match.group(0))
                 except json.JSONDecodeError:
-                    # Final fallback logic: regex parse
+                    # Fallback 2: Manual Regex Extraction for key fields
                     data = {}
                     auth_m = re.search(r'"author"\s*:\s*(?:null|"([^"]*)")', content, re.IGNORECASE)
-                    data["author"] = auth_m.group(1) if auth_m and auth_m.group(1) else None
+                    data["author"] = auth_m.group(1) if auth_m else None
                     agency_m = re.search(r'"agency"\s*:\s*(?:null|"([^"]*)")', content, re.IGNORECASE)
-                    data["agency"] = agency_m.group(1) if agency_m and agency_m.group(1) else None
+                    data["agency"] = agency_m.group(1) if agency_m else None
                     junk_m = re.search(r'"is_junk"\s*:\s*(true|false)', content, re.IGNORECASE)
                     data["is_junk"] = True if (junk_m and junk_m.group(1).lower() == 'true') else False
+                    
+                    # Try to get cleaned_body via regex or slice
+                    body_match = re.search(r'"cleaned_body"\s*:\s*"(.+?)"\s*}', content, re.DOTALL)
+                    data["cleaned_body"] = body_match.group(1) if body_match else body[:2000]
             else:
-                raise ValueError("No JSON found in response")
+                log(f"  [AI] Critical Parse Failure: No JSON-like structure in LLM output.")
+                data = {"author": None, "agency": None, "is_junk": False, "cleaned_body": body}
 
         # --- Post-processing Smart Fallbacks ---
         res_author = data.get("author")
