@@ -94,6 +94,7 @@ async def get_redis():
 def load_proxies():
     global _proxies
     if not _proxies:
+        # Static files
         for fname in ["webshare_proxies.txt", "Webshare 10 proxies.txt"]:
             fpath = os.path.join(os.path.dirname(__file__), "..", fname)
             if os.path.exists(fpath):
@@ -101,22 +102,21 @@ def load_proxies():
                     for line in f:
                         parts = line.strip().split(":")
                         if len(parts) == 4:
-                            _proxies.append({
-                                "server": f"http://{parts[0]}:{parts[1]}",
-                                "username": parts[2],
-                                "password": parts[3]
-                            })
+                            # Standardized as full URL strings
+                            _proxies.append(f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}")
     
-    # D-5: Support rotating backconnect proxy URL (Blueprint Requirement)
+    # Backconnect gateway (Railway requirement)
     backconnect = os.getenv("WEBSHARE_PROXY_URL")
     if backconnect:
-        # Expected format: http://user:pass@host:port or rotating.webshare.io:80
         if "@" not in backconnect and os.getenv("WEBSHARE_PROXY_USER"):
             user = os.getenv("WEBSHARE_PROXY_USER")
             pw = os.getenv("WEBSHARE_PROXY_PASS")
-            backconnect = f"http://{user}:{pw}@{backconnect}"
+            backconnect = f"http://{user}:{pw}@{backconnect.replace('http://', '')}"
         
-        _proxies = [{"server": backconnect}]
+        if not backconnect.startswith("http"):
+            backconnect = f"http://{backconnect}"
+            
+        _proxies = [backconnect]
         log(f"PROXY: Using backconnect rotating gateway: {backconnect}")
     
     if not _proxies:
@@ -143,9 +143,10 @@ async def get_browser_instance():
             proxies = load_proxies()
             proxy_args = {}
             if proxies:
-                p = random.choice(proxies)
-                proxy_args["proxy"] = p
-                log(f"BROWSER: Launching with proxy {p['server']}")
+                p_url = random.choice(proxies)
+                # Playwright launch likes dict or Server URL string
+                proxy_args["proxy"] = {"server": p_url}
+                log(f"BROWSER: Launching with proxy server.")
 
             _shared_browser = await _shared_p.chromium.launch(
                 headless=True,
@@ -237,10 +238,8 @@ async def discover_articles(keywords: List[str], day: date, geo: str, region_nam
         # Select proxy for this window to spread load
         proxy_url = None
         if proxies_list:
-            p = random.choice(proxies_list)
-            server = p["server"].replace("http://", "")
-            proxy_url = f"http://{p['username']}:{p['password']}@{server}"
-            log(f"  [Window {start_t}] Using proxy {p['server']}")
+            proxy_url = random.choice(proxies_list)
+            log(f"  [Window {start_t}] Using randomized proxy gateway.")
 
         async with httpx.AsyncClient(
             timeout=30, 

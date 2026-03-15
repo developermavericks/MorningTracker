@@ -65,6 +65,12 @@ def run_scrape_task(self, job_id, sector, region, date_from, date_to, search_mod
         logger.error(f"Orchestrator failed for job {job_id}: {e}")
         raise e
     finally:
+        # C-7: Robust loop cleanup to allow background DB cleanups
+        try:
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.wait(pending, timeout=2.0))
+        except: pass
         loop.close()
 
 # ─── Scraper Node (I/O Intensive) ─────────────────────────────────────────────
@@ -91,6 +97,11 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
     except Exception as e:
         logger.error(f"Scrape node failed for {article_data.get('url')}: {e}")
     finally:
+        try:
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.wait(pending, timeout=2.0))
+        except: pass
         loop.close()
 
 # ─── Enrichment Node (Compute Intensive) ──────────────────────────────────────
@@ -139,4 +150,9 @@ def enrich_article_node(self, article_id):
         # Retry logic for transient AI failures (e.g., rate limits)
         raise self.retry(exc=e, countdown=60)
     finally:
+        try:
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.wait(pending, timeout=2.0))
+        except: pass
         loop.close()
