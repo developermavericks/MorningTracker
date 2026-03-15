@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func, update, delete, and_
 from db.database import get_db, WatchedBrand, Article, ScrapeJob
 from .auth_utils import get_auth_user as get_current_user, TokenData
-from celery_app import celery_app
+from celery_app import app as celery_app
 
 router = APIRouter()
 

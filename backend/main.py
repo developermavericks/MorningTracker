@@ -126,7 +126,7 @@ async def start_scheduler():
     """Daily 3 AM Scrape."""
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.cron import CronTrigger
-    from celery_app import celery_app
+    from celery_app import app as celery_app
     from scraper.config import SECTOR_KEYWORDS
     
     scheduler = AsyncIOScheduler()

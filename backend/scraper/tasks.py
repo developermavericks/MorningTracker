@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import json
-from celery_app import celery_app
+from celery_app import app as celery_app
 from sqlalchemy import select, update
 from db.database import get_db, Article, ScrapeJob, AsyncSessionLocal
 

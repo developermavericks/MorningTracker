@@ -19,14 +19,14 @@ load_dotenv()
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-celery_app = Celery(
+app = Celery(
     "nexus_tasks",
     broker=REDIS_URL,
     backend=REDIS_URL,
     include=["scraper.tasks"]
 )
 
-celery_app.conf.update(
+app.conf.update(
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",

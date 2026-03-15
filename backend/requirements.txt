@@ -35,6 +35,7 @@ itsdangerous>=2.1.2
 
 # Tasks & Scheduling
 celery>=5.4.0
+gevent>=24.2.1
 apscheduler>=3.10.4
 
 # Utilities

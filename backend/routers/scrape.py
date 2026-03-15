@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func, update, delete
 from db.database import get_db, ScrapeJob, Article
 from .auth_utils import get_auth_user as get_current_user, TokenData
-from celery_app import celery_app
+from celery_app import app as celery_app
 from scraper.config import REGION_MAP, SECTOR_KEYWORDS
 from scraper.engine import log
 
