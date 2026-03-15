@@ -1,0 +1,14 @@
+# Exclude frontend and node modules from any docker build
+frontend/
+node_modules/
+dist/
+venv/
+*.db
+*.log
+.git/
+.env
+__pycache__/
+backend/__pycache__/
+backend/venv/
+backend/*.db
+backend/*.log

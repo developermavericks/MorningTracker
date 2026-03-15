@@ -16,16 +16,15 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install Python dependencies first (leverage cache)
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright and its system dependencies the "official" way
-# This is more reliable than manual lists
 RUN playwright install chromium
 RUN playwright install-deps chromium
 
-# Copy application code (excluding files in .dockerignore)
-COPY . .
+# Copy backend application code
+COPY backend/ .
 
 # Default command: Production-grade Uvicorn with workers
 CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120"]
