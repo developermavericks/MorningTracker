@@ -83,6 +83,10 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
 @router.get("/google")
 async def google_login(request: Request):
     redirect_uri = request.url_for('google_callback')
+    # If we're behind a proxy (Railway) that terminates SSL, url_for might incorrectly return http.
+    # We force https if not on localhost.
+    if 'localhost' not in str(request.base_url) and not str(redirect_uri).startswith('https'):
+        redirect_uri = str(redirect_uri).replace('http://', 'https://')
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/google/callback")

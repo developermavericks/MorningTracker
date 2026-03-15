@@ -25,6 +25,7 @@ from fastapi import FastAPI, Depends, Request, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy import select, update, func
 from routers import scrape, articles, diagnostics, brands, auth
 from db.database import init_db, get_db, ScrapeJob, Article
@@ -76,6 +77,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.add_middleware(
+    ProxyHeadersMiddleware, trusted_hosts=["*"]
 )
 
 app.add_middleware(
