@@ -54,6 +54,21 @@ export default function Diagnostics() {
 
     const c = data?.components || {};
 
+    const handleEmergencyStop = async () => {
+        if (!window.confirm("CRITICAL: This will PURGE all pending tasks and halt all active scrapes. Continue?")) return;
+        try {
+            setLoading(true);
+            const res = await api.post("/diagnostics/emergency-stop");
+            alert("Emergency Stop Triggered: " + (res.results?.actions?.join(", ") || "Success"));
+            await fetchDiagnostics();
+        } catch (e) {
+            console.error(e);
+            alert("Failed to trigger emergency stop.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="page-container">
             <header className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: '1px solid var(--border)', paddingBottom: '32px', marginBottom: '40px' }}>
@@ -61,9 +76,19 @@ export default function Diagnostics() {
                     <h1 className="page-title">System Telemetry</h1>
                     <p className="page-subtitle">Real-time health monitoring & component verification</p>
                 </div>
-                <button className="btn btn-secondary" onClick={fetchDiagnostics} disabled={loading} style={{ background: 'var(--surface)' }}>
-                    {loading ? "Refreshing..." : "↻ Forced Sync"}
-                </button>
+                <div style={{ display: "flex", gap: "12px" }}>
+                    <button className="btn btn-secondary" onClick={fetchDiagnostics} disabled={loading} style={{ background: 'var(--surface)' }}>
+                        {loading ? "Refreshing..." : "↻ Forced Sync"}
+                    </button>
+                    <button className="btn btn-danger" onClick={handleEmergencyStop} disabled={loading} style={{ 
+                        background: 'var(--danger)', 
+                        color: 'white',
+                        border: 'none',
+                        boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)'
+                    }}>
+                        {loading ? "Processing..." : "🛑 Emergency Stop"}
+                    </button>
+                </div>
             </header>
 
             <div style={{
