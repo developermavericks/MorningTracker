@@ -30,7 +30,7 @@ export default function BrandTracker({ onNavigate }) {
 
     const fetchBrands = async () => {
         try {
-            const data = await api.get("/brands/");
+            const data = await api.get("/brands");
             setBrands(Array.isArray(data) ? data : []);
         } catch (err) {
             console.error("Failed to fetch brands", err);
@@ -40,7 +40,7 @@ export default function BrandTracker({ onNavigate }) {
     const addBrand = async () => {
         if (!newBrand.trim()) return;
         try {
-            await api.post("/brands/", { 
+            await api.post("/brands", { 
                 name: newBrand.trim(),
                 keywords: newKeywords.trim() || null,
                 region: newRegion
