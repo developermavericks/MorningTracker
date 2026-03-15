@@ -40,8 +40,8 @@ celery_app.conf.update(
     task_acks_late=True,           
     task_reject_on_worker_lost=True, 
     task_routes={
-        "scraper.tasks.run_scrape_task": {"queue": "orchestrator"},
-        "scraper.tasks.scrape_article_node": {"queue": "scraper_nodes"},
-        "scraper.tasks.enrich_article_node": {"queue": "scraper_nodes"},
+        "scraper.tasks.run_scrape_task": {"queue": "celery"},
+        "scraper.tasks.scrape_article_node": {"queue": "celery"},
+        "scraper.tasks.enrich_article_node": {"queue": "enrichment"},
     },
 )
