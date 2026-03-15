@@ -35,14 +35,15 @@ This guide details the steps to deploy the NEXUS News Tracker to a production en
    - `DB_POOL_SIZE`: `20`
    - `DB_MAX_OVERFLOW`: `10`
 
-### Step 1.3: Celery Workers & Beat
-1. Create two additional "Empty Service" instances on Railway originating from the same repo.
-2. **Worker 1 (Scraper Node):**
-   - Command: `celery -A celery_app worker --loglevel=info --concurrency=4 -Q celery`
-3. **Worker 2 (Enrichment Node):**
-   - Command: `celery -A celery_app worker --loglevel=info --concurrency=2 -Q enrichment`
-4. **Beat (Scheduler):**
-   - Command: `celery -A celery_app beat --loglevel=info`
+### Step 1.3: Celery Workers & Beat (All-in-One Budget Option)
+To save on Railway costs, you can run everything in a single process.
+1. Create ONE additional "Empty Service" instances on Railway originating from the same repo.
+2. Rename it to `Nexus-Worker-Master`.
+3. **Custom Start Command:**
+   `sh -c "celery -A celery_app worker --loglevel=info --concurrency=4 -Q celery,enrichment -B"`
+   *Note: The `-B` flag starts the scheduler (Beat) inside the worker.*
+4. **Environment Variables:**
+   - Must match the `MorningTracker` service exactly.
 
 ---
 

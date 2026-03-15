@@ -7,7 +7,6 @@ dockerfilePath = "backend/Dockerfile"
 [deploy]
 region = "iad1" # US-East (Washington DC / North Virginia)
 restartPolicy = "on-failure"
-healthcheckPath = "/health"
 healthcheckTimeout = 60
 
 [services.db]
