@@ -1,9 +1,12 @@
 import axios from 'axios';
 
-const API_BASE = "https://morningtracker-production.up.railway.app/api";
+const API_BASE = "https://morningtracker-production.up.railway.app/api/";
 
 const apiClient = axios.create({
   baseURL: API_BASE,
+  // Enforce absolute baseURL by making sure relative URLs are always appended to it
+  // This is the default behavior of axios when baseURL is set, but good to be explicit
+  // and ensure no leading slashes in requests bypass it.
 });
 
 // Auth Interceptor
