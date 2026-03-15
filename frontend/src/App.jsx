@@ -81,7 +81,7 @@ function ProtectedApp() {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       // WebSocket MUST connect directly to Railway (Vercel proxy doesn't support WS)
       const target = 'morningtracker-production.up.railway.app';
-      ws = new WebSocket(`${protocol}//${target}/api/articles/ws/stats/?token=${token}`);
+      ws = new WebSocket(`${protocol}//${target}/api/articles/ws/stats?token=${token}`);
       ws.onopen = () => {
         setApiStatus("online");
         console.log("WebSocket connected to Railway node.");
