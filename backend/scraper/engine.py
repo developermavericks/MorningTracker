@@ -26,7 +26,6 @@ from scraper.google_news import resolve_google_news_url
 
 from db.database import get_db, Article, ScrapeJob
 from scraper.config import SECTOR_KEYWORDS, REGION_MAP, SEARCH_MODIFIERS, USER_AGENTS
-from scraper.llm import get_redis
 
 # --- Windows Support ---
 if sys.platform == 'win32':
@@ -237,6 +236,7 @@ async def update_phase_status(db, job_id, phase_name, status):
 
 async def is_job_cancelled(job_id: str) -> bool:
     """Check if the job has been flagged for cancellation in Redis."""
+    from scraper.llm import get_redis
     try:
         r = await get_redis()
         return await r.sismember("nexus:cancelled_jobs", job_id)
@@ -505,6 +505,7 @@ async def scrape_only(article: dict, job_id: str, sector: str, region: str, user
                 ).returning(Article.id)
             
             # C-6: Pre-screen URL with Redis to avoid UPSERT overhead
+            from scraper.llm import get_redis
             r = await get_redis()
             SEEN_KEY = "nexus:seen_urls"
             res = None
