@@ -3,14 +3,21 @@ import useStore from "../store/useStore";
 import { api } from "../services/api";
 
 export default function Dashboard({ onNavigate }) {
-  const { stats, fetchStats } = useStore();
+  const { stats, fetchStats, jobs, fetchJobs } = useStore();
   const [enriching, setEnriching] = useState(false);
   const [enrichMsg, setEnrichMsg] = useState(null);
 
   useEffect(() => {
     fetchStats();
+    fetchJobs();
+    const interval = setInterval(() => {
+      fetchStats();
+      fetchJobs();
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
+  const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'pending');
   const maxSector = stats?.by_sector?.[0]?.count || 1;
   const maxRegion = stats?.by_region?.[0]?.count || 1;
 
@@ -63,6 +70,31 @@ export default function Dashboard({ onNavigate }) {
           <div className="stat-sub">All nodes active</div>
         </div>
       </div>
+
+      {activeJobs.length > 0 && (
+        <div className="card" style={{ marginBottom: 32, borderLeft: '4px solid var(--accent)', background: 'rgba(30, 58, 95, 0.2)' }}>
+          <div className="card-title" style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="spinner" style={{ width: 14, height: 14 }} /> 
+            LIVE OPERATIONS — {activeJobs.length} Mission(s) In-Progress
+          </div>
+          <div style={{ marginTop: 20 }}>
+            {activeJobs.map(job => {
+              const pct = job.total_found > 0 ? Math.round((job.total_scraped / job.total_found) * 100) : 0;
+              return (
+                <div key={job.id} style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 12 }}>
+                    <span>{job.id.slice(0,8)} // <strong>{job.sector.toUpperCase()}</strong> ({job.region})</span>
+                    <span>{job.current_phase} — {pct}%</span>
+                  </div>
+                  <div className="progress-bar-track" style={{ height: 6 }}>
+                    <div className="progress-bar-fill progress-pulse" style={{ width: `${Math.max(pct, 5)}%`, background: 'var(--accent)' }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, marginBottom: 32 }}>
         <div className="card">

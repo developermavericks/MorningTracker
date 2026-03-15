@@ -190,25 +190,73 @@ async def download_brand_articles_excel(
 ):
     """Download brand articles as Excel."""
     from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    import io
+
     async with get_db() as db:
-        stmt = select(Article).where(Article.sector == name).where(Article.user_id == current_user.id)
+        stmt = (
+            select(Article)
+            .where(Article.sector == name)
+            .where(Article.user_id == current_user.id)
+            .order_by(Article.published_at.desc())
+        )
         if date_from: stmt = stmt.where(Article.published_at >= date_from)
         if date_to: stmt = stmt.where(Article.published_at <= date_to)
-        stmt = stmt.order_by(Article.published_at.desc())
         
         res = await db.execute(stmt)
         articles = res.scalars().all()
         
         wb = Workbook()
         ws = wb.active
-        ws.append(["Title", "URL", "Agency", "Published_At", "Summary"])
-        for a in articles:
-            ws.append([a.title, a.url, a.agency, str(a.published_at), a.summary])
+        ws.title = f"Nexus_{name}"
+
+        # Standard Premium Headers
+        headers = ["Title", "Resolved URL", "Publisher/Agency", "Author", "Summary", "Published At", "Source Feed", "Keyword Matched"]
+        ws.append(headers)
+
+        # Formatting Header
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        ws.freeze_panes = "A2"
+        alternate_fill = PatternFill(start_color="F0F4FA", end_color="F0F4FA", fill_type="solid")
+
+        for i, a in enumerate(articles, start=2):
+            published_str = a.published_at.strftime("%d %b %Y %H:%M") if a.published_at else ""
+            row_data = [
+                a.title,
+                a.resolved_url or a.url,
+                a.agency,
+                a.author or "Staff Reporter",
+                a.summary,
+                published_str,
+                a.source_feed or "brand_tracker",
+                name
+            ]
+            ws.append(row_data)
+            if i % 2 == 0:
+                for cell in ws[i]: cell.fill = alternate_fill
             
+            url_cell = ws.cell(row=i, column=2)
+            url_cell.hyperlink = a.resolved_url or a.url
+            url_cell.font = Font(color="0000FF", underline="single")
+
+        # Auto-fit
+        for col in range(1, len(headers) + 1):
+            column = get_column_letter(col)
+            ws.column_dimensions[column].width = 25 # Standard width for brand report
+
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
+        
+        filename = f"NEXUS_Brand_{name}_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
         return StreamingResponse(
             output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={name}_articles.xlsx"}
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
         )

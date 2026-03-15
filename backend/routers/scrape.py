@@ -76,8 +76,9 @@ async def start_enrichment(current_user: TokenData = Depends(get_current_user)):
     from scraper.tasks import enrich_article_node
     
     async with get_db() as db:
-        # Find articles needing enrichment
+        # Find articles needing enrichment (Scoped to current user)
         stmt = select(Article.id).where(
+            Article.user_id == current_user.id,
             (Article.full_body == None) | (func.length(Article.full_body) < 150)
         ).limit(1000)
         res = await db.execute(stmt)

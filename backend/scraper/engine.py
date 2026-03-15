@@ -107,12 +107,20 @@ def load_proxies():
                                 "password": parts[3]
                             })
     
-    # D-5: Support rotating backconnect proxy URL
+    # D-5: Support rotating backconnect proxy URL (Blueprint Requirement)
     backconnect = os.getenv("WEBSHARE_PROXY_URL")
     if backconnect:
-        # Expected format: http://user:pass@host:port
+        # Expected format: http://user:pass@host:port or rotating.webshare.io:80
+        if "@" not in backconnect and os.getenv("WEBSHARE_PROXY_USER"):
+            user = os.getenv("WEBSHARE_PROXY_USER")
+            pw = os.getenv("WEBSHARE_PROXY_PASS")
+            backconnect = f"http://{user}:{pw}@{backconnect}"
+        
         _proxies = [{"server": backconnect}]
-        log(f"PROXY: Using backconnect rotating proxy: {backconnect}")
+        log(f"PROXY: Using backconnect rotating gateway: {backconnect}")
+    
+    if not _proxies:
+        log("WARNING: No proxies loaded. Scraper will use direct connection.")
         
     return _proxies
 
@@ -501,8 +509,9 @@ async def run_scrape_job(job_id: str, sector: str, region: str, date_from: date,
         date_to = date.fromisoformat(date_to)
     
     async with get_db() as db:
-        await db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(status='running', started_at=datetime.now()))
+        await db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(status='running', started_at=datetime.now(), current_phase="Discovery"))
         await update_phase_status(db, job_id, "Discovery", "running")
+        await db.commit()
 
         keywords = []
         is_brand_mission = False
@@ -544,11 +553,17 @@ async def run_scrape_job(job_id: str, sector: str, region: str, date_from: date,
             curr += timedelta(days=1)
         
         log(f"Parallelizing discovery across {len(dates)} days...")
-        discovery_tasks = [discover_articles(keywords, d, geo, region, job_id, cumulative) for d in dates]
-        results = await asyncio.gather(*discovery_tasks)
+        # Fire all discovery tasks simultaneously
+        tasks = [discover_articles(keywords, d, geo, region, job_id, cumulative) for d in dates]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        for discovered_on_day in results:
-            all_discovered.extend(discovered_on_day)
+        for idx, res in enumerate(results):
+            if isinstance(res, Exception):
+                log(f"Discovery failed for date {dates[idx]}: {res}")
+            elif isinstance(res, list):
+                all_discovered.extend(res)
+            
+        log(f"  ➜ Total unique articles found: {len(cumulative)}")
             
         # Update final found count in DB
         await db.execute(

@@ -1,0 +1,19 @@
+# NEXUS Railway Configuration
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "backend/Dockerfile"
+
+[deploy]
+region = "iad1" # US-East (Washington DC / North Virginia)
+restartPolicy = "on-failure"
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+
+[services.db]
+type = "postgresql"
+region = "iad1"
+
+[services.redis]
+type = "redis"
+region = "iad1"

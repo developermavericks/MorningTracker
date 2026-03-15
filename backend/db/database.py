@@ -57,6 +57,7 @@ class Article(Base):
     sector: Mapped[str] = mapped_column(String, nullable=False)
     region: Mapped[str] = mapped_column(String, nullable=False)
     language: Mapped[str] = mapped_column(String, default="en")
+    source_feed: Mapped[Optional[str]] = mapped_column(String)
     scraped_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     scrape_job_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     user_id: Mapped[Optional[str]] = mapped_column(String, index=True)

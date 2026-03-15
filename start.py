@@ -32,74 +32,88 @@ def main():
                     k, v = line.split("=", 1)
                     env[k.strip()] = v.strip()
 
-    print("[1/2] Starting Backend on port 8000...")
+    print("\n[0/3] Cleaning up old task queues...")
+    try:
+        subprocess.run(
+            [python_exe, "-m", "celery", "-A", "celery_app", "purge", "-f"],
+            cwd=backend_dir,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        print("      ➜ Queues cleared.")
+    except Exception as e:
+        print(f"      ➜ Warning: Could not purge queues: {e}")
+
+    print("[1/3] Starting Backend (port 8000)...")
+    backend_log = open(os.path.join(backend_dir, "api.log"), "a", encoding="utf-8")
     backend_proc = subprocess.Popen(
         [python_exe, "run_backend.py"],
         cwd=backend_dir,
-        env=env
+        env=env,
+        stdout=backend_log,
+        stderr=subprocess.STDOUT
     )
 
-    time.sleep(2) # Give backend a tiny headstart
-
-    print("[2/3] Starting Frontend on port 5173...")
+    print("[2/3] Starting Frontend (port 5173)...")
+    frontend_log = open(os.path.join(base_dir, "frontend.log"), "a", encoding="utf-8")
     frontend_proc = subprocess.Popen(
         [npx_exe, "vite", "--port", "5173", "--host"],
         cwd=frontend_dir,
+        stdout=frontend_log,
+        stderr=subprocess.STDOUT,
         shell=False
     )
 
     print("[3/3] Starting Celery Worker (gevent)...")
     worker_env = env.copy()
     worker_env["CELERY_WORKER_GEVENT"] = "1"
+    worker_log = open(os.path.join(backend_dir, "worker.log"), "a", encoding="utf-8")
     
     worker_proc = subprocess.Popen(
         [python_exe, "-m", "celery", "-A", "celery_app", "worker", "--loglevel=info", "--pool=gevent", "--concurrency=50", "-Q", "orchestrator,scraper_nodes,celery"],
         cwd=backend_dir,
-        env=worker_env
+        env=worker_env,
+        stdout=worker_log,
+        stderr=subprocess.STDOUT
     )
 
-    print("\n=======================================")
-    print(" NEXUS is running!")
-    print(" Frontend: http://localhost:5173")
-    print(" Backend:  http://localhost:8000")
-    print(" Worker:   Celery (gevent pool, all queues)")
-    print(" Press Ctrl+C in this terminal to stop all.")
-    print("=======================================\n")
+    print("\n" + "="*40)
+    print(" NEXUS is now running!")
+    print("="*40)
+    print(" ➜ API:      http://localhost:8000")
+    print(" ➜ Frontend: http://localhost:5173")
+    print(" ➜ Logs:     backend/api.log, worker.log")
+    print("\n Press Ctrl+C to stop all services.")
+    print("="*40 + "\n")
 
     try:
         while True:
-            time.sleep(1)
-            # Check if processes crashed
+            time.sleep(2)
             if backend_proc.poll() is not None:
-                print("\n[!] Backend process exited unexpectedly.")
+                print("\n[!] Backend process exited.")
                 break
             if frontend_proc.poll() is not None:
-                print("\n[!] Frontend process exited unexpectedly.")
+                print("\n[!] Frontend process exited.")
                 break
             if worker_proc.poll() is not None:
-                print("\n[!] Celery worker process exited unexpectedly.")
+                print("\n[!] Celery worker process exited.")
                 break
     except KeyboardInterrupt:
-        print("\n[!] Ctrl+C detected! Shutting down gracefully...")
+        print("\n[!] Stopping services...")
     finally:
-        print("\nStopping background process trees...")
-        
         def kill_tree(pid):
             try:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
-                
-        if backend_proc.pid:
-            kill_tree(backend_proc.pid)
-            
-        if frontend_proc.pid:
-            kill_tree(frontend_proc.pid)
+            except: pass
 
-        if worker_proc.pid:
-            kill_tree(worker_proc.pid)
+        for p in [backend_proc, frontend_proc, worker_proc]:
+            if p.pid: kill_tree(p.pid)
             
-        print("NEXUS stopped cleanly. Goodbye!")
+        backend_log.close()
+        frontend_log.close()
+        worker_log.close()
+        print("Goodbye!")
 
 if __name__ == "__main__":
     main()

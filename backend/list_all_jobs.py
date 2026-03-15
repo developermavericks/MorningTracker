@@ -1,27 +1,14 @@
 import asyncio
-import sys
-import os
-from datetime import datetime
-from dotenv import load_dotenv
-
-sys.path.append(os.getcwd())
-load_dotenv()
-
-from db.database import get_db, ScrapeJob, Article
 from sqlalchemy import select
+from db.database import get_db, ScrapeJob
 
-async def check_all_jobs():
+async def find_job():
     async with get_db() as db:
-        res = await db.execute(select(ScrapeJob).order_by(ScrapeJob.started_at.desc()).limit(20))
+        res = await db.execute(select(ScrapeJob).order_by(ScrapeJob.started_at.desc()))
         jobs = res.scalars().all()
-        
-        if not jobs:
-            print("No jobs found in the database.")
-            return
-
-        print(f"Listing last 20 jobs:")
+        print(f"Total jobs: {len(jobs)}")
         for job in jobs:
-            print(f"ID: {job.id} | Status: {job.status} | Target: {job.sector} | Created: {job.started_at}")
+            print(f"JOB {job.id} | Status: {job.status} | Sector: {job.sector} | Region: {job.region}")
 
 if __name__ == "__main__":
-    asyncio.run(check_all_jobs())
+    asyncio.run(find_job())

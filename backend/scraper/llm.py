@@ -29,15 +29,10 @@ def get_ollama_semaphore():
     return _ollama_semaphore
 
 # --- Logging ---
-LOG_FILE = "scraper.log"
+from scraper.engine import logger
 
 def log(msg: str):
-    from datetime import datetime
-    import sys
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{timestamp} - [LLM] {msg}\n")
-    print(f"LLM: {msg}", file=sys.stderr)
+    logger.info(msg)
 
 # --- Groq Client ---
 async def summarize_with_groq(text: str) -> Optional[str]:

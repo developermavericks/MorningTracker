@@ -1,5 +1,14 @@
 # MUST BE THE FIRST IMPORTS if using gevent in workers
 import os
+import warnings
+
+# Suppress MonkeyPatchWarning as we manually handle the order
+try:
+    from gevent import monkey
+    warnings.filterwarnings("ignore", message="Monkey-patching ssl after ssl has already been imported")
+except ImportError:
+    pass
+
 if os.environ.get("CELERY_WORKER_GEVENT") == "1":
     from gevent import monkey
     monkey.patch_all()

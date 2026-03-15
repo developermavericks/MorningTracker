@@ -41,4 +41,5 @@ ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 
 # Default command (can be overridden in docker-compose)
-CMD ["python", "main.py"]
+# Default command: Production-grade Uvicorn with workers
+CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120"]

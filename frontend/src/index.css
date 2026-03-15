@@ -18,11 +18,11 @@
   --text:      hsl(var(--accent-h), 30%, 15%);
   --muted:     hsl(var(--accent-h), 15%, 45%);
   
-  --glow:      0 8px 30px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.12);
-  --nav-active: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.08);
-  --nav-active-border: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
-  --input-focus-shadow: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.1);
-  --btn-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 10%));
+  /* Glassmorphism Tokens */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-blur: blur(12px);
+  --glow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
   --article-text: hsl(var(--accent-h), 10%, 40%);
 
   /* Shared Properties */
@@ -188,10 +188,19 @@ html { scrollbar-color: var(--border) var(--bg); }
 
 /* ─── Cards ───────────────────────────────────────────────────────────── */
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   padding: 24px;
+  box-shadow: var(--glow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
 }
 
 .card-title {

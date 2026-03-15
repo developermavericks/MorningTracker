@@ -8,6 +8,9 @@ from sqlalchemy import select, func, or_, and_, update, desc, text
 from db.database import get_db, Article, ScrapeJob
 from .auth_utils import get_auth_user as get_current_user, TokenData
 from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 router = APIRouter()
 
@@ -120,6 +123,94 @@ async def export_csv(
                 yield out.getvalue().encode("utf-8")
 
     return StreamingResponse(generate(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=export_{job_id}.csv"})
+
+@router.get("/export/xlsx")
+async def export_xlsx(
+    job_id: str,
+    current_user: TokenData = Depends(get_current_user)
+):
+    """Excel export with formatting (Blueprint Phase 5)."""
+    async with get_db() as db:
+        # Get job for naming
+        job_res = await db.execute(select(ScrapeJob).where(ScrapeJob.id == job_id, ScrapeJob.user_id == current_user.id))
+        job = job_res.scalar_one_or_none()
+        if not job:
+            raise HTTPException(404, "Job not found")
+        
+        # Get articles
+        stmt = select(Article).where(Article.scrape_job_id == job_id, Article.user_id == current_user.id).order_by(Article.published_at.desc())
+        res = await db.execute(stmt)
+        articles = res.scalars().all()
+
+        wb = Workbook()
+        ws = wb.active
+        brand_name = job.sector.replace(" ", "_")
+        ws.title = f"Nexus_{brand_name}"
+
+        # Columns: Title, Resolved URL, Publisher/Agency, Author, Summary, Published At, Source Feed, Keyword Matched
+        headers = ["Title", "Resolved URL", "Publisher/Agency", "Author", "Summary", "Published At", "Source Feed", "Keyword Matched"]
+        ws.append(headers)
+
+        # Formatting Header
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Freeze top row
+        ws.freeze_panes = "A2"
+
+        # Data Rows
+        alternate_fill = PatternFill(start_color="F0F4FA", end_color="F0F4FA", fill_type="solid")
+        for i, a in enumerate(articles, start=2):
+            published_str = a.published_at.strftime("%d %b %Y %H:%M") if a.published_at else ""
+            row_data = [
+                a.title,
+                a.resolved_url or a.url,
+                a.agency,
+                a.author or "Staff Reporter",
+                a.summary,
+                published_str,
+                a.source_feed or "google_news",
+                job.sector
+            ]
+            ws.append(row_data)
+            
+            # Alternate row shading
+            if i % 2 == 0:
+                for cell in ws[i]:
+                    cell.fill = alternate_fill
+
+            # Hyperlinks for URL
+            url_cell = ws.cell(row=i, column=2)
+            url_cell.hyperlink = a.resolved_url or a.url
+            url_cell.font = Font(color="0000FF", underline="single")
+
+        # Auto-fit columns
+        for col in range(1, len(headers) + 1):
+            max_length = 0
+            column = get_column_letter(col)
+            for cell in ws[column]:
+                try:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except: pass
+            adjusted_width = min(max(max_length + 2, 15), 60)
+            ws.column_dimensions[column].width = adjusted_width
+
+        # Stream back
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"NEXUS_{brand_name}_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        return StreamingResponse(
+            io.BytesIO(output.read()),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
 
 @router.get("/{article_id}")
 async def get_article(article_id: int, current_user: TokenData = Depends(get_current_user)):

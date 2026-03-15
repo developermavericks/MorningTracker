@@ -1,8 +1,13 @@
 import asyncio
 import sys
 import os
+import time
+import warnings
 from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
+
+# Suppress DeprecationWarnings for better terminal readability
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -10,9 +15,10 @@ load_dotenv()
 # FIX: Force ProactorEventLoop on Windows for Playwright/Subprocess support
 if sys.platform == 'win32':
     try:
+        # Standard in Python 3.8+, but some Celery/Playwright versions still prefer explicit setting
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    except Exception as e:
-        print(f"Warning: Failed to set ProactorEventLoopPolicy: {e}")
+    except Exception:
+        pass
 
 from fastapi import FastAPI, Depends, Request
 from fastapi.responses import JSONResponse

@@ -32,36 +32,35 @@ def decode_google_news_url(url: str) -> Optional[str]:
 
 async def resolve_google_news_url(url: str) -> str:
     """
-    Tries to resolve the real URL behind a Google News link.
-    First tries decoding, then a fast HEAD/GET request.
+    Tries to resolve the real URL behind a Google or Bing tracking link.
+    First tries decoding (Google only), then a fast HTTP redirect resolution.
     """
-    # 1. Try decoding (Instant)
-    decoded = decode_google_news_url(url)
-    if decoded:
-        return decoded
+    # 1. Try decoding (Instant, Google specific)
+    if "news.google.com" in url:
+        decoded = decode_google_news_url(url)
+        if decoded:
+            return decoded
     
-    # 2. Fallback: HTTP redirect resolution (Fast)
+    # 2. HTTP redirect resolution (Generic)
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         }
         async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
-            # We try a HEAD first, but Google often 503s HEAD requests from bots
+            # HEAD is faster and often sufficient for resolving redirects
             try:
                 resp = await client.head(url, headers=headers)
                 if resp.status_code < 400:
                     return str(resp.url)
             except: pass
             
-            # If HEAD fails or is blocked, try a small GET
+            # Fallback to GET if HEAD is blocked
             resp = await client.get(url, headers=headers)
             
-            # Bot detection or Rate Limit check
+            # Bot detection or Rate Limit check (Google/Bing specific signals)
             if resp.status_code == 503 or "google.com/images/errors/robot.png" in resp.text:
-                # Silently return original URL; don't spam logs with the full 503 HTML
                 return url
                 
             return str(resp.url)
     except Exception:
-        # On any other error, return original URL as a safe fallback
         return url

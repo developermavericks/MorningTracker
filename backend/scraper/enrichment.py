@@ -25,10 +25,9 @@ from scraper.engine import get_browser_instance, get_browser_semaphore, shutdown
 from scraper.parser import is_junk_body, extract_author as extract_author_from_html, extract_body as extract_body_from_html
 from scraper.google_news import resolve_google_news_url
 
-LOG_FILE = "scraper.log"
 
 def log(msg: str):
-    logger.info(f"[ENRICHMENT] {msg}")
+    logger.info(msg)
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
