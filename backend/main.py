@@ -47,6 +47,9 @@ app = FastAPI(
     version="6.0.0",
 )
 
+# Root level API router for consolidation
+api_router = APIRouter(prefix="/api")
+
 @app.middleware("http")
 async def global_exception_handler(request: Request, call_next):
     # Log all requests for debugging
@@ -153,18 +156,14 @@ async def start_scheduler():
     scheduler.add_job(scheduled_job, CronTrigger(hour=3, minute=0))
     scheduler.start()
 
-# Include Routers
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-app.include_router(scrape.router, prefix="/api/scrape", tags=["scraping"])
-app.include_router(articles.router, prefix="/api/articles", tags=["articles"])
-app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["diagnostics"])
-app.include_router(brands.router, prefix="/api/brands", tags=["brands"])
+# Include Routers in api_router
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(scrape.router, prefix="/scrape", tags=["scraping"])
+api_router.include_router(articles.router, prefix="/articles", tags=["articles"])
+api_router.include_router(diagnostics.router, prefix="/diagnostics", tags=["diagnostics"])
+api_router.include_router(brands.router, prefix="/brands", tags=["brands"])
 
-@app.get("/")
-def root():
-    return {"status": "Crexito Scrape Distributed API is running", "version": "6.0.0"}
-
-@app.get("/health")
+@api_router.get("/health")
 async def health():
     """Lightweight Health Check (D-3)."""
     health_status = {
@@ -193,10 +192,8 @@ async def health():
             health_status["services"]["redis"] = f"error: {str(e)}"
 
         # Final Status: Always return 200 to prevent Railway "Termination Loop"
-        # The user can check the logs or the 'services' dict to debug
         health_status["status"] = "healthy" if all(s == "connected" for s in health_status["services"].values()) else "degraded"
         
-        # Log degradation reasons to stdout so they appear in Railway 'Deploy Logs'
         if health_status["status"] == "degraded":
             logger.warning(f"Health check DEGRADED: {health_status['services']}")
             
@@ -206,7 +203,7 @@ async def health():
         logger.error(f"Health check CRITICAL ERROR: {e}")
         return {"status": "error", "error": str(e)}
 
-@app.get("/health/browser")
+@api_router.get("/health/browser")
 async def health_browser():
     """Heavy Browser Warm-up Check."""
     try:
@@ -220,3 +217,10 @@ async def health_browser():
         }
     except Exception as e:
         return JSONResponse(status_code=503, content={"status": "failed", "error": str(e)})
+
+# Finally include the consolidated api_router into the app
+app.include_router(api_router)
+
+@app.get("/")
+def root():
+    return {"status": "Crexito Scrape Distributed API is running", "version": "6.0.0"}
