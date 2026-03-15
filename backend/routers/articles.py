@@ -234,9 +234,17 @@ async def websocket_stats(websocket: WebSocket, token: Optional[str] = Query(Non
         return
 
     try:
+        # Send initial stats immediately
+        initial_stats = await _fetch_stats_logic(user_data.user_id)
+        await websocket.send_json(initial_stats)
+        
         while True:
+            await asyncio.sleep(10)
             stats = await _fetch_stats_logic(user_data.user_id)
             await websocket.send_json(stats)
-            await asyncio.sleep(10)
     except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        # Ensure we don't crash the worker thread
+        print(f"WS Error: {e}")
         pass
