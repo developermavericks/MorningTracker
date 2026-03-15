@@ -21,7 +21,7 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends, Request, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
