@@ -56,8 +56,14 @@ export const api = {
   delete: (url) => apiClient.delete(url),
   
   // Helper for direct URLs
-  getExportUrl: (job_id) => `${API_BASE}/articles/export/csv?job_id=${job_id}`,
-  getExcelUrl: (job_id) => `${API_BASE}/articles/export/xlsx?job_id=${job_id}`
+  getExportUrl: (job_id) => {
+    const token = localStorage.getItem('token');
+    return `${API_BASE}articles/export/csv?job_id=${job_id}${token ? `&token=${token}` : ''}`;
+  },
+  getExcelUrl: (job_id) => {
+    const token = localStorage.getItem('token');
+    return `${API_BASE}articles/export/xlsx?job_id=${job_id}${token ? `&token=${token}` : ''}`;
+  }
 };
 
 export default apiClient;
