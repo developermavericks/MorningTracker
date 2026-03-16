@@ -29,7 +29,7 @@ class NetworkHandler:
             cached = redis.get(cache_key)
             if cached:
                 # logger.info(f"Cache HIT for {url[:50]}...")
-                return cached.decode('utf-8')
+                return cached if isinstance(cached, str) else cached.decode('utf-8')
 
         # Global Throttle Check: If we see too many 503s globally, cool down
         throttle_count = int(redis.get("nexus:global_503_count") or 0)
