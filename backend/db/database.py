@@ -26,7 +26,6 @@ use_nullpool = os.getenv("DB_USE_NULLPOOL", "false").lower() == "true"
 engine_args = {
     "echo": False,
     "pool_pre_ping": True,
-    "connect_args": {"timeout": 60} if "sqlite" in get_database_url() else {"command_timeout": 60}
 }
 
 if use_nullpool:
@@ -39,7 +38,8 @@ else:
         "pool_recycle": 3600,
     })
 
-engine = create_async_engine(get_database_url(), **engine_args)
+async_connect_args = {"timeout": 60} if "sqlite" in get_database_url() else {"command_timeout": 60}
+engine = create_async_engine(get_database_url(), connect_args=async_connect_args, **engine_args)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 # Synchronous Engine for Workers
@@ -47,7 +47,8 @@ def get_sync_url():
     url = get_database_url()
     return url.replace("+aiosqlite", "").replace("+asyncpg", "")
 
-engine_sync = create_engine(get_sync_url(), **engine_args)
+sync_connect_args = {"timeout": 60} if "sqlite" in get_sync_url() else {"connect_timeout": 60}
+engine_sync = create_engine(get_sync_url(), connect_args=sync_connect_args, **engine_args)
 SessionLocalSync = sessionmaker(bind=engine_sync, expire_on_commit=False)
 
 # ─── Models ──────────────────────────────────────────────────────────────────
