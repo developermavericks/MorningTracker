@@ -192,19 +192,19 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
         job_res = db.execute(select(ScrapeJob.sector).where(ScrapeJob.id == job_id))
         sector_name = job_res.scalar() or "Technology"
         
-        if region_name.lower() == "india":
-            from scraper.config import INDIAN_LANGUAGES
-            search_languages = INDIAN_LANGUAGES
+        # if region_name.lower() == "india":
+        #    from scraper.config import INDIAN_LANGUAGES
+        #    search_languages = INDIAN_LANGUAGES
 
         # Base queries: Start with exact keywords provided
         window_queries = [kw for kw in keywords]
         
         # ADD BRAND NAME (SECTOR) AS A SAFETY NET (captured broadly)
-        if sector_name and sector_name not in window_queries:
-            window_queries.append(sector_name)
-            # Also try brand + "India" for geo-specificity if it's the India region
-            if region_name.lower() == "india" and f"{sector_name} India" not in window_queries:
-                window_queries.append(f"{sector_name} India")
+        # if sector_name and sector_name not in window_queries:
+        #    window_queries.append(sector_name)
+        #    # Also try brand + "India" for geo-specificity if it's the India region
+        #    if region_name.lower() == "india" and f"{sector_name} India" not in window_queries:
+        #        window_queries.append(f"{sector_name} India")
 
         is_brand_tracker = False
         from db.database import WatchedBrand
