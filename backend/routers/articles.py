@@ -230,6 +230,34 @@ async def get_article(article_id: int, current_user: TokenData = Depends(get_cur
         if not art: raise HTTPException(404)
         return art
 
+@router.delete("/bulk")
+async def delete_bulk_articles(
+    sector: Optional[str] = None,
+    region: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    job_id: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: TokenData = Depends(get_current_user)
+):
+    async with get_db() as db:
+        stmt = delete(Article).where(Article.user_id == current_user.id)
+        
+        if sector: stmt = stmt.where(Article.sector == sector)
+        if region: stmt = stmt.where(Article.region == region)
+        if date_from: stmt = stmt.where(Article.published_at >= date_from)
+        if date_to: stmt = stmt.where(Article.published_at <= date_to)
+        if job_id: stmt = stmt.where(Article.scrape_job_id == job_id)
+        if search:
+            stmt = stmt.where(or_(
+                Article.title.ilike(f"%{search}%"),
+                Article.full_body.ilike(f"%{search}%")
+            ))
+            
+        await db.execute(stmt)
+        await db.commit()
+        return {"status": "success", "message": "Bulk deletion complete"}
+
 @router.delete("/{article_id}")
 async def delete_article(article_id: int, current_user: TokenData = Depends(get_current_user)):
     async with get_db() as db:

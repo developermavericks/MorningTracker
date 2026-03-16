@@ -65,6 +65,22 @@ const useStore = create((set, get) => ({
     }
   },
 
+  deleteBulkArticles: async (params = {}) => {
+    try {
+      // Build query string for filters
+      const query = new URLSearchParams();
+      Object.entries(params).forEach(([key, val]) => {
+         if (val) query.append(key, val);
+      });
+      await api.delete(`/articles/bulk?${query.toString()}`);
+      set({ articles: [], totalArticles: 0 });
+      return true;
+    } catch (err) {
+      console.error('Failed to bulk delete articles:', err);
+      return false;
+    }
+  },
+
   logout: () => {
     localStorage.removeItem('token');
     set({ user: null, jobs: [], stats: null, articles: [] });
