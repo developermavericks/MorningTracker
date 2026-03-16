@@ -30,7 +30,7 @@ if not hasattr(_bcrypt_module, "__about__"):
 
 # Hashing Context (Legacy/Fallback)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 class TokenData(BaseModel):
     email: Optional[str] = None
