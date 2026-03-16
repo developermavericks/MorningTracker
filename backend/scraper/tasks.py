@@ -1,3 +1,5 @@
+import logging
+import json
 import httpx
 import trafilatura
 from celery_app import app as celery_app
