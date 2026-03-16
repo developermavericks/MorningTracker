@@ -45,7 +45,7 @@ app.conf.update(
     task_routes={
         "scraper.tasks.run_scrape_task": {"queue": "celery"},
         "scraper.tasks.scrape_article_node": {"queue": "celery"},
-        "scraper.tasks.enrich_article_node": {"queue": "enrichment"},
+        "scraper.tasks.enrich_article_node": {"queue": "celery"},
         "scraper.tasks.complete_stale_jobs": {"queue": "celery"},
     },
     beat_schedule={
