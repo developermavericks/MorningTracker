@@ -111,7 +111,7 @@ REGION_MAP = {
 
 INDIAN_LANGUAGES = [
     {"name": "Hindi", "code": "hi-IN", "ceid": "IN:hi"},
-    {"name": "Bengali", "code": "bn-IN", "ceid": "IN:bn"},
+    {"name": "Bengali", "code": "bn", "ceid": "IN:bn"},
     {"name": "Marathi", "code": "mr-IN", "ceid": "IN:mr"},
     {"name": "Telugu", "code": "te-IN", "ceid": "IN:te"},
     {"name": "Tamil", "code": "ta-IN", "ceid": "IN:ta"},
