@@ -150,6 +150,11 @@ async def get_db():
         finally:
             await session.close()
 
+async def get_db_yield():
+    """FastAPI dependency wrapper for get_db."""
+    async with get_db() as db:
+        yield db
+
 from contextlib import contextmanager
 
 @contextmanager
