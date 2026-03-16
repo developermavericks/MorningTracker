@@ -16,6 +16,23 @@ const Login = () => {
     if (user) navigate('/');
   }, [user, navigate]);
 
+  // Handle errors in URL fragment (from Google OAuth callback)
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.includes('error=')) {
+      const errorType = hash.split('error=')[1]?.split('&')[0];
+      if (errorType === 'access_denied') {
+        setError('Google login was cancelled or denied.');
+      } else if (errorType === 'auth_failed') {
+        setError('Google authentication failed. Please try again.');
+      } else {
+        setError(`Authentication error: ${errorType}`);
+      }
+      // Clear the hash so the error doesn't persist on refresh
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
