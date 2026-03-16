@@ -53,7 +53,7 @@ def summarize_with_grok_sync(text: str) -> Optional[str]:
     
     url = "https://api.x.ai/v1/chat/completions"
     payload = {
-        "model": "grok-2-latest",
+        "model": "grok-3",
         "messages": [
             {"role": "system", "content": "You are a news analyst. Summarize this article into EXACTLY 3 bullet points. Output only the bullet points."},
             {"role": "user", "content": text[:5000]},
