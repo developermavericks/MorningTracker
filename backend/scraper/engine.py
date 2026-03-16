@@ -291,7 +291,7 @@ async def discover_articles(keywords: List[str], day: date, geo: str, region_nam
     if not proxy_pool:
         proxy_pool = [None]
     
-    async def fetch_rss_with_rotation(q, start_time, end_time, attempt=0):
+    async def fetch_rss_with_rotation(q, start_time, end_time, hl="en-IN", ceid="IN:en", attempt=0):
         if await is_job_cancelled(job_id):
             return
 
@@ -302,7 +302,7 @@ async def discover_articles(keywords: List[str], day: date, geo: str, region_nam
             full_after = f"{day.isoformat()}T{start_time}"
             full_before = f"{day.isoformat()}T{end_time}"
             domain = REGION_MAP.get(geo, "google.com")
-            rss_url = f"https://news.{domain}/rss/search?q={quote_plus(q)}&hl=en-IN&gl=IN&ceid=IN:en&start={full_after}&end={full_before}"
+            rss_url = f"https://news.{domain}/rss/search?q={quote_plus(q)}&hl={hl}&gl=IN&ceid={ceid}&start={full_after}&end={full_before}"
             
             try:
                 resp = await client.get(rss_url, headers={"User-Agent": random.choice(USER_AGENTS)})
@@ -350,24 +350,47 @@ async def discover_articles(keywords: List[str], day: date, geo: str, region_nam
         if await is_job_cancelled(job_id): break
         log(f"Processing 3-hour window: {start_t} to {end_t}")
         
+        # Determine languages to search in
+        search_languages = [{"code": "en-IN", "ceid": "IN:en"}]
+        if region_name.lower() == "india":
+            from scraper.config import INDIAN_LANGUAGES
+            search_languages = INDIAN_LANGUAGES
+
         # Expand queries for this window
         window_queries = []
+        is_brand_tracker = False
+        async with get_db() as db:
+            from db.database import ScrapeJob
+            job_res = await db.execute(select(ScrapeJob.sector).where(ScrapeJob.id == job_id))
+            sector_name = job_res.scalar()
+            if sector_name:
+                from db.database import WatchedBrand
+                brand_check = await db.execute(select(WatchedBrand).where(WatchedBrand.name == sector_name))
+                if brand_check.scalar_one_or_none():
+                    is_brand_tracker = True
+
         for kw in keywords:
             window_queries.append(kw)
-            for mod in random.sample(SEARCH_MODIFIERS, min(len(SEARCH_MODIFIERS), 5)):
-                window_queries.append(f"{kw} {mod}")
-            if cities:
-                for city in random.sample(cities, min(len(cities), 2)):
-                    window_queries.append(f"{kw} {city}")
+            # Only add modifiers/cities if NOT a brand tracker mission
+            if not is_brand_tracker:
+                for mod in random.sample(SEARCH_MODIFIERS, min(len(SEARCH_MODIFIERS), 5)):
+                    window_queries.append(f"{kw} {mod}")
+                if cities:
+                    for city in random.sample(cities, min(len(cities), 2)):
+                        window_queries.append(f"{kw} {city}")
 
-        # Process in batches of 5 to avoid overloading
+        # Process queries across all supported languages
         random.shuffle(window_queries)
-        for i in range(0, len(window_queries), 5):
+        for lang in search_languages:
             if await is_job_cancelled(job_id): break
-            batch = window_queries[i:i+5]
-            tasks = [fetch_rss_with_rotation(q, start_t, end_t) for q in batch]
-            await asyncio.gather(*tasks)
-            await asyncio.sleep(random.uniform(0.5, 1.5))
+            log(f"  [Discovery] Searching in language: {lang.get('name', lang['code'])}")
+            
+            for i in range(0, len(window_queries), 5):
+                if await is_job_cancelled(job_id): break
+                batch = window_queries[i:i+5]
+                tasks = [fetch_rss_with_rotation(q, start_t, end_t, hl=lang['code'], ceid=lang['ceid']) for q in batch]
+                await asyncio.gather(*tasks)
+                await asyncio.sleep(random.uniform(0.5, 1.5))
 
     log(f"Completed discovery for {day}. Unique articles found: {len(seen_urls)}")
     if cumulative is not None: cumulative.update(seen_urls)
@@ -410,13 +433,21 @@ async def scrape_only(article: dict, job_id: str, sector: str, region: str, user
 
         # Determine keywords for relevance filtering
         keywords = []
-        if "brand_name" in article and article["brand_name"]:
-            keywords = [article["brand_name"]]
+        async with get_db() as db:
+            from db.database import WatchedBrand
+            brand_res = await db.execute(select(WatchedBrand).where(WatchedBrand.name == sector).where(WatchedBrand.user_id == user_id))
+            brand_obj = brand_res.scalar_one_or_none()
+            if brand_obj and brand_obj.keywords:
+                keywords = [k.strip() for k in brand_obj.keywords.split(",") if k.strip()]
         
-        # Try to extract keywords from sector if it's a known sector
-        from scraper.config import SECTOR_KEYWORDS
-        if sector.lower() in SECTOR_KEYWORDS:
-            keywords.extend(SECTOR_KEYWORDS[sector.lower()])
+        if not keywords:
+            # Fallback for general sector searches or brands without specific keywords
+            from scraper.config import SECTOR_KEYWORDS
+            if sector.lower() in SECTOR_KEYWORDS:
+                keywords.extend(SECTOR_KEYWORDS[sector.lower()])
+            elif "brand_name" in article and article["brand_name"]:
+                # Use brand name only as a absolute fallback
+                keywords = [article["brand_name"]]
 
         # Default date from discovery
         pub_at_str = article.get("published_at")
@@ -658,12 +689,15 @@ async def run_scrape_job(job_id: str, sector: str, region: str, date_from: date,
         
         if brand_obj:
             is_brand_mission = True
-            # Build keywords from brand name and its keyword list
-            keywords = [brand_obj.name]
+            # Build keywords ONLY from brand identifier list (EXCLUDE brand name for search)
             if brand_obj.keywords:
                 # Assuming keywords are comma-separated
-                keywords.extend([k.strip() for k in brand_obj.keywords.split(",") if k.strip()])
-            log(f"Brand Tracking Mission detected for '{sector}'. Identifiers: {keywords}")
+                keywords = [k.strip() for k in brand_obj.keywords.split(",") if k.strip()]
+            else:
+                # Fallback to brand name ONLY if no keywords are specified, 
+                # though user requirements suggest we should rely on keywords.
+                keywords = [brand_obj.name]
+            log(f"Brand Tracking Mission detected for '{sector}'. Searching via Identifiers: {keywords}")
         else:
             keywords = SECTOR_KEYWORDS.get(sector.lower(), [sector])
 

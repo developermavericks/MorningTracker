@@ -109,6 +109,19 @@ REGION_MAP = {
     "europe":    {"geo": "EU", "cities": ["Berlin", "Paris", "Madrid", "Rome", "Amsterdam", "Brussels", "Vienna", "Zurich", "Stockholm", "Dublin"]},
 }
 
+INDIAN_LANGUAGES = [
+    {"name": "Hindi", "code": "hi", "ceid": "IN:hi"},
+    {"name": "Bengali", "code": "bn", "ceid": "IN:bn"},
+    {"name": "Marathi", "code": "mr", "ceid": "IN:mr"},
+    {"name": "Telugu", "code": "te", "ceid": "IN:te"},
+    {"name": "Tamil", "code": "ta", "ceid": "IN:ta"},
+    {"name": "Gujarati", "code": "gu", "ceid": "IN:gu"},
+    {"name": "Kannada", "code": "kn", "ceid": "IN:kn"},
+    {"name": "Malayalam", "code": "ml", "ceid": "IN:ml"},
+    {"name": "Punjabi", "code": "pa", "ceid": "IN:pa"},
+    {"name": "English (India)", "code": "en-IN", "ceid": "IN:en"}
+]
+
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
