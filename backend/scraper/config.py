@@ -116,7 +116,6 @@ INDIAN_LANGUAGES = [
     {"name": "Telugu", "code": "te", "ceid": "IN:te"},
     {"name": "Tamil", "code": "ta", "ceid": "IN:ta"},
     {"name": "Gujarati", "code": "gu-IN", "ceid": "IN:gu"},
-    {"name": "Kannada", "code": "kn", "ceid": "IN:kn"},
     {"name": "Malayalam", "code": "ml", "ceid": "IN:ml"},
     {"name": "Punjabi", "code": "pa-IN", "ceid": "IN:pa"},
     {"name": "English (India)", "code": "en-IN", "ceid": "IN:en"}
