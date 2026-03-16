@@ -16,8 +16,8 @@ from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
 from urllib.parse import quote_plus
 from sqlalchemy import select, update, insert, text, delete
-from playwright.sync_api import sync_playwright
-from playwright_stealth import Stealth
+# from playwright.sync_api import sync_playwright
+# from playwright_stealth import Stealth
 from scraper.parser import extract_body, extract_author, extract_date, is_junk_body
 from scraper.google_news import resolve_google_news_url_sync
 
@@ -229,14 +229,15 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
     if is_job_cancelled(job_id): return None
     try:
         url = article["url"]
-        if "news.google.com/rss/articles" in url:
-            res = resolve_google_news_url_sync(url)
-            if res: url = res; article["url"] = url
-        
-        if "/rss/" in url or "rss=1" in url or "feed" in url.lower():
-            if "news.google.com" not in url:
-                with get_db_sync() as db: db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_scraped=ScrapeJob.total_scraped + 1))
-                return None
+        # Redirection and scraping are now handled in tasks.py via threaded browser
+        resolved_url = article.get("resolved_url", url)
+        raw_html = article.get("raw_html")
+
+        if not raw_html:
+            # Fallback if somehow triggered without tasks.py wrapper
+            with get_db_sync() as db: 
+                db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_scraped=ScrapeJob.total_scraped + 1))
+            return None
 
         keywords = []
         with get_db_sync() as db:
@@ -254,40 +255,23 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         except: final_pub_at = datetime.now()
 
         body, author = None, None
-        with sync_playwright() as p:
-            proxies = load_proxies()
-            proxy_args = {"proxy": {"server": ProxyGuard.get_healthy_proxy(proxies)}} if proxies else {}
-            browser = p.chromium.launch(headless=True, **proxy_args)
-            try:
-                context = browser.new_context(user_agent=random_ua())
-                page = context.new_page()
-                page.route("**/*.{png,jpg,gif,css,woff,woff2}", lambda route: route.abort())
-                Stealth().apply_stealth_sync(page)
-                try: 
-                    resp = page.goto(url, wait_until="domcontentloaded", timeout=90000)
-                    if not resp or resp.status >= 400: return None
-                except: return None
-                
-                if is_job_cancelled(job_id): return None
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(random.randint(2000, 4000))
-                
-                content = page.content()
-                if any(x in content for x in ["403 Forbidden", "429 Too Many Requests", "Access Denied"]):
-                    ProxyGuard.mark_unhealthy(proxy_args.get("proxy", {}).get("server"))
-                    raise ProxyFailureError("Blocked")
+        content = raw_html
+        
+        if any(x in content for x in ["403 Forbidden", "429 Too Many Requests", "Access Denied"]):
+            # Note: marking unhealthiness is tricky without the proxy object here, 
+            # but usually handled in browser.py or discovery phase.
+            pass
 
-                body = trafilatura.extract(content)
-                if not body or len(body) < 200:
-                    from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(content, "lxml")
-                    for s in soup(["script", "style", "nav", "header", "footer"]): s.decompose()
-                    body = soup.get_text(separator="\n", strip=True)
+        body = trafilatura.extract(content)
+        if not body or len(body) < 200:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(content, "lxml")
+            for s in soup(["script", "style", "nav", "header", "footer"]): s.decompose()
+            body = soup.get_text(separator="\n", strip=True)
 
-                author = extract_author(content)
-                extracted_date = extract_date(content)
-                if extracted_date: final_pub_at = extracted_date
-            finally: browser.close()
+        author = extract_author(content)
+        extracted_date = extract_date(content)
+        if extracted_date: final_pub_at = extracted_date
 
         if keywords and not verify_brand_relevance(f"{article['title']} {body}", keywords): body = None
         

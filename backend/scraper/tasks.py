@@ -1,8 +1,8 @@
 import logging
 import json
 from celery_app import app as celery_app
-from sqlalchemy import select, update
 from db.database import get_db_sync, Article, ScrapeJob
+from scraper.browser import scrape_url
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +40,28 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
     Synchronous for gevent compatibility.
     """
     from scraper.engine import scrape_only, is_job_cancelled
+    from scraper.google_news import resolve_google_news_url_sync
     try:
         if is_job_cancelled(job_id):
             logger.info(f"Scrape task halted for job {job_id} [Reason: Job Cancelled/Global Stop]")
             return None
+
+        # Resolve Google News redirect in sync (httpx)
+        url = article_data.get("link")
+        resolved_url = resolve_google_news_url_sync(url)
+        if not resolved_url:
+            logger.warning(f"Could not resolve URL: {url}")
+            return None
+        
+        # Use threaded browser for JS-intensive scraping
+        html = scrape_url(resolved_url)
+        if not html:
+            logger.warning(f"Scrape returned no content for {resolved_url}")
+            return None
+
+        # Move processed data back to article_data for Engine
+        article_data["resolved_url"] = resolved_url
+        article_data["raw_html"] = html
 
         article_id = scrape_only(article_data, job_id, sector, region, user_id)
         if article_id:
