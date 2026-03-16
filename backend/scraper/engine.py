@@ -306,14 +306,18 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
             else:
                 val_dict = {"title": article["title"], "url": article["url"], "full_body": body, "author": author, "agency": article.get("agency"), "published_at": final_pub_at, "sector": sector, "region": region, "scrape_job_id": job_id, "user_id": user_id}
                 from sqlalchemy.dialects.postgresql import insert as pg_upsert
-                stmt = pg_upsert(Article).values(**val_dict).on_conflict_do_update(index_elements=['url'], set_={"full_body": text("excluded.full_body"), "scrape_job_id": text("excluded.scrape_job_id")})
-                db.execute(stmt)
+                stmt = pg_upsert(Article).values(**val_dict).on_conflict_do_update(index_elements=['url'], set_={"full_body": text("excluded.full_body"), "scrape_job_id": text("excluded.scrape_job_id")}).returning(Article.id)
+                res = db.execute(stmt)
+                article_id = res.scalar()
                 db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_scraped=ScrapeJob.total_scraped + 1))
             
             job = db.execute(select(ScrapeJob).where(ScrapeJob.id == job_id)).scalar_one_or_none()
             if job and job.total_scraped >= job.total_found:
                 db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(status='completed', completed_at=datetime.now()))
             db.commit()
+            
+            if body and not date_invalid:
+                return article_id
     except Exception as e:
         log(f"Scrape fail: {e}")
     return None
