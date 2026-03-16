@@ -58,11 +58,11 @@ export const api = {
   // Helper for direct URLs
   getExportUrl: (job_id) => {
     const token = localStorage.getItem('token');
-    return `${API_BASE}articles/export/csv?job_id=${job_id}${token ? `&token=${token}` : ''}`;
+    return `${API_BASE}articles/export/csv?job_id=${job_id}${token ? `&query_token=${token}` : ''}`;
   },
   getExcelUrl: (job_id) => {
     const token = localStorage.getItem('token');
-    return `${API_BASE}articles/export/xlsx?job_id=${job_id}${token ? `&token=${token}` : ''}`;
+    return `${API_BASE}articles/export/xlsx?job_id=${job_id}${token ? `&query_token=${token}` : ''}`;
   }
 };
 
