@@ -26,11 +26,20 @@ def scrape_url(url: str, timeout: int = 45000) -> str | None:
                 ua = random.choice(USER_AGENTS)
                 browser = await p.chromium.launch(
                     headless=True,
-                    args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+                    args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-software-rasterizer"]
                 )
                 try:
                     context = await browser.new_context(user_agent=ua)
                     page = await context.new_page()
+                    
+                    # BLOCK RESOURCES FOR SPEED
+                    async def block_aggressively(route):
+                        if route.request.resource_type in ["image", "media", "font", "stylesheet", "other"]:
+                            await route.abort()
+                        else:
+                            await route.continue_()
+                    
+                    await page.route("**/*", block_aggressively)
                     
                     # Set extra headers
                     await page.set_extra_http_headers({

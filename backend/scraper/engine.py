@@ -13,13 +13,15 @@ import httpx
 import feedparser
 import trafilatura
 from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from urllib.parse import quote_plus
 from sqlalchemy import select, update, insert, text, delete
+from gevent.pool import Pool
+from scraper.network import NetworkHandler
 # from playwright.sync_api import sync_playwright
 # from playwright_stealth import Stealth
 from scraper.parser import extract_body, extract_author, extract_date, is_junk_body
-from scraper.google_news import resolve_google_news_url_sync
+# Removed resolve_google_news_url_sync as it's now internal to tasks.py Fast-Track
 
 from db.database import get_db_sync, Article, ScrapeJob
 from scraper.config import SECTOR_KEYWORDS, REGION_MAP, SEARCH_MODIFIERS, USER_AGENTS
@@ -137,66 +139,47 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
     seen_urls = set()
     proxy_pool = load_proxies() or [None]
     
-    def fetch_rss(q, start_time, end_time, hl="en-IN", ceid="IN:en", attempt=0):
+    def fetch_rss(q, start_time, end_time, hl="en-IN", ceid="IN:en"):
         if is_job_cancelled(job_id): return
-        current_proxy = ProxyGuard.get_healthy_proxy(proxy_pool)
         
-        # Use official tbs parameters for time filtering (C-X)
-        # qdr:d = Past 24 hours (most reliable for recent news)
-        # sbd:1 = Sort by Date (newest first)
         is_today = day >= date.today()
         if is_today:
             tbs = "qdr:d,sbd:1"
         else:
-            # cdr:1 = Custom Date Range
-            # cd_min/max: MM/DD/YYYY
             date_str = day.strftime("%m/%d/%Y")
             tbs = f"cdr:1,cd_min:{date_str},cd_max:{date_str},sbd:1"
         
-        with httpx.Client(timeout=35, follow_redirects=True, proxy=current_proxy) as client:
-            domain = REGION_MAP.get(geo, "google.com")
-            rss_url = f"https://news.{domain}/rss/search?q={quote_plus(q)}&hl={hl}&gl=IN&ceid={ceid}&tbs={quote_plus(tbs)}"
-            try:
-                resp = client.get(rss_url, headers={"User-Agent": random_ua()})
-                if resp.status_code in [407, 403, 429]:
-                    ProxyGuard.mark_unhealthy(current_proxy)
-                    if attempt < 3:
-                        time.sleep(random.uniform(1, 3))
-                        return fetch_rss(q, start_time, end_time, hl, ceid, attempt + 1)
-                    raise ProxyFailureError(f"HTTP {resp.status_code}")
-                if resp.status_code == 200:
-                    feed = feedparser.parse(resp.text)
-                    for entry in feed.entries:
-                        link = entry.link
-                        # Secondary safety: Google News RSS sometimes ignores tbs/cdr parameters
-                        # and returns very old results (as seen in user screenshots).
-                        # We verify the entry's timestamp if possible, but trust qdr:d more.
-                        if link not in seen_urls and (cumulative is None or link not in cumulative):
-                            parsed_date = None
-                            if hasattr(entry, 'published_parsed'):
-                                parsed_date = datetime.fromtimestamp(time.mktime(entry.published_parsed)).date()
-                            
-                            # Strict Date Filtering
-                            # For Today (qdr:d), we allow articles from today or yesterday (48h window)
-                            # to account for timezones and Google's rolling 24h logic.
-                            # For historical scans (cdr), we strictly enforce the specific day.
-                            if is_today:
-                                if parsed_date and (day - parsed_date).days > 1:
-                                    continue
-                            elif parsed_date and parsed_date != day:
-                                continue
-                                
-                            pub_date_str = day.isoformat()
-                            if hasattr(entry, 'published_parsed'):
-                                try: pub_date_str = datetime(*entry.published_parsed[:6]).isoformat()
-                                except: pass
+        domain = REGION_MAP.get(geo, "google.com")
+        rss_url = f"https://news.{domain}/rss/search?q={quote_plus(q)}&hl={hl}&gl=IN&ceid={ceid}&tbs={quote_plus(tbs)}"
+        
+        try:
+            xml_content = NetworkHandler.get_google_rss(rss_url)
+            if not xml_content:
+                return
 
-                            articles.append({"title": entry.title, "url": link, "published_at": pub_date_str, "agency": entry.source.title if hasattr(entry, 'source') else "Google News"})
-                            seen_urls.add(link)
-                else: resp.raise_for_status()
-            except Exception as exc:
-                if attempt < 2: return fetch_rss(q, start_time, end_time, hl, ceid, attempt + 1)
-                log(f"Discovery fail for '{q}': {exc}")
+            feed = feedparser.parse(xml_content)
+            for entry in feed.entries:
+                link = entry.link
+                if link not in seen_urls and (cumulative is None or link not in cumulative):
+                    parsed_date = None
+                    if hasattr(entry, 'published_parsed'):
+                        parsed_date = datetime.fromtimestamp(time.mktime(entry.published_parsed)).date()
+                    
+                    if is_today:
+                        if parsed_date and (day - parsed_date).days > 1:
+                            continue
+                    elif parsed_date and parsed_date != day:
+                        continue
+                        
+                    pub_date_str = day.isoformat()
+                    if hasattr(entry, 'published_parsed'):
+                        try: pub_date_str = datetime(*entry.published_parsed[:6]).isoformat()
+                        except: pass
+
+                    articles.append({"title": entry.title, "url": link, "published_at": pub_date_str, "agency": entry.source.title if hasattr(entry, 'source') else "Google News"})
+                    seen_urls.add(link)
+        except Exception as exc:
+            log(f"Discovery fail for '{q}': {exc}")
 
     search_languages = [{"code": "en-IN", "ceid": "IN:en"}]
     if region_name.lower() == "india":
@@ -218,12 +201,16 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
             for mod in random.sample(SEARCH_MODIFIERS, min(len(SEARCH_MODIFIERS), 5)): window_queries.append(f"{kw} {mod}")
     
     random.shuffle(window_queries)
+    
+    # Discovery Acceleration: Parallelize with a small pool (avoid hitting semaphore too hard)
+    discovery_pool = Pool(3)
     for lang in search_languages:
         if is_job_cancelled(job_id): break
         for q in window_queries:
             if is_job_cancelled(job_id): break
-            fetch_rss(q, "00:00:00", "23:59:59", hl=lang['code'], ceid=lang['ceid'])
-            time.sleep(random.uniform(0.1, 0.3))
+            discovery_pool.spawn(fetch_rss, q, "00:00:00", "23:59:59", hl=lang['code'], ceid=lang['ceid'])
+    
+    discovery_pool.join()
 
     if cumulative is not None: cumulative.update(seen_urls)
     return articles

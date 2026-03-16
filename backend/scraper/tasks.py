@@ -1,5 +1,5 @@
-import logging
-import json
+import httpx
+import trafilatura
 from celery_app import app as celery_app
 from db.database import get_db_sync, Article, ScrapeJob
 from scraper.browser import scrape_url
@@ -57,10 +57,28 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
             logger.warning(f"Could not resolve URL: {url}")
             return None
         
-        # Use threaded browser for JS-intensive scraping
-        html = scrape_url(resolved_url)
+        # --- FAST-TRACK SCRAPING (httpx + trafilatura) ---
+        html = None
+        try:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"}
+            with httpx.Client(timeout=15, follow_redirects=True) as client:
+                resp = client.get(resolved_url, headers=headers)
+                if resp.status_code == 200:
+                    text_content = trafilatura.extract(resp.text)
+                    # If we got a decent amount of text, we can skip Playwright!
+                    if text_content and len(text_content) > 1200:
+                        logger.info(f"Fast-track success for {resolved_url} ({len(text_content)} chars)")
+                        html = resp.text
+        except Exception as e:
+            logger.debug(f"Fast-track failed for {resolved_url}: {e}")
+
+        # --- FALLBACK: THREADED BROWSER ---
         if not html:
-            logger.warning(f"Scrape returned no content for {resolved_url}")
+            logger.info(f"Falling back to Playwright for {resolved_url}")
+            html = scrape_url(resolved_url)
+            
+        if not html:
+            logger.warning(f"Scrape failed (both fast-track and browser) for {resolved_url}")
             return None
 
         # Move processed data back to article_data for Engine

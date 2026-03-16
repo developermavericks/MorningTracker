@@ -110,15 +110,15 @@ REGION_MAP = {
 }
 
 INDIAN_LANGUAGES = [
-    {"name": "Hindi", "code": "hi", "ceid": "IN:hi"},
-    {"name": "Bengali", "code": "bn", "ceid": "IN:bn"},
-    {"name": "Marathi", "code": "mr", "ceid": "IN:mr"},
-    {"name": "Telugu", "code": "te", "ceid": "IN:te"},
-    {"name": "Tamil", "code": "ta", "ceid": "IN:ta"},
-    {"name": "Gujarati", "code": "gu", "ceid": "IN:gu"},
-    {"name": "Kannada", "code": "kn", "ceid": "IN:kn"},
-    {"name": "Malayalam", "code": "ml", "ceid": "IN:ml"},
-    {"name": "Punjabi", "code": "pa", "ceid": "IN:pa"},
+    {"name": "Hindi", "code": "hi-IN", "ceid": "IN:hi"},
+    {"name": "Bengali", "code": "bn-IN", "ceid": "IN:bn"},
+    {"name": "Marathi", "code": "mr-IN", "ceid": "IN:mr"},
+    {"name": "Telugu", "code": "te-IN", "ceid": "IN:te"},
+    {"name": "Tamil", "code": "ta-IN", "ceid": "IN:ta"},
+    {"name": "Gujarati", "code": "gu-IN", "ceid": "IN:gu"},
+    {"name": "Kannada", "code": "kn-IN", "ceid": "IN:kn"},
+    {"name": "Malayalam", "code": "ml-IN", "ceid": "IN:ml"},
+    {"name": "Punjabi", "code": "pa-IN", "ceid": "IN:pa"},
     {"name": "English (India)", "code": "en-IN", "ceid": "IN:en"}
 ]
 
