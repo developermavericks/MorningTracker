@@ -1,101 +1,51 @@
-import threading
 import logging
-import random
-from playwright.async_api import async_playwright
+import sys
+import json
+import subprocess
+import os
 
 logger = logging.getLogger(__name__)
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-]
-
 def scrape_url(url: str, timeout: int = 45000) -> str | None:
     """
-    Runs Asynchronous Playwright in a new dedicated thread to avoid 
-    Celery/gevent main loop conflicts.
+    Runs Playwright in a completely isolated OS process via subprocess.
+    This guarantees zero event loop collisions with Gevent/Celery.
     """
-    import asyncio
+    script_path = os.path.join(os.path.dirname(__file__), "playwright_worker.py")
     
-    result = {"content": None, "error": None}
-
-    async def _async_scrape():
-        try:
-            async with async_playwright() as p:
-                ua = random.choice(USER_AGENTS)
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-software-rasterizer"]
-                )
-                try:
-                    context = await browser.new_context(user_agent=ua)
-                    page = await context.new_page()
-                    
-                    # BLOCK RESOURCES FOR SPEED
-                    async def block_aggressively(route):
-                        if route.request.resource_type in ["image", "media", "font", "stylesheet", "other"]:
-                            await route.abort()
-                        else:
-                            await route.continue_()
-                    
-                    await page.route("**/*", block_aggressively)
-                    
-                    await page.set_extra_http_headers({
-                        "Accept-Language": "en-US,en;q=0.9",
-                    })
-
-                    logger.info(f"Async Playwright scraper: Navigating to {url}")
-                    response = await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-                    
-                    if not response:
-                        result["error"] = "No response"
-                        return
-
-                    if response.status >= 400:
-                        result["error"] = f"HTTP {response.status}"
-                        return
-
-                    # Wait a bit for dynamic content
-                    await page.wait_for_timeout(1000)
-                    result["content"] = await page.content()
-                    
-                except Exception as e:
-                    result["error"] = str(e)
-                finally:
-                    await browser.close()
-        except Exception as e:
-            result["error"] = f"Launch error: {str(e)}"
-
-    def _run_in_thread():
-        import asyncio
-        import nest_asyncio
-        # Apply patch to allow nested run_until_complete if gevent has an active loop
-        nest_asyncio.apply()
+    logger.info(f"Subprocess scraper: Navigating to {url}")
+    try:
+        proc = subprocess.run(
+            [sys.executable, script_path, url, str(timeout)],
+            capture_output=True,
+            text=True,
+            timeout=(timeout / 1000) + 15
+        )
         
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        if proc.returncode != 0 and not proc.stdout.strip():
+            logger.error(f"Scraper process failed for {url}: {proc.stderr}")
+            return None
+            
+        out = proc.stdout.strip()
+        if not out:
+            logger.error(f"Scraper process returned empty output for {url}")
+            return None
             
         try:
-            loop.run_until_complete(_async_scrape())
-        except Exception as e:
-            result["error"] = f"Thread loop error: {str(e)}"
-
-    thread = threading.Thread(target=_run_in_thread, daemon=True)
-    thread.start()
-    
-    # Wait for the thread to finish
-    thread.join(timeout=(timeout / 1000) + 15)
-
-    if thread.is_alive():
-        logger.error(f"Scraper thread timed out for {url}")
+            # Output might have trailing newlines or other prints, safely take the last valid JSON line
+            lines = [line for line in out.splitlines() if line.strip()]
+            data = json.loads(lines[-1])
+            if data.get("error"):
+                logger.error(f"Scraper error for {url}: {data['error']}")
+                return None
+            return data.get("content")
+        except json.JSONDecodeError:
+            logger.error(f"Scraper process returned invalid JSON for {url}: {out}\nStderr: {proc.stderr}")
+            return None
+            
+    except subprocess.TimeoutExpired:
+        logger.error(f"Scraper process timed out for {url}")
         return None
-
-    if result["error"]:
-        logger.error(f"Scraper error for {url}: {result['error']}")
+    except Exception as e:
+        logger.error(f"Scraper OS error for {url}: {str(e)}")
         return None
-
-    return result["content"]
