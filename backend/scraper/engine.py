@@ -137,7 +137,7 @@ def verify_brand_relevance(text: str, keywords: List[str]) -> bool:
 def discover_articles(keywords: List[str], day: date, geo: str, region_name: str, job_id: str, cumulative: set = None) -> List[dict]:
     articles = []
     seen_urls = set()
-    proxy_pool = load_proxies() or [None]
+    proxy_pool = load_proxies() or []
     
     def fetch_rss(q, start_time, end_time, hl="en-IN", ceid="IN:en"):
         if is_job_cancelled(job_id): return
@@ -156,8 +156,11 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
             rss_url = f"https://news.{domain}/rss/search?q={quote(q)}&hl={hl}&gl=IN&ceid={ceid}&tbs={quote(tbs)}"
         
         try:
-            xml_content = NetworkHandler.get_google_rss(rss_url)
+            proxy = ProxyGuard.get_healthy_proxy(proxy_pool)
+            xml_content = NetworkHandler.get_google_rss(rss_url, proxy=proxy)
             if not xml_content:
+                if proxy:
+                    ProxyGuard.mark_unhealthy(proxy)
                 return
 
             feed = feedparser.parse(xml_content)
@@ -189,19 +192,19 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
         job_res = db.execute(select(ScrapeJob.sector).where(ScrapeJob.id == job_id))
         sector_name = job_res.scalar() or "Technology"
         
-        if region_name.lower() == "india":
-            from scraper.config import INDIAN_LANGUAGES
-            search_languages = INDIAN_LANGUAGES
+        # if region_name.lower() == "india":
+        #    from scraper.config import INDIAN_LANGUAGES
+        #    search_languages = INDIAN_LANGUAGES
 
         # Base queries: Start with exact keywords provided
         window_queries = [kw for kw in keywords]
         
         # ADD BRAND NAME (SECTOR) AS A SAFETY NET (captured broadly)
-        if sector_name and sector_name not in window_queries:
-            window_queries.append(sector_name)
-            # Also try brand + "India" for geo-specificity if it's the India region
-            if region_name.lower() == "india" and f"{sector_name} India" not in window_queries:
-                window_queries.append(f"{sector_name} India")
+        # if sector_name and sector_name not in window_queries:
+        #    window_queries.append(sector_name)
+        #    # Also try brand + "India" for geo-specificity if it's the India region
+        #    if region_name.lower() == "india" and f"{sector_name} India" not in window_queries:
+        #        window_queries.append(f"{sector_name} India")
 
         is_brand_tracker = False
         from db.database import WatchedBrand
