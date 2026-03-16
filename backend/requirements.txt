@@ -18,6 +18,7 @@ psycopg2-binary>=2.9.9
 # Scraper Engine
 playwright>=1.44.0
 playwright-stealth>=1.0.6
+nest_asyncio>=1.6.0
 beautifulsoup4>=4.12.0
 feedparser>=6.0.10
 trafilatura>=1.8.0
