@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import useStore from "../store/useStore";
 import { api } from "../services/api";
 
-function ArticleModal({ article, onClose }) {
+function ArticleModal({ article, onClose, onDelete }) {
   if (!article) return null;
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -39,7 +39,14 @@ function ArticleModal({ article, onClose }) {
           )}
         </div>
 
-        <div style={{ marginTop: 32, textAlign: "right" }}>
+        <div style={{ marginTop: 32, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button 
+            className="btn btn-secondary" 
+            style={{ color: '#ff4444', borderColor: '#ff4444' }}
+            onClick={() => onDelete(article.id)}
+          >
+            Delete Article
+          </button>
           <button className="btn btn-primary" onClick={onClose}>Done Reading</button>
         </div>
       </div>
@@ -48,7 +55,7 @@ function ArticleModal({ article, onClose }) {
 }
 
 export default function ArticlesBrowser() {
-  const { articles, totalArticles, loading, fetchArticles } = useStore();
+  const { articles, totalArticles, loading, fetchArticles, deleteArticle } = useStore();
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [filters, setFilters] = useState({
@@ -71,11 +78,21 @@ export default function ArticlesBrowser() {
     } catch { }
   };
 
+  const handleDelete = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (window.confirm("Are you sure you want to permanently delete this article?")) {
+      const success = await deleteArticle(id);
+      if (success && selected?.id === id) {
+        setSelected(null);
+      }
+    }
+  };
+
   const totalPages = Math.ceil(totalArticles / 25) || 1;
 
   return (
     <div>
-      {selected && <ArticleModal article={selected} onClose={() => setSelected(null)} />}
+      {selected && <ArticleModal article={selected} onClose={() => setSelected(null)} onDelete={handleDelete} />}
 
       <header className="page-header" style={{ marginBottom: '40px' }}>
         <h1 className="page-title">Intelligence Hub</h1>
@@ -136,7 +153,14 @@ export default function ArticlesBrowser() {
                   {a.published_at ? new Date(a.published_at).toLocaleDateString() : "—"}
                 </td>
                 <td><span className="badge badge-sector">{a.sector}</span></td>
-                <td style={{ textAlign: 'right' }}>
+                <td style={{ textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center', height: '100%' }}>
+                   <button 
+                      className="btn btn-secondary" 
+                      style={{ padding: '6px 16px', fontSize: '11px', color: '#ff4444', borderColor: '#ff4444', background: 'transparent' }}
+                      onClick={(e) => handleDelete(a.id, e)}
+                   >
+                     Delete
+                   </button>
                    <div className="btn btn-secondary" style={{ padding: '6px 16px', fontSize: '11px' }}>Deep Dive</div>
                 </td>
               </tr>

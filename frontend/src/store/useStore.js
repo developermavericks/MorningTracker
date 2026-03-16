@@ -51,6 +51,20 @@ const useStore = create((set, get) => ({
     }
   },
 
+  deleteArticle: async (id) => {
+    try {
+      await api.delete(`/articles/${id}`);
+      set((state) => ({
+        articles: state.articles.filter((a) => a.id !== id),
+        totalArticles: Math.max(0, state.totalArticles - 1)
+      }));
+      return true;
+    } catch (err) {
+      console.error('Failed to delete article:', err);
+      return false;
+    }
+  },
+
   logout: () => {
     localStorage.removeItem('token');
     set({ user: null, jobs: [], stats: null, articles: [] });

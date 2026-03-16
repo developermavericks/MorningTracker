@@ -4,7 +4,7 @@ import csv
 import io
 from typing import Optional, AsyncGenerator
 from datetime import date, datetime
-from sqlalchemy import select, func, or_, and_, update, desc, text
+from sqlalchemy import select, func, or_, and_, update, desc, text, delete
 from db.database import get_db, Article, ScrapeJob
 from .auth_utils import get_auth_user as get_current_user, TokenData
 from fastapi.responses import StreamingResponse
@@ -229,6 +229,17 @@ async def get_article(article_id: int, current_user: TokenData = Depends(get_cur
         art = res.scalar_one_or_none()
         if not art: raise HTTPException(404)
         return art
+
+@router.delete("/{article_id}")
+async def delete_article(article_id: int, current_user: TokenData = Depends(get_current_user)):
+    async with get_db() as db:
+        res = await db.execute(select(Article).where(Article.id == article_id, Article.user_id == current_user.id))
+        art = res.scalar_one_or_none()
+        if not art: raise HTTPException(404, "Article not found or access denied")
+        
+        await db.execute(delete(Article).where(Article.id == article_id))
+        await db.commit()
+        return {"status": "success", "message": "Article deleted permanently"}
 @router.websocket("/ws/stats")
 async def websocket_stats(websocket: WebSocket, token: Optional[str] = Query(None)):
     await websocket.accept()
