@@ -32,6 +32,9 @@ def decode_google_news_url(url: str) -> Optional[str]:
 
 def resolve_google_news_url_sync(url: str) -> str:
     """Synchronous version of resolve_google_news_url."""
+    if not url:
+        return ""
+        
     # 1. Try decoding (Instant, Google specific)
     if "news.google.com" in url:
         decoded = decode_google_news_url(url)

@@ -47,7 +47,11 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
             return None
 
         # Resolve Google News redirect in sync (httpx)
-        url = article_data.get("link")
+        url = article_data.get("url") or article_data.get("link")
+        if not url:
+            logger.warning(f"Task received article without URL: {article_data}")
+            return None
+            
         resolved_url = resolve_google_news_url_sync(url)
         if not resolved_url:
             logger.warning(f"Could not resolve URL: {url}")
