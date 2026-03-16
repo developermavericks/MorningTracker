@@ -88,7 +88,7 @@ class ProxyGuard:
     _unhealthy = {} # {proxy_url: expiry_timestamp}
     
     @classmethod
-    def mark_unhealthy(cls, proxy_url: str, duration: int = 600):
+    def mark_unhealthy(cls, proxy_url: str, duration: int = 300):
         if not proxy_url: return
         cls._unhealthy[proxy_url] = time.time() + duration
         log(f"PROXY-GUARD: Blacklisted {proxy_url[:30]}... for {duration}s")
@@ -446,7 +446,7 @@ async def scrape_only(article: dict, job_id: str, sector: str, region: str, user
                 
                 # Phase 1: Navigation
                 try:
-                    resp = await page.goto(article["url"], wait_until="domcontentloaded", timeout=45000)
+                    resp = await page.goto(article["url"], wait_until="domcontentloaded", timeout=90000)
                     if not resp or resp.status >= 400:
                         log(f"  [Scraper] Failed to load {article['url']} (Status: {resp.status if resp else 'No Resp'})")
                         return None

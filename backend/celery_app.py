@@ -34,8 +34,8 @@ app.conf.update(
     enable_utc=True,
     task_soft_time_limit=25 * 60,   # 25 minutes
     task_time_limit=30 * 60,        # 30 minutes
-    # Note: With gevent, concurrency refers to greenlets, not processes.
-    worker_concurrency=int(os.getenv("CELERY_WORKER_CONCURRENCY", "50")), 
+    # Note: With prefork, concurrency refers to child processes.
+    worker_concurrency=int(os.getenv("CELERY_WORKER_CONCURRENCY", "8")), 
     worker_prefetch_multiplier=10,   
     task_acks_late=True,           
     task_reject_on_worker_lost=True, 

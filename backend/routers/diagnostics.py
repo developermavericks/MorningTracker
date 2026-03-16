@@ -141,9 +141,9 @@ async def emergency_stop():
     try:
         from scraper.llm import get_redis
         r = await get_redis()
-        # Set a 10-minute global stop to allow workers to exit cleanly
-        await r.set("nexus:global_stop", "1", ex=600)
-        results["actions"].append("Triggered 10-minute GLOBAL STOP flag")
+        # Set a 5-minute global stop to allow workers to exit cleanly
+        await r.set("nexus:global_stop", "1", ex=300)
+        results["actions"].append("Triggered 5-minute GLOBAL STOP flag")
     except Exception as e:
         results["actions"].append(f"Global stop flag failed: {e}")
 

@@ -65,13 +65,12 @@ def main():
         shell=False
     )
 
-    print("[3/3] Starting Celery Worker (gevent)...")
+    print("[3/3] Starting Celery Worker (prefork)...")
     worker_env = env.copy()
-    worker_env["CELERY_WORKER_GEVENT"] = "1"
     worker_log = open(os.path.join(backend_dir, "worker.log"), "a", encoding="utf-8")
     
     worker_proc = subprocess.Popen(
-        [python_exe, "-m", "celery", "-A", "celery_app", "worker", "--loglevel=info", "--pool=gevent", "--concurrency=50", "-Q", "orchestrator,scraper_nodes,celery"],
+        [python_exe, "-m", "celery", "-A", "celery_app", "worker", "--loglevel=info", "--concurrency=8", "-Q", "orchestrator,scraper_nodes,celery"],
         cwd=backend_dir,
         env=worker_env,
         stdout=worker_log,
