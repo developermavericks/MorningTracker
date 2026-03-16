@@ -10,28 +10,27 @@ from celery_app import app as celery_app
 router = APIRouter()
 _diag_cache = {"data": None, "timestamp": None}
 
-@router.get("/grok")
-async def test_grok():
-    """Quick test of Grok API - verifies key is working and model exists. Does NOT use enrichment credits."""
-    XAI_API_KEY = os.getenv("XAI_API_KEY", "")
-    if not XAI_API_KEY:
-        return {"status": "error", "message": "XAI_API_KEY environment variable is not set"}
+@router.get("/llm")
+async def test_llm():
+    """Quick test of Groq API - verifies key and model are working. Does NOT use real article credits."""
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+    if not GROQ_API_KEY:
+        return {"status": "error", "message": "GROQ_API_KEY environment variable is not set"}
     
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {XAI_API_KEY}", "Content-Type": "application/json"},
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": "grok-3",
+                    "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": "Reply with only the word: WORKING"}],
-                    "max_tokens": 5,
-                    "temperature": 0
+                    "max_tokens": 5
                 }
             )
         if resp.status_code == 200:
             reply = resp.json()["choices"][0]["message"]["content"].strip()
-            return {"status": "ok", "model": "grok-3", "response": reply, "message": "Grok API is active and working!"}
+            return {"status": "ok", "model": "llama-3.3-70b-versatile", "provider": "Groq", "response": reply, "message": "Groq API is active and working!"}
         else:
             return {"status": "error", "http_code": resp.status_code, "detail": resp.json()}
     except Exception as e:
