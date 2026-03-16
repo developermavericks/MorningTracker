@@ -68,13 +68,21 @@ def scrape_url(url: str, timeout: int = 45000) -> str | None:
             result["error"] = f"Launch error: {str(e)}"
 
     def _run_in_thread():
-        # Complete isolation layout
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        import asyncio
+        import nest_asyncio
+        # Apply patch to allow nested run_until_complete if gevent has an active loop
+        nest_asyncio.apply()
+        
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
         try:
             loop.run_until_complete(_async_scrape())
-        finally:
-            loop.close()
+        except Exception as e:
+            result["error"] = f"Thread loop error: {str(e)}"
 
     thread = threading.Thread(target=_run_in_thread, daemon=True)
     thread.start()
