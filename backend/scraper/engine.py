@@ -14,7 +14,7 @@ import feedparser
 import trafilatura
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Set
-from urllib.parse import quote_plus
+from urllib.parse import quote
 from sqlalchemy import select, update, insert, text, delete
 from gevent.pool import Pool
 from scraper.network import NetworkHandler
@@ -147,11 +147,11 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
         if is_today:
             # Format requested by user: q={query} when:1d
             full_q = f"{q} when:1d"
-            rss_url = f"https://news.{domain}/rss/search?q={quote_plus(full_q)}&hl={hl}&gl=IN&ceid={ceid}"
+            rss_url = f"https://news.{domain}/rss/search?q={quote(full_q)}&hl={hl}&gl=IN&ceid={ceid}"
         else:
             date_str = day.strftime("%m/%d/%Y")
             tbs = f"cdr:1,cd_min:{date_str},cd_max:{date_str},sbd:1"
-            rss_url = f"https://news.{domain}/rss/search?q={quote_plus(q)}&hl={hl}&gl=IN&ceid={ceid}&tbs={quote_plus(tbs)}"
+            rss_url = f"https://news.{domain}/rss/search?q={quote(q)}&hl={hl}&gl=IN&ceid={ceid}&tbs={quote(tbs)}"
         
         try:
             xml_content = NetworkHandler.get_google_rss(rss_url)
