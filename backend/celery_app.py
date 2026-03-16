@@ -22,8 +22,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 app = Celery(
     "nexus_tasks",
     broker=REDIS_URL,
-    backend=REDIS_URL,
-    include=["scraper.tasks"]
+    backend=REDIS_URL
 )
 
 app.conf.update(
@@ -45,3 +44,6 @@ app.conf.update(
         "scraper.tasks.enrich_article_node": {"queue": "enrichment"},
     },
 )
+
+# Break circular import by discovering tasks after app is defined
+app.autodiscover_tasks(['scraper'])

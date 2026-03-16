@@ -3,6 +3,7 @@ import random
 import asyncio
 import httpx
 import json
+import time
 from typing import Optional, List, Dict, Any
 import ollama
 
@@ -38,10 +39,8 @@ def get_ollama_semaphore():
         _ollama_semaphore = asyncio.Semaphore(2) # Throttles to max 2 concurrent LLM requests to prevent connection closure on mid-range hardware
     return _ollama_semaphore
 
-# --- Logging ---
-from scraper.engine import logger
-
 def log(msg: str):
+    from scraper.engine import logger
     logger.info(msg)
 
 # --- Groq Client ---
