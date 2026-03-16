@@ -13,7 +13,7 @@ _diag_cache = {"data": None, "timestamp": None}
 @router.get("/llm")
 async def test_llm():
     """Quick test of Groq API - verifies key and model are working. Does NOT use real article credits."""
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("XAI_API_KEY") or ""
     if not GROQ_API_KEY:
         return {"status": "error", "message": "GROQ_API_KEY environment variable is not set"}
     
