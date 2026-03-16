@@ -40,7 +40,15 @@ async def scrape(url, timeout):
                     result["error"] = f"HTTP {response.status}"
                 else:
                     await page.wait_for_timeout(1000)
-                    result["content"] = await page.content()
+                    for attempt in range(5):
+                        try:
+                            result["content"] = await page.content()
+                            break  # Success!
+                        except Exception as e:
+                            if "navigating" in str(e).lower() and attempt < 4:
+                                await page.wait_for_timeout(1500)  # Wait for redirect to finish
+                            else:
+                                raise e
             except Exception as e:
                 result["error"] = str(e)
             finally:
