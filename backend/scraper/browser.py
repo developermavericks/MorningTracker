@@ -20,9 +20,12 @@ def scrape_url(url: str, timeout: int = 45000) -> str | None:
 
     def _run_in_thread():
         import asyncio
-        # Create a new event loop for this thread to isolate it completely
-        # This prevents the "Looks like you are using Playwright Sync API inside the asyncio loop" error
-        asyncio.set_event_loop(asyncio.new_event_loop())
+        import nest_asyncio
+        
+        # Patch the event loop so playwright's internal asyncio usage 
+        # doesn't collide with the existing active loop in this thread
+        nest_asyncio.apply()
+        
         try:
             with sync_playwright() as p:
                 ua = random.choice(USER_AGENTS)
