@@ -91,7 +91,20 @@ async def google_login(request: Request):
 
 @router.get("/google/callback")
 async def google_callback(request: Request, db: AsyncSession = Depends(get_db_yield)):
-    token = await oauth.google.authorize_access_token(request)
+    # Handle cases where Google returns an error (e.g. access_denied)
+    error_param = request.query_params.get('error')
+    if error_param:
+        from fastapi.responses import RedirectResponse
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        return RedirectResponse(url=f"{frontend_url}/login#error={error_param}")
+
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except Exception as e:
+        from fastapi.responses import RedirectResponse
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        return RedirectResponse(url=f"{frontend_url}/login#error=auth_failed")
+
     user_info = token.get('userinfo')
     if not user_info:
         raise HTTPException(status_code=400, detail="Google authentication failed")
