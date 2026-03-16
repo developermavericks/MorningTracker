@@ -140,10 +140,16 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
     def fetch_rss(q, start_time, end_time, hl="en-IN", ceid="IN:en", attempt=0):
         if is_job_cancelled(job_id): return
         current_proxy = ProxyGuard.get_healthy_proxy(proxy_pool)
+        
+        # Use native 'when:1d' for the last 24 hours if searching for today
+        is_today = day >= date.today()
+        query = f"{q} when:1d" if is_today else q
+        
         with httpx.Client(timeout=35, follow_redirects=True, proxy=current_proxy) as client:
-            full_after, full_before = f"{day.isoformat()}T{start_time}", f"{day.isoformat()}T{end_time}"
             domain = REGION_MAP.get(geo, "google.com")
-            rss_url = f"https://news.{domain}/rss/search?q={quote_plus(q)}&hl={hl}&gl=IN&ceid={ceid}&start={full_after}&end={full_before}"
+            # If historical, we use the start/end params, though native 'when' is preferred for current day
+            suffix = f"&start={day.isoformat()}T{start_time}&end={day.isoformat()}T{end_time}" if not is_today else ""
+            rss_url = f"https://news.{domain}/rss/search?q={quote_plus(query)}&hl={hl}&gl=IN&ceid={ceid}{suffix}"
             try:
                 resp = client.get(rss_url, headers={"User-Agent": random_ua()})
                 if resp.status_code in [407, 403, 429]:
