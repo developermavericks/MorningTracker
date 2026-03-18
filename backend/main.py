@@ -126,40 +126,40 @@ async def recover_stuck_jobs():
     except Exception as e:
         print(f"Recovery Error: {e}")
 
-@app.on_event("startup")
-async def start_scheduler():
-    """Daily 3 AM Scrape."""
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from apscheduler.triggers.cron import CronTrigger
-    from celery_app import app as celery_app
-    from scraper.config import SECTOR_KEYWORDS
-    
-    scheduler = AsyncIOScheduler()
-
-    async def scheduled_job():
-        yesterday = date.today() - timedelta(days=1)
-        for sector in SECTOR_KEYWORDS.keys():
-            # Trigger via Celery (distributed)
-            import uuid
-            job_id = str(uuid.uuid4())
-            # We need to save the job row first? 
-            # Actually, simpler to just dispatch the task which handles its own DB state if needed.
-            # But run_scrape_task expects a job_id in DB.
-            async with get_db() as db:
-                new_job = ScrapeJob(
-                    id=job_id, sector=sector, region="india", user_id="system",
-                    date_from=yesterday, date_to=yesterday, status='pending'
-                )
-                db.add(new_job)
-                await db.commit()
-            
-            celery_app.send_task(
-                "scraper.tasks.run_scrape_task",
-                args=[job_id, sector, "india", str(yesterday), str(yesterday), "broad", "system"]
-            )
-
-    scheduler.add_job(scheduled_job, CronTrigger(hour=3, minute=0))
-    scheduler.start()
+# @app.on_event("startup")
+# async def start_scheduler():
+#     """Daily 3 AM Scrape."""
+#     from apscheduler.schedulers.asyncio import AsyncIOScheduler
+#     from apscheduler.triggers.cron import CronTrigger
+#     from celery_app import app as celery_app
+#     from scraper.config import SECTOR_KEYWORDS
+#     
+#     scheduler = AsyncIOScheduler()
+# 
+#     async def scheduled_job():
+#         yesterday = date.today() - timedelta(days=1)
+#         for sector in SECTOR_KEYWORDS.keys():
+#             # Trigger via Celery (distributed)
+#             import uuid
+#             job_id = str(uuid.uuid4())
+#             # We need to save the job row first? 
+#             # Actually, simpler to just dispatch the task which handles its own DB state if needed.
+#             # But run_scrape_task expects a job_id in DB.
+#             async with get_db() as db:
+#                 new_job = ScrapeJob(
+#                     id=job_id, sector=sector, region="india", user_id="system",
+#                     date_from=yesterday, date_to=yesterday, status='pending'
+#                 )
+#                 db.add(new_job)
+#                 await db.commit()
+#             
+#             celery_app.send_task(
+#                 "scraper.tasks.run_scrape_task",
+#                 args=[job_id, sector, "india", str(yesterday), str(yesterday), "broad", "system"]
+#             )
+# 
+#     scheduler.add_job(scheduled_job, CronTrigger(hour=3, minute=0))
+#     scheduler.start()
 
 # Include Routers in api_router
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])

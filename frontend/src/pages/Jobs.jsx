@@ -9,6 +9,39 @@ function JobRow({ job, onDelete, onRefresh }) {
     ? Math.round((job.total_scraped / job.total_found) * 100)
     : 0;
 
+  const [docError, setDocError] = useState(null);
+
+  const handleDocClick = async (e) => {
+    e.preventDefault();
+    setDocError(null);
+    try {
+      const excelUrl = api.getExcelUrl(job.id);
+      const response = await fetch(excelUrl);
+      if (!response.ok) throw new Error(`Failed to fetch report: ${response.statusText}`);
+      
+      const blob = await response.blob();
+      
+      // Open Streamlit in new tab
+      window.open("https://template-7beuxlegcirhyspxha4rdh.streamlit.app/", "_blank");
+      
+      // Fallback: Trigger download since Streamlit doesn't support direct POST file injection
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Nexus_Report_${job.sector}_${job.id.slice(0,8)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      console.log(`[Doc Button] Processing complete for job ${job.id}`);
+    } catch (err) {
+      console.error("[Doc Button Error]", err);
+      setDocError("Failed to prepare document. Try manual report download.");
+      setTimeout(() => setDocError(null), 5000);
+    }
+  };
+
   return (
     <tr>
       <td style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" }}>
@@ -56,15 +89,42 @@ function JobRow({ job, onDelete, onRefresh }) {
       <td style={{ textAlign: 'right' }}>
         <div style={{ display: "flex", gap: 8, justifyContent: 'flex-end' }}>
           {job.status === 'completed' && (
-             <a 
-               href={api.getExcelUrl(job.id)} 
-               target="_blank" 
-               rel="noopener noreferrer"
-               className="btn btn-secondary" 
-               style={{ padding: '4px 12px', fontSize: '11px', textDecoration: 'none', borderColor: 'var(--accent)', color: 'var(--accent)' }}
-             >
-                Report
-             </a>
+             <>
+               <a 
+                 href={api.getExcelUrl(job.id)} 
+                 target="_blank" 
+                 rel="noopener noreferrer"
+                 className="btn btn-secondary" 
+                 style={{ padding: '4px 12px', fontSize: '11px', textDecoration: 'none', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+               >
+                  Report
+               </a>
+               <button 
+                 className="btn btn-secondary" 
+                 style={{ padding: '4px 12px', fontSize: '11px', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                 onClick={handleDocClick}
+                 title="Download report and open documentation generator in a new tab"
+               >
+                  Doc
+               </button>
+               {docError && (
+                 <span style={{ 
+                   color: 'var(--danger)', 
+                   fontSize: '10px', 
+                   position: 'absolute', 
+                   right: '0', 
+                   top: '-20px',
+                   whiteSpace: 'nowrap',
+                   background: 'var(--surface)',
+                   padding: '2px 8px',
+                   borderRadius: '4px',
+                   border: '1px solid var(--danger)',
+                   boxShadow: 'var(--glow)'
+                 }}>
+                   {docError}
+                 </span>
+               )}
+             </>
           )}
           <button className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => onRefresh(job.id)}>
             ↻
