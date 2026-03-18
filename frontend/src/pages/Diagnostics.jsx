@@ -55,15 +55,28 @@ export default function Diagnostics() {
     const c = data?.components || {};
 
     const handleEmergencyStop = async () => {
-        if (!window.confirm("CRITICAL: This will PURGE all pending tasks and halt all active scrapes. Continue?")) return;
+        const warning = "⚠️ DANGER: This is a destructive action.\n\n" +
+                      "This will PURGE all pending tasks and AGGRESSIVELY halt all active scrapes.\n" +
+                      "It can crash current operations and cause data inconsistency.\n\n" +
+                      "Are you ABSOLUTELY sure you want to proceed?";
+        
+        if (!window.confirm(warning)) return;
+
+        const phrase = window.prompt("To authorize this action, please enter the authorization phrase:");
+        if (!phrase) return;
+
         try {
             setLoading(true);
-            const res = await api.post("/diagnostics/emergency-stop");
+            const res = await api.post("/diagnostics/emergency-stop", { phrase });
             alert("Emergency Stop Triggered: " + (res.results?.actions?.join(", ") || "Success"));
             await fetchDiagnostics();
         } catch (e) {
             console.error(e);
-            alert("Failed to trigger emergency stop.");
+            if (e.response?.status === 403) {
+                alert("ACCESS DENIED: The authorization phrase was incorrect.");
+            } else {
+                alert("Failed to trigger emergency stop.");
+            }
         } finally {
             setLoading(false);
         }
