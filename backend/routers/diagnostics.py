@@ -129,9 +129,22 @@ async def get_system_health():
     _diag_cache["timestamp"] = now
     return res
 
+from pydantic import BaseModel
+
+class EmergencyStopRequest(BaseModel):
+    phrase: str
+
 @router.post("/emergency-stop")
-async def emergency_stop():
+async def emergency_stop(req: EmergencyStopRequest):
     """Aggressively halt all background activity and clear queues."""
+    auth_phrase = os.getenv("EMERGENCY_STOP_PHRASE")
+    if not auth_phrase:
+         from fastapi import HTTPException
+         raise HTTPException(status_code=500, detail="Emergency stop configuration missing on server")
+    if req.phrase != auth_phrase:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Invalid authorization phrase")
+
     results = {"actions": []}
     
     # 1. Purge Queues
