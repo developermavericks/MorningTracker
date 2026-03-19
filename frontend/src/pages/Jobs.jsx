@@ -22,7 +22,7 @@ function JobRow({ job, onDelete, onRefresh }) {
       const blob = await response.blob();
       
       // Open Streamlit in new tab
-      window.open("https://template-7beuxlegcirhyspxha4rdh.streamlit.app/", "_blank");
+      window.open("https://format-template-ggnn.vercel.app/", "_blank");
       
       // Fallback: Trigger download since Streamlit doesn't support direct POST file injection
       const url = window.URL.createObjectURL(blob);
