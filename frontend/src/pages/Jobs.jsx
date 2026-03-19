@@ -26,7 +26,7 @@ function JobRow({ job, onDelete, onRefresh }) {
       if (!response.ok) throw new Error(`Failed to fetch report: ${response.statusText}`);
 
       const blob = await response.blob();
-
+      
       // Trigger download so user can manually upload to the Streamlit app
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -99,17 +99,17 @@ function JobRow({ job, onDelete, onRefresh }) {
             // positioning needed, works correctly inside table cells
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
               <div style={{ display: 'flex', gap: 8 }}>
-                <a
-                  href={api.getExcelUrl(job.id)}
-                  target="_blank"
+                <a 
+                  href={api.getExcelUrl(job.id)} 
+                  target="_blank" 
                   rel="noopener noreferrer"
-                  className="btn btn-secondary"
+                  className="btn btn-secondary" 
                   style={{ padding: '4px 12px', fontSize: '11px', textDecoration: 'none', borderColor: 'var(--accent)', color: 'var(--accent)' }}
                 >
                   Report
                 </a>
-                <button
-                  className="btn btn-secondary"
+                <button 
+                  className="btn btn-secondary" 
                   style={{ padding: '4px 12px', fontSize: '11px', borderColor: 'var(--accent)', color: 'var(--accent)' }}
                   onClick={handleDocClick}
                   title="Download report and open documentation generator in a new tab"
@@ -118,9 +118,9 @@ function JobRow({ job, onDelete, onRefresh }) {
                 </button>
               </div>
               {docError && (
-                <span style={{
-                  color: 'var(--danger)',
-                  fontSize: '10px',
+                <span style={{ 
+                  color: 'var(--danger)', 
+                  fontSize: '10px', 
                   whiteSpace: 'nowrap',
                   background: 'var(--surface)',
                   padding: '2px 8px',
