@@ -86,13 +86,13 @@ export default function Diagnostics() {
         <div className="page-container">
             <header className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: '1px solid var(--border)', paddingBottom: '32px', marginBottom: '40px' }}>
                 <div>
-                    <h1 className="page-title">System Telemetry</h1>
-                    <p className="page-subtitle">Real-time health monitoring & component verification</p>
+                    {/* <h1 className="page-title">System Telemetry</h1>
+                    <p className="page-subtitle">Real-time health monitoring & component verification</p> */}
                 </div>
                 <div style={{ display: "flex", gap: "12px" }}>
-                    <button className="btn btn-secondary" onClick={fetchDiagnostics} disabled={loading} style={{ background: 'var(--surface)' }}>
+                    {/* <button className="btn btn-secondary" onClick={fetchDiagnostics} disabled={loading} style={{ background: 'var(--surface)' }}>
                         {loading ? "Refreshing..." : "↻ Forced Sync"}
-                    </button>
+                    </button> */}
                     <button className="btn btn-danger" onClick={handleEmergencyStop} disabled={loading} style={{ 
                         background: 'var(--danger)', 
                         color: 'white',
@@ -104,7 +104,7 @@ export default function Diagnostics() {
                 </div>
             </header>
 
-            <div style={{
+            {/* <div style={{
                 padding: "24px",
                 marginBottom: 40,
                 borderRadius: 'var(--radius)',
@@ -202,7 +202,8 @@ export default function Diagnostics() {
                         <div style={{ color: 'var(--success)', opacity: 0.8 }}>✓ All intelligence streams performing within parameters.</div>
                     )}
                 </div>
-            </div>
+            </div> */}
         </div>
     );
+
 }

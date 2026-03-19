@@ -4,39 +4,44 @@ import { api } from "../services/api";
 
 function JobRow({ job, onDelete, onRefresh }) {
   const isDiscovery = job.current_phase === 'Discovery' || job.current_phase === 'BrandDiscovery';
-  
+
   const pct = job.total_found > 0
     ? Math.round((job.total_scraped / job.total_found) * 100)
     : 0;
 
+  // FIX #2: useState is already at the top of the component — confirmed correct position
   const [docError, setDocError] = useState(null);
 
   const handleDocClick = async (e) => {
     e.preventDefault();
     setDocError(null);
+
+    // FIX #4: window.open BEFORE any await, so it stays within the synchronous
+    // user gesture and is not blocked by the browser as a popup
+    const newTab = window.open("https://format-template-ggnn.vercel.app/", "_blank");
+
     try {
       const excelUrl = api.getExcelUrl(job.id);
       const response = await fetch(excelUrl);
       if (!response.ok) throw new Error(`Failed to fetch report: ${response.statusText}`);
-      
+
       const blob = await response.blob();
       
-      // Open Streamlit in new tab
-      window.open("https://format-template-ggnn.vercel.app/", "_blank");
-      
-      // Fallback: Trigger download since Streamlit doesn't support direct POST file injection
+      // Trigger download so user can manually upload to the Streamlit app
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Nexus_Report_${job.sector}_${job.id.slice(0,8)}.xlsx`;
+      link.download = `Nexus_Report_${job.sector}_${job.id.slice(0, 8)}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-      
+
       console.log(`[Doc Button] Processing complete for job ${job.id}`);
     } catch (err) {
       console.error("[Doc Button Error]", err);
+      // FIX #4 continued: close the tab we already opened if the fetch failed
+      if (newTab) newTab.close();
       setDocError("Failed to prepare document. Try manual report download.");
       setTimeout(() => setDocError(null), 5000);
     }
@@ -64,21 +69,21 @@ function JobRow({ job, onDelete, onRefresh }) {
         <div style={{ minWidth: 180 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: "var(--muted)", marginBottom: 6 }}>
             <span>
-              {isDiscovery || job.status === 'pending' 
+              {isDiscovery || job.status === 'pending'
                 ? `Found: ${job.cumulative_found || 0}`
                 : `Extracted: ${job.total_scraped}/${job.total_found}`}
             </span>
             <span>{job.status === 'running' && pct > 0 ? `${pct}%` : ''}</span>
           </div>
           <div className="progress-bar-track" style={{ height: '4px', overflow: 'hidden' }}>
-            <div 
+            <div
               className={`progress-bar-fill ${isDiscovery ? 'progress-pulse' : ''}`}
-              style={{ 
-                width: isDiscovery ? '100%' : `${pct}%`, 
+              style={{
+                width: isDiscovery ? '100%' : `${pct}%`,
                 background: job.status === 'failed' ? 'var(--danger)' : isDiscovery ? 'var(--info)' : 'var(--accent)',
                 transition: 'width 0.5s ease',
                 opacity: isDiscovery ? 0.6 : 1
-              }} 
+              }}
             />
           </div>
         </div>
@@ -87,44 +92,46 @@ function JobRow({ job, onDelete, onRefresh }) {
         {job.started_at ? new Date(job.started_at).toLocaleString() : "—"}
       </td>
       <td style={{ textAlign: 'right' }}>
-        <div style={{ display: "flex", gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ display: "flex", gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
           {job.status === 'completed' && (
-             <>
-               <a 
-                 href={api.getExcelUrl(job.id)} 
-                 target="_blank" 
-                 rel="noopener noreferrer"
-                 className="btn btn-secondary" 
-                 style={{ padding: '4px 12px', fontSize: '11px', textDecoration: 'none', borderColor: 'var(--accent)', color: 'var(--accent)' }}
-               >
+            // FIX #1 & #3: Replaced position:absolute on error span (which breaks inside <tr>/<td>)
+            // with a column flex wrapper so error renders inline below the buttons — no absolute
+            // positioning needed, works correctly inside table cells
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <a 
+                  href={api.getExcelUrl(job.id)} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary" 
+                  style={{ padding: '4px 12px', fontSize: '11px', textDecoration: 'none', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                >
                   Report
-               </a>
-               <button 
-                 className="btn btn-secondary" 
-                 style={{ padding: '4px 12px', fontSize: '11px', borderColor: 'var(--accent)', color: 'var(--accent)' }}
-                 onClick={handleDocClick}
-                 title="Download report and open documentation generator in a new tab"
-               >
+                </a>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ padding: '4px 12px', fontSize: '11px', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                  onClick={handleDocClick}
+                  title="Download report and open documentation generator in a new tab"
+                >
                   Doc
-               </button>
-               {docError && (
-                 <span style={{ 
-                   color: 'var(--danger)', 
-                   fontSize: '10px', 
-                   position: 'absolute', 
-                   right: '0', 
-                   top: '-20px',
-                   whiteSpace: 'nowrap',
-                   background: 'var(--surface)',
-                   padding: '2px 8px',
-                   borderRadius: '4px',
-                   border: '1px solid var(--danger)',
-                   boxShadow: 'var(--glow)'
-                 }}>
-                   {docError}
-                 </span>
-               )}
-             </>
+                </button>
+              </div>
+              {docError && (
+                <span style={{ 
+                  color: 'var(--danger)', 
+                  fontSize: '10px', 
+                  whiteSpace: 'nowrap',
+                  background: 'var(--surface)',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--danger)',
+                  boxShadow: 'var(--glow)'
+                }}>
+                  {docError}
+                </span>
+              )}
+            </div>
           )}
           <button className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => onRefresh(job.id)}>
             ↻
@@ -151,8 +158,8 @@ export default function Jobs() {
   const refreshJob = async (id) => {
     try {
       const updated = await api.get(`/scrape/job/${id}`);
-      useStore.setState({ 
-        jobs: useStore.getState().jobs.map(j => j.id === id ? updated : j) 
+      useStore.setState({
+        jobs: useStore.getState().jobs.map(j => j.id === id ? updated : j)
       });
     } catch { }
   };
@@ -161,8 +168,8 @@ export default function Jobs() {
     if (!confirm("Remove this intelligence mission from history?")) return;
     try {
       await api.delete(`/scrape/job/${id}`);
-      useStore.setState({ 
-        jobs: useStore.getState().jobs.filter(j => j.id !== id) 
+      useStore.setState({
+        jobs: useStore.getState().jobs.filter(j => j.id !== id)
       });
     } catch { }
   };

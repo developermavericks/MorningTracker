@@ -132,24 +132,39 @@ def get_domain_name(url: str) -> str:
         return ""
 
 def extract_metadata_with_ollama_sync(body: str, url: str = "", context_agency: str = "") -> Dict[str, Any]:
-    if not body or len(body) < 100: return {"author": None, "agency": None, "body": body}
+    if not body or len(body) < 100: return {"author": None, "agency": context_agency or None, "body": body}
     domain = get_domain_name(url) if url else ""
-    prompt = f"Analyze article and extract JSON: author, agency, is_junk, cleaned_body. Source Info: URL={url}, Domain={domain}. Text: {body[:6000]}"
+    prompt = (
+        f"Analyze this news article and extract metadata in JSON format. "
+        f"Fields: author (specific person name or byline found in text), agency (the news organization), "
+        f"is_junk (boolean), cleaned_body (article body text without ads/noise). "
+        f"Source Info: URL={url}, Domain={domain}, Suggested Agency={context_agency}. "
+        f"CRITICAL: Be extremely precise with the 'author' field. Only return a name if a specific byline/author is found. "
+        f"If no specific person is named, return null for author. "
+        f"Text: {body[:6000]}"
+    )
     try:
         client = ollama.Client(host=OLLAMA_BASE_URL)
         response = client.chat(model=OLLAMA_MODEL, messages=[{'role': 'user', 'content': prompt}], format='json')
         content = response['message']['content']
         data = json.loads(content)
-        res_agency = data.get("agency") or domain
+        
+        # Priority: LLM Extracted > Context (RSS) > Domain Name
+        res_agency = data.get("agency")
+        if not res_agency or res_agency.lower() in ["google", "google news"]:
+             res_agency = context_agency or domain
+             
         return {"author": data.get("author"), "agency": res_agency, "is_junk": data.get("is_junk", False), "cleaned_body": data.get("cleaned_body", body)}
     except Exception as e:
         log(f"Ollama Extraction error: {e}")
-        return {"author": None, "agency": domain, "body": body}
+        # Fallback to context or domain
+        fallback = context_agency if context_agency and context_agency.lower() not in ["google", "google news"] else domain
+        return {"author": None, "agency": fallback, "body": body}
 
-def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str) -> Dict[str, Any]:
+def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str, context_agency: str = "") -> Dict[str, Any]:
     results = {"summary": None, "author": None, "agency": None, "tags": None, "sentiment": "neutral"}
     if not body or len(body) < 100: return results
-    meta = extract_metadata_with_ollama_sync(body, url=url)
+    meta = extract_metadata_with_ollama_sync(body, url=url, context_agency=context_agency)
     results["author"] = meta.get("author")
     results["agency"] = meta.get("agency")
     results["summary"] = summarize_with_groq_sync(body)

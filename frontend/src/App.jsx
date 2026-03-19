@@ -18,7 +18,7 @@ const NAV = [
   { id: "articles", label: "Articles", icon: "≡" },
   { id: "brands", label: "Brand Tracker", icon: "🏢" },
   { id: "jobs", label: "Jobs", icon: "◎" },
-  { id: "diagnostics", label: "Diagnostics", icon: "⎋" },
+  { id: "diagnostics", label: "", icon: "" },
 ];
 
 function ThemeToggle() {

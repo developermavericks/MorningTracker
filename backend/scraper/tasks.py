@@ -156,7 +156,13 @@ def enrich_article_node(self, article_id):
             return
 
         try:
-            enriched_data = perform_full_enrichment_sync(article.full_body, article.title, article.url, article.sector)
+            enriched_data = perform_full_enrichment_sync(
+                article.full_body, 
+                article.title, 
+                article.resolved_url or article.url, 
+                article.sector,
+                context_agency=article.agency
+            )
             
             article.summary = enriched_data.get("summary")
             article.sentiment = enriched_data.get("sentiment")
