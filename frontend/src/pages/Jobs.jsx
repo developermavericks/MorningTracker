@@ -4,7 +4,7 @@ import { api } from "../services/api";
 
 function JobRow({ job, onDelete, onRefresh }) {
   const isDiscovery = job.current_phase === 'Discovery' || job.current_phase === 'BrandDiscovery';
-  
+
   const pct = job.total_found > 0
     ? Math.round((job.total_scraped / job.total_found) * 100)
     : 0;
@@ -18,13 +18,13 @@ function JobRow({ job, onDelete, onRefresh }) {
 
     // FIX #4: window.open BEFORE any await, so it stays within the synchronous
     // user gesture and is not blocked by the browser as a popup
-    const newTab = window.open("https://template-7beuxlegcirhyspxha4rdh.streamlit.app/", "_blank");
+    const newTab = window.open("https://format-template-ggnn.vercel.app/", "_blank");
 
     try {
       const excelUrl = api.getExcelUrl(job.id);
       const response = await fetch(excelUrl);
       if (!response.ok) throw new Error(`Failed to fetch report: ${response.statusText}`);
-      
+
       const blob = await response.blob();
       
       // Trigger download so user can manually upload to the Streamlit app
@@ -36,7 +36,7 @@ function JobRow({ job, onDelete, onRefresh }) {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-      
+
       console.log(`[Doc Button] Processing complete for job ${job.id}`);
     } catch (err) {
       console.error("[Doc Button Error]", err);
@@ -69,21 +69,21 @@ function JobRow({ job, onDelete, onRefresh }) {
         <div style={{ minWidth: 180 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: "var(--muted)", marginBottom: 6 }}>
             <span>
-              {isDiscovery || job.status === 'pending' 
+              {isDiscovery || job.status === 'pending'
                 ? `Found: ${job.cumulative_found || 0}`
                 : `Extracted: ${job.total_scraped}/${job.total_found}`}
             </span>
             <span>{job.status === 'running' && pct > 0 ? `${pct}%` : ''}</span>
           </div>
           <div className="progress-bar-track" style={{ height: '4px', overflow: 'hidden' }}>
-            <div 
+            <div
               className={`progress-bar-fill ${isDiscovery ? 'progress-pulse' : ''}`}
-              style={{ 
-                width: isDiscovery ? '100%' : `${pct}%`, 
+              style={{
+                width: isDiscovery ? '100%' : `${pct}%`,
                 background: job.status === 'failed' ? 'var(--danger)' : isDiscovery ? 'var(--info)' : 'var(--accent)',
                 transition: 'width 0.5s ease',
                 opacity: isDiscovery ? 0.6 : 1
-              }} 
+              }}
             />
           </div>
         </div>
@@ -158,8 +158,8 @@ export default function Jobs() {
   const refreshJob = async (id) => {
     try {
       const updated = await api.get(`/scrape/job/${id}`);
-      useStore.setState({ 
-        jobs: useStore.getState().jobs.map(j => j.id === id ? updated : j) 
+      useStore.setState({
+        jobs: useStore.getState().jobs.map(j => j.id === id ? updated : j)
       });
     } catch { }
   };
@@ -168,8 +168,8 @@ export default function Jobs() {
     if (!confirm("Remove this intelligence mission from history?")) return;
     try {
       await api.delete(`/scrape/job/${id}`);
-      useStore.setState({ 
-        jobs: useStore.getState().jobs.filter(j => j.id !== id) 
+      useStore.setState({
+        jobs: useStore.getState().jobs.filter(j => j.id !== id)
       });
     } catch { }
   };

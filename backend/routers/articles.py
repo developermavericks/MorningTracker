@@ -180,7 +180,7 @@ async def export_xlsx(
                 a.title,
                 a.resolved_url or a.url,
                 a.agency,
-                a.author or "Staff Reporter",
+                a.author or a.agency or "Staff Reporter",
                 a.summary,
                 published_str,
                 a.source_feed or "google_news",
