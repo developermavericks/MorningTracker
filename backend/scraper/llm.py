@@ -134,7 +134,15 @@ def get_domain_name(url: str) -> str:
 def extract_metadata_with_ollama_sync(body: str, url: str = "", context_agency: str = "") -> Dict[str, Any]:
     if not body or len(body) < 100: return {"author": None, "agency": context_agency or None, "body": body}
     domain = get_domain_name(url) if url else ""
-    prompt = f"Analyze article and extract JSON: author, agency, is_junk, cleaned_body. Source Info: URL={url}, Domain={domain}, Suggested Agency={context_agency}. Text: {body[:6000]}"
+    prompt = (
+        f"Analyze this news article and extract metadata in JSON format. "
+        f"Fields: author (specific person name or byline found in text), agency (the news organization), "
+        f"is_junk (boolean), cleaned_body (article body text without ads/noise). "
+        f"Source Info: URL={url}, Domain={domain}, Suggested Agency={context_agency}. "
+        f"CRITICAL: Be extremely precise with the 'author' field. Only return a name if a specific byline/author is found. "
+        f"If no specific person is named, return null for author. "
+        f"Text: {body[:6000]}"
+    )
     try:
         client = ollama.Client(host=OLLAMA_BASE_URL)
         response = client.chat(model=OLLAMA_MODEL, messages=[{'role': 'user', 'content': prompt}], format='json')

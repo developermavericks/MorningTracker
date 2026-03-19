@@ -76,19 +76,40 @@ def extract_author(html: str) -> Optional[str]:
                             if res: return res
             except: continue
         
-        # 2. Meta Tags
+        # 2. Meta Tags (Prioritized for publishers)
         for attr in ["name", "property"]:
-            for val in ["author", "article:author", "og:article:author", "dc.creator", "sailthru.author"]:
-                tag = soup.find("meta", {attr: val})
+            for val in [
+                "author", "article:author", "og:article:author", "dc.creator", "sailthru.author",
+                "twitter:creator", "twitter:label1", "parsely-author", "author-name"
+            ]:
+                tag = soup.find("meta", {attr: re.compile(f"^{val}$", re.I)})
                 if tag and tag.get("content"):
                     res = clean_author_text(tag["content"])
                     if res: return res
 
-        # 3. CSS Selectors
-        for sel in [".author", ".byline", ".entry-author", ".article-author", '[rel="author"]']:
+        # 3. CSS Selectors (Common News CMS Patterns)
+        selectors = [
+            ".author", ".byline", ".entry-author", ".article-author", 
+            '[rel="author"]', '[itemprop="author"]', ".author-name",
+            ".byline-name", ".article-byline", ".p-author", ".author-link",
+            ".posted-by", ".writer"
+        ]
+        for sel in selectors:
             el = soup.select_one(sel)
             if el:
-                res = clean_author_text(el.get_text(strip=True))
+                # Handle cases where the author name is nested (e.g., [itemprop="author"] > span)
+                nested_selectors = ['.name', 'span', 'a']
+                found_text = None
+                for n_sel in nested_selectors:
+                    n_el = el.select_one(n_sel)
+                    if n_el:
+                        found_text = n_el.get_text(strip=True)
+                        break
+                
+                if not found_text:
+                    found_text = el.get_text(strip=True)
+                
+                res = clean_author_text(found_text)
                 if res: return res
     except: pass
     return None
