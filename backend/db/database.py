@@ -4,7 +4,7 @@ from datetime import datetime, date
 from typing import Optional, List, Any, Dict
 from contextlib import asynccontextmanager
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Date, Float, ForeignKey, Index, select, update, delete, Table, JSON, create_engine
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Date, Float, ForeignKey, Index, select, update, delete, Table, JSON, create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -141,6 +141,22 @@ async def init_db():
         # For professional deployment, Alembic is preferred.
         # This ensures tables exist on first run.
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Automated Migration: Add is_admin if missing (Postgres & SQLite compatible logic)
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
+            else:
+                # SQLite doesn't support IF NOT EXISTS for ADD COLUMN
+                # We attempt it and ignore "duplicate column" error
+                await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
+        except Exception as e:
+            # Ignore errors if column already exists
+            if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
+                pass
+            else:
+                print(f"Migration Notice (is_admin): {e}")
+                
     print(f"Database initialized via SQLAlchemy ({engine.url.drivername})")
 
 # ─── Connection Lifecycle ─────────────────────────────────────────────────────
