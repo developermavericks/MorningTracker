@@ -174,9 +174,18 @@ async def get_me(user_data: TokenData = Depends(get_auth_user), db: AsyncSession
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Proactive Admin Sync
+    is_admin = user.is_admin
+    admin_email = os.getenv("ADMIN_EMAIL")
+    if admin_email and user.email == admin_email:
+        is_admin = True
+        if not user.is_admin:
+            user.is_admin = True
+            await db.commit()
+    
     return {
         "email": user.email,
         "name": user.name,
         "id": user.id,
-        "is_admin": user.is_admin
+        "is_admin": is_admin
     }
