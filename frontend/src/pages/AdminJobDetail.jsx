@@ -8,7 +8,7 @@ export default function AdminJobDetail({ id, onNavigate }) {
     const fetchJobDetail = async () => {
         setLoading(true);
         try {
-            const data = await api.get(`/admin/jobs/${id}`);
+            const data = await api.get(`admin/jobs/${id}`);
             setJob(data);
         } catch (err) {
             console.error("Failed to fetch job detail", err);

@@ -17,7 +17,7 @@ export default function AdminDashboard({ onNavigate }) {
     const fetchAdminData = async () => {
         setLoading(true);
         try {
-            const data = await api.get("/admin/jobs", { ...filters, page, limit: 10 });
+            const data = await api.get("admin/jobs", { ...filters, page, limit: 10 });
             setJobs(data.jobs);
             setTotal(data.total);
             setSummary(data.summary);

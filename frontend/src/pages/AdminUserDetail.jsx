@@ -8,7 +8,7 @@ export default function AdminUserDetail({ email, onNavigate }) {
     const fetchUserDetail = async () => {
         setLoading(true);
         try {
-            const data = await api.get(`/admin/users/${email}/jobs`);
+            const data = await api.get(`admin/users/${email}/jobs`);
             setUserData(data);
         } catch (err) {
             console.error("Failed to fetch user detail", err);
