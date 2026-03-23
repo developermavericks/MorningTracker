@@ -30,7 +30,7 @@ engine_args = {
 
 if use_nullpool:
     engine_args["poolclass"] = NullPool
-else:
+elif "sqlite" not in get_database_url():
     engine_args.update({
         "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
         "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
@@ -65,6 +65,7 @@ class User(Base):
     google_id: Mapped[Optional[str]] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
 
 class Article(Base):
     __tablename__ = "articles"
@@ -116,6 +117,12 @@ class ScrapeJob(Base):
     cumulative_found: Mapped[int] = mapped_column(Integer, default=0)
     current_phase: Mapped[str] = mapped_column(String, default="Preflight")
     phase_stats: Mapped[Optional[str]] = mapped_column(Text) # JSON string
+
+    __table_args__ = (
+        Index("idx_scrape_jobs_started_at", "started_at"),
+        Index("idx_scrape_jobs_sector", "sector"),
+        Index("idx_scrape_jobs_user_id", "user_id"),
+    )
 
 class WatchedBrand(Base):
     __tablename__ = "watched_brands"
