@@ -56,28 +56,45 @@ async def register(request: Request, db: AsyncSession = Depends(get_db_yield)):
     await db.commit()
     
     return {"message": "User registered successfully"}
-
 @router.post("/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db_yield)):
     stmt = select(User).where(User.email == form_data.username)
     res = await db.execute(stmt)
     user = res.scalar_one_or_none()
     
-    if not user or not user.hashed_password or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Admin Check via Environment Variables
+    is_admin = False
+    admin_email = os.getenv("ADMIN_EMAIL")
+    admin_password = os.getenv("ADMIN_PASSWORD")
     
-    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
-    refresh_token = create_refresh_token(data={"sub": user.email, "user_id": user.id})
+    if admin_email and admin_password:
+        if form_data.username == admin_email and form_data.password == admin_password:
+            is_admin = True
+            if not user:
+                user_id = "admin-" + str(uuid.uuid4())[:8]
+                user = User(id=user_id, email=admin_email, name="System Admin", is_admin=True)
+                db.add(user)
+                await db.commit()
+            else:
+                user.is_admin = True
+                await db.commit()
+    
+    if not is_admin:
+        if not user or not user.hashed_password or not verify_password(form_data.password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    
+    access_token = create_access_token(data={"sub": user.email, "user_id": user.id, "is_admin": is_admin})
+    refresh_token = create_refresh_token(data={"sub": user.email, "user_id": user.id, "is_admin": is_admin})
     
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "user": {"email": user.email, "name": user.name}
+        "user": {"email": user.email, "name": user.name, "is_admin": is_admin}
     }
 
 @router.get("/google")
@@ -151,5 +168,6 @@ async def get_me(user_data: TokenData = Depends(get_auth_user), db: AsyncSession
     return {
         "email": user.email,
         "name": user.name,
-        "id": user.id
+        "id": user.id,
+        "is_admin": user.is_admin
     }

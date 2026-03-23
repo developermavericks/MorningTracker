@@ -31,11 +31,11 @@ if not hasattr(_bcrypt_module, "__about__"):
 # Hashing Context (Legacy/Fallback)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
-
 class TokenData(BaseModel):
     email: Optional[str] = None
     id: Optional[str] = None
     user_id: Optional[str] = None
+    is_admin: bool = False
 
 def get_password_hash(password: str) -> str:
     # Standardize on pure bcrypt to avoid passlib-bcrypt version conflicts
@@ -93,9 +93,10 @@ async def get_current_user(token: str):
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         user_id: str = payload.get("user_id")
+        is_admin: bool = payload.get("is_admin", False)
         if email is None or user_id is None:
             raise credentials_exception
-        token_data = TokenData(email=email, id=user_id, user_id=user_id)
+        token_data = TokenData(email=email, id=user_id, user_id=user_id, is_admin=is_admin)
     except JWTError:
         raise credentials_exception
     

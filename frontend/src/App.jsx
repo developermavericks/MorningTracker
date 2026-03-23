@@ -8,6 +8,9 @@ import useStore from "./store/useStore";
 import BrandTracker from "./pages/BrandTracker";
 import Jobs from "./pages/Jobs";
 import Diagnostics from "./pages/Diagnostics";
+import AdminDashboard from "./pages/AdminDashboard";
+import AdminUserDetail from "./pages/AdminUserDetail";
+import AdminJobDetail from "./pages/AdminJobDetail";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -18,6 +21,7 @@ const NAV = [
   { id: "articles", label: "Articles", icon: "≡" },
   { id: "brands", label: "Brand Tracker", icon: "🏢" },
   { id: "jobs", label: "Jobs", icon: "◎" },
+  { id: "admin", label: "Admin Portal", icon: "⚙", adminOnly: true },
   { id: "diagnostics", label: "", icon: "" },
 ];
 
@@ -67,6 +71,12 @@ function ProtectedApp() {
   const [page, setPage] = useState("dashboard");
   const { stats, jobs, fetchStats, fetchJobs } = useStore();
   const [apiStatus, setApiStatus] = useState("checking");
+  const [navContext, setNavContext] = useState(null);
+
+  const navigateWithContext = (pageId, context = null) => {
+    setPage(pageId);
+    setNavContext(context);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -112,6 +122,11 @@ function ProtectedApp() {
   const totalArticles = safeJobs.reduce((sum, j) => sum + (j.total_scraped || 0), 0);
   const statusColor = apiStatus === "online" ? "var(--success)" : "var(--danger)";
 
+  const handleNavigate = (pageId, context) => {
+    setNavContext(context);
+    setPage(pageId);
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -124,11 +139,11 @@ function ProtectedApp() {
         </div>
 
         <nav className="sidebar-nav">
-          {NAV.map((n) => (
+          {NAV.filter(n => !n.adminOnly || user?.is_admin).map((n) => (
             <button
               key={n.id}
               className={`nav-item ${page === n.id ? "active" : ""}`}
-              onClick={() => setPage(n.id)}
+              onClick={() => navigateWithContext(n.id)}
             >
               <span className="nav-icon">{n.icon}</span>
               <span>{n.label}</span>
@@ -152,6 +167,9 @@ function ProtectedApp() {
         {page === "brands" && <BrandTracker />}
         {page === "jobs" && <Jobs />}
         {page === "diagnostics" && <Diagnostics />}
+        {page === "admin" && <AdminDashboard onNavigate={handleNavigate} />}
+        {page === "admin-user" && <AdminUserDetail email={navContext?.email} onNavigate={handleNavigate} />}
+        {page === "admin-job" && <AdminJobDetail id={navContext?.id} onNavigate={handleNavigate} />}
       </main>
     </div>
   );
