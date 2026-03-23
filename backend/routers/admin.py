@@ -31,7 +31,7 @@ async def list_all_jobs(
     _admin: TokenData = Depends(get_admin_user)
 ):
     # Base query with Join to User
-    query = select(ScrapeJob, User.name, User.email).join(User, ScrapeJob.user_id == User.id)
+    query = select(ScrapeJob, User.name, User.email).join(User, ScrapeJob.user_id == User.id, isouter=True)
     
     # Filters
     filters = []

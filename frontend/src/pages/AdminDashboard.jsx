@@ -22,7 +22,8 @@ export default function AdminDashboard({ onNavigate }) {
             setTotal(data.total);
             setSummary(data.summary);
         } catch (err) {
-            console.error("Failed to fetch admin data", err);
+            console.error("ADMIN_ERROR: Failed to fetch data", err);
+            alert(`Admin Data Load Failed: ${err.message}`);
         } finally {
             setLoading(false);
         }

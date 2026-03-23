@@ -146,8 +146,17 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db_yi
         db.add(user)
         await db.commit()
     
-    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
-    refresh_token = create_refresh_token(data={"sub": user.email, "user_id": user.id})
+    # Admin Check via Environment Variables
+    is_admin = False
+    admin_email = os.getenv("ADMIN_EMAIL")
+    if admin_email and email == admin_email:
+        is_admin = True
+        if not user.is_admin:
+            user.is_admin = True
+            await db.commit()
+    
+    access_token = create_access_token(data={"sub": user.email, "user_id": user.id, "is_admin": is_admin})
+    refresh_token = create_refresh_token(data={"sub": user.email, "user_id": user.id, "is_admin": is_admin})
     
     from fastapi.responses import RedirectResponse
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
