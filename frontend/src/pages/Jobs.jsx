@@ -66,6 +66,10 @@ function JobRow({ job, onDelete, onRefresh }) {
         <span className={`badge badge-${job.status}`}>{job.status}</span>
       </td>
       <td>
+        <div style={{ fontSize: '12px', fontWeight: '600' }}>{job.user_name}</div>
+        <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{job.user_email}</div>
+      </td>
+      <td>
         <div style={{ minWidth: 180 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: "var(--muted)", marginBottom: 6 }}>
             <span>
@@ -89,7 +93,7 @@ function JobRow({ job, onDelete, onRefresh }) {
         </div>
       </td>
       <td style={{ fontSize: 11, color: "var(--muted)" }}>
-        {job.started_at ? new Date(job.started_at).toLocaleString() : "—"}
+        {job.started_at ? new Date(job.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : "—"}
       </td>
       <td style={{ textAlign: 'right' }}>
         <div style={{ display: "flex", gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -214,8 +218,9 @@ export default function Jobs() {
                 <th>ID</th>
                 <th>Target</th>
                 <th>Status</th>
+                <th>Initiator</th>
                 <th>Extraction Progress</th>
-                <th>Initiated</th>
+                <th>Initiated (IST)</th>
                 <th style={{ textAlign: 'right' }}>Management</th>
               </tr>
             </thead>

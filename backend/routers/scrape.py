@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import select, func, update, delete
-from db.database import get_db, ScrapeJob, Article
+from db.database import get_db, ScrapeJob, Article, User
 from .auth_utils import get_auth_user as get_current_user, TokenData
 from celery_app import app as celery_app
 from scraper.config import REGION_MAP, SECTOR_KEYWORDS
@@ -93,14 +93,26 @@ async def start_enrichment(current_user: TokenData = Depends(get_current_user)):
 async def list_jobs(limit: int = 20, current_user: TokenData = Depends(get_current_user)):
     """List recent scrape jobs for current user (or all if admin)."""
     async with get_db() as db:
-        stmt = select(ScrapeJob)
+        # Join with User to get initiator info
+        stmt = select(ScrapeJob, User.name, User.email).join(User, ScrapeJob.user_id == User.id, isouter=True)
+        
         if not current_user.is_admin:
             stmt = stmt.where(ScrapeJob.user_id == current_user.id)
             
         res = await db.execute(
             stmt.order_by(ScrapeJob.started_at.desc()).limit(limit)
         )
-        return res.scalars().all()
+        rows = res.all()
+        
+        jobs = []
+        for row in rows:
+            job, user_name, user_email = row
+            job_dict = {c.name: getattr(job, c.name) for c in job.__table__.columns}
+            job_dict["user_name"] = user_name or "System/Unknown"
+            job_dict["user_email"] = user_email or "N/A"
+            jobs.append(job_dict)
+            
+        return jobs
 
 @router.get("/job/{job_id}")
 async def get_job_status(job_id: str, current_user: TokenData = Depends(get_current_user)):

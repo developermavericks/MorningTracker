@@ -72,6 +72,9 @@ def test_user_job_visibility():
     jobs = res.json()
     assert len(jobs) == 1
     assert jobs[0]["id"] == "job1_id"
+    assert "user_name" in jobs[0]
+    assert "user_email" in jobs[0]
+    assert jobs[0]["user_name"] == "User 1"
 
 def test_admin_job_visibility():
     """Verify admin sees ALL jobs."""
