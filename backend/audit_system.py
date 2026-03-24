@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 sys.path.append(os.getcwd())
 
 from db.database import init_db, get_db, User, ScrapeJob
-from celery_app import celery_app
+from celery_app import app as celery_app
 
 async def test_api_endpoints():
     print("\n[Audit] Testing Core API Endpoints...")
