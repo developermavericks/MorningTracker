@@ -173,17 +173,31 @@ export default function BrandTracker({ onNavigate }) {
                                 placeholder="Keywords (comma separated)"
                                 value={newKeywords}
                                 onChange={(e) => setNewKeywords(e.target.value)}
-                                style={{ width: '100%', height: '48px', paddingRight: '80px' }}
+                                style={{ 
+                                    width: '100%', height: '48px', paddingRight: '100px',
+                                    borderColor: countKws(newKeywords) > 15 ? 'var(--danger)' : 'initial',
+                                    boxShadow: countKws(newKeywords) > 15 ? '0 0 0 2px var(--danger-bg)' : 'none'
+                                }}
                             />
                             <div style={{ 
                                 position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', 
                                 fontSize: '11px', color: countKws(newKeywords) > 15 ? 'var(--danger)' : 'var(--muted)',
-                                fontWeight: countKws(newKeywords) > 15 ? '700' : '400'
+                                fontWeight: '700'
                             }}>
-                                {countKws(newKeywords)} / 15
+                                {countKws(newKeywords)} / 15 KW
                             </div>
                         </div>
-                        <button className="btn btn-primary" onClick={addBrand} style={{ height: '48px', justifyContent: 'center' }}>
+                        {countKws(newKeywords) > 15 && (
+                            <div style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: '600', marginTop: '-8px' }}>
+                                ⚠ Intelligence limit reached. Remove {countKws(newKeywords) - 15} keyword(s) to proceed.
+                            </div>
+                        )}
+                        <button 
+                            className="btn btn-primary" 
+                            onClick={addBrand} 
+                            disabled={countKws(newKeywords) > 15 || !newBrand.trim()}
+                            style={{ height: '48px', justifyContent: 'center', opacity: countKws(newKeywords) > 15 ? 0.5 : 1 }}
+                        >
                             ⊕ Add Brand Node
                         </button>
                     </div>

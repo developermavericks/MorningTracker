@@ -5,7 +5,7 @@ from datetime import date, timedelta, datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func, update, delete, and_
 from db.database import get_db, WatchedBrand, Article, ScrapeJob
 from .auth_utils import get_auth_user as get_current_user, TokenData
@@ -14,9 +14,9 @@ from celery_app import app as celery_app
 router = APIRouter()
 
 class BrandRequest(BaseModel):
-    name: str
-    keywords: Optional[str] = None
-    region: Optional[str] = "india"
+    name: str = Field(..., max_length=100)
+    keywords: Optional[str] = Field(None, max_length=1000)
+    region: Optional[str] = Field("india", max_length=50)
 
 def validate_keywords(keywords_str: Optional[str]):
     if not keywords_str:
