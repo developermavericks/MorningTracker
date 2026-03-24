@@ -280,24 +280,25 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         author_data = extract_author_v2(content)
         author = author_data.get("name")
         
-        # Strategic HTML Snippeting for LLM Judge
-        head_match = re.search(r"<head>.*?</head>", content, re.I | re.S)
-        html_head = head_match.group(0) if head_match else ""
-        
-        # Take snippets from the start and end of body
-        body_start_match = re.search(r"<body.*?>", content, re.I)
-        body_start_idx = body_start_match.end() if body_start_match else 0
-        html_top = content[body_start_idx:body_start_idx + 3000]
-        html_bottom = content[-3000:]
-        
-        extra_meta = {
-            "author_metadata": author_data,
-            "html_snippets": {
+        extra_meta = {"author_metadata": author_data}
+        try:
+            # Strategic HTML Snippeting for LLM Judge
+            head_match = re.search(r"<head>.*?</head>", content, re.I | re.S)
+            html_head = head_match.group(0) if head_match else ""
+            
+            # Take snippets from the start and end of body
+            body_start_match = re.search(r"<body.*?>", content, re.I)
+            body_start_idx = body_start_match.end() if body_start_match else 0
+            html_top = content[body_start_idx:body_start_idx + 3000]
+            html_bottom = content[-3000:]
+            
+            extra_meta["html_snippets"] = {
                 "head": html_head[:2000],
                 "top": html_top,
                 "bottom": html_bottom
             }
-        }
+        except Exception as e:
+            logger.warning(f"Metadata snippeting failed for {url}: {e}")
 
         extracted_date = extract_date(content)
         if extracted_date: final_pub_at = extracted_date

@@ -162,22 +162,23 @@ def extract_metadata_with_ollama_sync(body: str, url: str = "", context_agency: 
              res_agency = context_agency or domain
              
         return {
-            "author": data.get("author") or (author_metadata.get("name") if author_metadata else None), 
-            "handle": data.get("handle") or (author_metadata.get("handle") if author_metadata else None),
+            "author": data.get("author") or (author_metadata or {}).get("name"), 
+            "handle": data.get("handle") or (author_metadata or {}).get("handle"),
             "agency": res_agency, 
             "is_junk": data.get("is_junk", False), 
             "cleaned_body": data.get("cleaned_body", body)
         }
     except Exception as e:
         log(f"Ollama Extraction error: {e}")
-        return {"author": author_metadata.get("name") if author_metadata else None, "agency": context_agency or domain, "body": body}
+        return {"author": (author_metadata or {}).get("name"), "agency": context_agency or domain, "body": body}
 
 def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str, context_agency: str = "", extra_metadata: Dict = None) -> Dict[str, Any]:
     results = {"summary": None, "author": None, "agency": None, "tags": None, "sentiment": "neutral"}
     if not body or len(body) < 100: return results
     
-    author_metadata = extra_metadata.get("author_metadata") if extra_metadata else None
-    html_snippets = extra_metadata.get("html_snippets") if extra_metadata else None
+    extra_metadata = extra_metadata or {}
+    author_metadata = extra_metadata.get("author_metadata")
+    html_snippets = extra_metadata.get("html_snippets")
     
     meta = extract_metadata_with_ollama_sync(
         body, 
@@ -194,8 +195,11 @@ def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str, c
     results["agency"] = meta.get("agency")
     results["summary"] = summarize_with_groq_sync(body)
     
-    # Simple sentiment fallback
-    if "positive" in body.lower()[:500]: results["sentiment"] = "positive"
-    elif "warning" in body.lower()[:500]: results["sentiment"] = "negative"
+    # Simple sentiment checks (Separate checks to avoid elution)
+    body_low = body.lower()[:1000]
+    if any(w in body_low for w in ["positive", "success", "breakthrough", "growth"]): 
+        results["sentiment"] = "positive"
+    if any(w in body_low for w in ["warning", "risk", "lawsuit", "antitrust", "failure"]): 
+        results["sentiment"] = "negative"
     
     return results

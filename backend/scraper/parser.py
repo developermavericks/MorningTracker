@@ -58,6 +58,7 @@ def extract_author_v2(html: str) -> Dict[str, Any]:
     Returns: { "name": str, "handle": str, "method": str, "confidence": float }
     """
     candidates = []
+    handle = None
     try:
         soup = BeautifulSoup(html, "lxml")
         
@@ -97,7 +98,6 @@ def extract_author_v2(html: str) -> Dict[str, Any]:
                     if name: candidates.append({"name": name, "method": "meta", "confidence": 0.8})
 
         # 3. Regex Patterns (Physical Byline)
-        # Look for "By First Last" or "Written by First Last" in first 3000 chars
         text_snippet = soup.get_text(separator=" ", strip=True)[:3000]
         byline_match = re.search(r"(?:By|Written\s+by|Reported\s+by)\s+([A-Z][a-z]+(?:\s+[A-Z][\w-]+){1,3})", text_snippet)
         if byline_match:
@@ -105,10 +105,12 @@ def extract_author_v2(html: str) -> Dict[str, Any]:
             if name: candidates.append({"name": name, "method": "regex-byline", "confidence": 0.7})
 
         # 4. Social Media Handles
-        handle = None
         social_match = re.search(r"(?:twitter\.com|x\.com|linkedin\.com/in)/([A-Za-z0-9_.-]+)", html[:10000])
         if social_match:
-            handle = social_match.group(1)
+            cand_handle = social_match.group(1).lower()
+            blocklist = ["about", "home", "intent", "share", "status", "legal", "privacy", "tos", "i"]
+            if cand_handle not in blocklist:
+                handle = cand_handle
 
         # 5. CSS Selectors (Fallback)
         selectors = [
