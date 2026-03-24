@@ -13,6 +13,11 @@ export default function BrandTracker({ onNavigate }) {
     const [downloading, setDownloading] = useState(null);
     const [editingBrand, setEditingBrand] = useState(null);
 
+    const countKws = (str) => {
+        if (!str) return 0;
+        return str.split(",").map(k => k.trim()).filter(k => k.length > 0).length;
+    };
+
     const regions = [
         { id: "global", label: "Global" },
         { id: "india", label: "India" },
@@ -39,6 +44,10 @@ export default function BrandTracker({ onNavigate }) {
 
     const addBrand = async () => {
         if (!newBrand.trim()) return;
+        if (countKws(newKeywords) > 15) {
+            setMsg({ type: "error", text: "Keyword limit exceeded. Maximum 15 keywords allowed." });
+            return;
+        }
         try {
             await api.post("brands/", { 
                 name: newBrand.trim(),
@@ -55,6 +64,10 @@ export default function BrandTracker({ onNavigate }) {
     };
 
     const updateBrandNode = async (name, keywords, region) => {
+        if (countKws(keywords) > 15) {
+            setMsg({ type: "error", text: "Keyword limit exceeded (Max 15)." });
+            return;
+        }
         try {
             await api.put(`/brands/${encodeURIComponent(name)}`, { name, keywords, region });
             setEditingBrand(null);
@@ -153,14 +166,23 @@ export default function BrandTracker({ onNavigate }) {
                                 {regions.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
                             </select>
                         </div>
-                        <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Keywords (comma separated)"
-                            value={newKeywords}
-                            onChange={(e) => setNewKeywords(e.target.value)}
-                            style={{ width: '100%', height: '48px' }}
-                        />
+                        <div style={{ position: 'relative' }}>
+                            <input
+                                type="text"
+                                className="form-control"
+                                placeholder="Keywords (comma separated)"
+                                value={newKeywords}
+                                onChange={(e) => setNewKeywords(e.target.value)}
+                                style={{ width: '100%', height: '48px', paddingRight: '80px' }}
+                            />
+                            <div style={{ 
+                                position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', 
+                                fontSize: '11px', color: countKws(newKeywords) > 15 ? 'var(--danger)' : 'var(--muted)',
+                                fontWeight: countKws(newKeywords) > 15 ? '700' : '400'
+                            }}>
+                                {countKws(newKeywords)} / 15
+                            </div>
+                        </div>
                         <button className="btn btn-primary" onClick={addBrand} style={{ height: '48px', justifyContent: 'center' }}>
                             ⊕ Add Brand Node
                         </button>
