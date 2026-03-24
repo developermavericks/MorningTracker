@@ -4,8 +4,8 @@ import { api } from "../services/api";
 
 export default function Dashboard({ onNavigate }) {
   const { stats, fetchStats, jobs, fetchJobs } = useStore();
-  const [enriching, setEnriching] = useState(false);
-  const [enrichMsg, setEnrichMsg] = useState(null);
+  // const [enriching, setEnriching] = useState(false);
+  // const [enrichMsg, setEnrichMsg] = useState(null);
 
   useEffect(() => {
     fetchStats();
@@ -21,6 +21,7 @@ export default function Dashboard({ onNavigate }) {
   const maxSector = stats?.by_sector?.[0]?.count || 1;
   const maxRegion = stats?.by_region?.[0]?.count || 1;
 
+  /*
   const handleEnrich = async () => {
     setEnriching(true);
     setEnrichMsg(null);
@@ -34,6 +35,7 @@ export default function Dashboard({ onNavigate }) {
       setEnriching(false);
     }
   };
+  */
 
   const loading = !stats;
 
@@ -135,11 +137,13 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
+      {/* 
       {enrichMsg && (
         <div className={`alert ${enrichMsg.startsWith("✓") ? "alert-success" : "alert-error"}`} style={{ marginBottom: '24px' }}>
           {enrichMsg}
         </div>
       )}
+      */}
 
       <div className="card" style={{ background: 'var(--surface2)', border: 'none' }}>
         <div className="card-title">Strategic Actions</div>
@@ -150,9 +154,11 @@ export default function Dashboard({ onNavigate }) {
           <button className="btn btn-secondary" onClick={() => onNavigate("articles")}>
              Global Archive
           </button>
+          {/* 
           <button className="btn btn-secondary" onClick={handleEnrich} disabled={enriching}>
             {enriching ? <><div className="spinner" /> Processing...</> : "↻ Deep Refresh Bodies"}
           </button>
+          */}
         </div>
       </div>
     </div>
