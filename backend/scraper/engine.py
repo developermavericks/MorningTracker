@@ -20,7 +20,7 @@ from gevent.pool import Pool
 from scraper.network import NetworkHandler
 # from playwright.sync_api import sync_playwright
 # from playwright_stealth import Stealth
-from scraper.parser import extract_body, extract_author, extract_date, is_junk_body
+from scraper.parser import extract_body, extract_author, extract_author_v2, extract_date, is_junk_body
 # Removed resolve_google_news_url_sync as it's now internal to tasks.py Fast-Track
 
 from db.database import get_db_sync, Article, ScrapeJob
@@ -277,7 +277,28 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
             for s in soup(["script", "style", "nav", "header", "footer"]): s.decompose()
             body = soup.get_text(separator="\n", strip=True)
 
-        author = extract_author(content)
+        author_data = extract_author_v2(content)
+        author = author_data.get("name")
+        
+        # Strategic HTML Snippeting for LLM Judge
+        head_match = re.search(r"<head>.*?</head>", content, re.I | re.S)
+        html_head = head_match.group(0) if head_match else ""
+        
+        # Take snippets from the start and end of body
+        body_start_match = re.search(r"<body.*?>", content, re.I)
+        body_start_idx = body_start_match.end() if body_start_match else 0
+        html_top = content[body_start_idx:body_start_idx + 3000]
+        html_bottom = content[-3000:]
+        
+        extra_meta = {
+            "author_metadata": author_data,
+            "html_snippets": {
+                "head": html_head[:2000],
+                "top": html_top,
+                "bottom": html_bottom
+            }
+        }
+
         extracted_date = extract_date(content)
         if extracted_date: final_pub_at = extracted_date
 
@@ -315,7 +336,8 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
                     "sector": sector,
                     "region": region,
                     "scrape_job_id": job_id,
-                    "user_id": user_id
+                    "user_id": user_id,
+                    "extra_metadata": extra_meta
                 }
                 from sqlalchemy.dialects.postgresql import insert as pg_upsert
                 stmt = pg_upsert(Article).values(**val_dict).on_conflict_do_update(
