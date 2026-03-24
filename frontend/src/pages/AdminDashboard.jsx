@@ -102,7 +102,7 @@ export default function AdminDashboard({ onNavigate }) {
                                 jobs.map(j => (
                                     <tr key={j.id}>
                                         <td style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                                            {new Date(j.started_at).toLocaleString()}
+                                            {new Date(j.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
                                         </td>
                                         <td>
                                             <div style={{ fontWeight: 600 }}>{j.user_name}</div>

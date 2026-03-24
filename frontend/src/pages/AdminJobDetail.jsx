@@ -81,11 +81,11 @@ export default function AdminJobDetail({ id, onNavigate }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'var(--muted)' }}>Started</span>
-                            <span style={{ fontWeight: 600 }}>{new Date(job.started_at).toLocaleString()}</span>
+                            <span style={{ fontWeight: 600 }}>{new Date(job.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'var(--muted)' }}>Completed</span>
-                            <span style={{ fontWeight: 600 }}>{job.completed_at ? new Date(job.completed_at).toLocaleString() : 'In Progress'}</span>
+                            <span style={{ fontWeight: 600 }}>{job.completed_at ? new Date(job.completed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'In Progress'}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'var(--muted)' }}>Date Range</span>
@@ -110,13 +110,19 @@ export default function AdminJobDetail({ id, onNavigate }) {
                 <div className="card" style={{ border: 'none' }}>
                     <h3 style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '16px' }}>PHASE BREAKDOWN</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {Object.entries(phaseStats).map(([phase, count]) => (
-                            <div key={phase} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '80px', fontSize: '12px', color: 'var(--muted)' }}>PHASE {phase}</div>
-                                <div style={{ flex: 1, height: '8px', background: 'var(--surface2)', borderRadius: '4px', overflow: 'hidden' }}>
-                                    <div style={{ width: `${Math.min(100, (count / (job.total_scraped || 1)) * 100)}%`, height: '100%', background: 'var(--accent)' }} />
+                        {Object.entries(phaseStats).map(([phase, data]) => (
+                            <div key={phase} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'var(--surface2)', borderRadius: '8px' }}>
+                                <div>
+                                    <div style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase' }}>PHASE {phase}</div>
+                                    <div style={{ fontWeight: 600, color: data.status === 'completed' ? 'var(--success)' : 'var(--text)' }}>
+                                        {data.status.toUpperCase()}
+                                    </div>
                                 </div>
-                                <div style={{ width: '40px', fontSize: '12px', textAlign: 'right' }}>{count}</div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                                        {data.updated_at ? new Date(data.updated_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }) : "—"}
+                                    </div>
+                                </div>
                             </div>
                         ))}
                     </div>
