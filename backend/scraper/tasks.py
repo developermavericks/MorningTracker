@@ -161,7 +161,8 @@ def enrich_article_node(self, article_id):
                 article.title, 
                 article.resolved_url or article.url, 
                 article.sector,
-                context_agency=article.agency
+                context_agency=article.agency,
+                extra_metadata=article.extra_metadata
             )
             
             article.summary = enriched_data.get("summary")

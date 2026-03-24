@@ -131,18 +131,25 @@ def get_domain_name(url: str) -> str:
     except:
         return ""
 
-def extract_metadata_with_ollama_sync(body: str, url: str = "", context_agency: str = "") -> Dict[str, Any]:
+def extract_metadata_with_ollama_sync(body: str, url: str = "", context_agency: str = "", author_metadata: Dict = None, html_snippets: Dict = None) -> Dict[str, Any]:
     if not body or len(body) < 100: return {"author": None, "agency": context_agency or None, "body": body}
     domain = get_domain_name(url) if url else ""
+    
+    # State-of-the-Art "Judge" Prompt
     prompt = (
-        f"Analyze this news article and extract metadata in JSON format. "
-        f"Fields: author (specific person name or byline found in text), agency (the news organization), "
-        f"is_junk (boolean), cleaned_body (article body text without ads/noise). "
-        f"Source Info: URL={url}, Domain={domain}, Suggested Agency={context_agency}. "
-        f"CRITICAL: Be extremely precise with the 'author' field. Only return a name if a specific byline/author is found. "
-        f"If no specific person is named, return null for author. "
-        f"Text: {body[:6000]}"
+        f"Analyze this news article and extract metadata in JSON format.\n"
+        f"Target Fields: author (specific person), handle (social media), agency (news org), is_junk (bool), cleaned_body (text).\n\n"
+        f"STAGED EVIDENCE:\n"
+        f"1. HTML Metadata Extraction Suggestion: {author_metadata.get('name') if author_metadata else 'None'}\n"
+        f"2. Suggested Handle: {author_metadata.get('handle') if author_metadata else 'None'}\n"
+        f"3. HTML HEAD SNIPPET: {html_snippets.get('head') if html_snippets else 'None'}\n"
+        f"4. BYLINE AREA SNIPPET: {html_snippets.get('top') if html_snippets else 'None'}\n\n"
+        f"TASK: Use the snippets to verify or find the correct author. "
+        f"If the metadata suggestion is generic (like 'Staff'), find the real name in the snippets. "
+        f"If a specific handle is found, use it to confirm the author.\n\n"
+        f"Text Sample: {body[:4000]}"
     )
+    
     try:
         client = ollama.Client(host=OLLAMA_BASE_URL)
         response = client.chat(model=OLLAMA_MODEL, messages=[{'role': 'user', 'content': prompt}], format='json')
@@ -154,20 +161,45 @@ def extract_metadata_with_ollama_sync(body: str, url: str = "", context_agency: 
         if not res_agency or res_agency.lower() in ["google", "google news"]:
              res_agency = context_agency or domain
              
-        return {"author": data.get("author"), "agency": res_agency, "is_junk": data.get("is_junk", False), "cleaned_body": data.get("cleaned_body", body)}
+        return {
+            "author": data.get("author") or (author_metadata or {}).get("name"), 
+            "handle": data.get("handle") or (author_metadata or {}).get("handle"),
+            "agency": res_agency, 
+            "is_junk": data.get("is_junk", False), 
+            "cleaned_body": data.get("cleaned_body", body)
+        }
     except Exception as e:
         log(f"Ollama Extraction error: {e}")
-        # Fallback to context or domain
-        fallback = context_agency if context_agency and context_agency.lower() not in ["google", "google news"] else domain
-        return {"author": None, "agency": fallback, "body": body}
+        return {"author": (author_metadata or {}).get("name"), "agency": context_agency or domain, "body": body}
 
-def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str, context_agency: str = "") -> Dict[str, Any]:
+def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str, context_agency: str = "", extra_metadata: Dict = None) -> Dict[str, Any]:
     results = {"summary": None, "author": None, "agency": None, "tags": None, "sentiment": "neutral"}
     if not body or len(body) < 100: return results
-    meta = extract_metadata_with_ollama_sync(body, url=url, context_agency=context_agency)
+    
+    extra_metadata = extra_metadata or {}
+    author_metadata = extra_metadata.get("author_metadata")
+    html_snippets = extra_metadata.get("html_snippets")
+    
+    meta = extract_metadata_with_ollama_sync(
+        body, 
+        url=url, 
+        context_agency=context_agency, 
+        author_metadata=author_metadata,
+        html_snippets=html_snippets
+    )
+    
     results["author"] = meta.get("author")
+    if meta.get("handle"):
+        results["author"] = f"{results['author']} (@{meta['handle']})" if results["author"] else f"@{meta['handle']}"
+    
     results["agency"] = meta.get("agency")
     results["summary"] = summarize_with_groq_sync(body)
-    if "positive" in body.lower()[:500]: results["sentiment"] = "positive"
-    if "warning" in body.lower()[:500]: results["sentiment"] = "negative"
+    
+    # Simple sentiment checks (Separate checks to avoid elution)
+    body_low = body.lower()[:1000]
+    if any(w in body_low for w in ["positive", "success", "breakthrough", "growth"]): 
+        results["sentiment"] = "positive"
+    if any(w in body_low for w in ["warning", "risk", "lawsuit", "antitrust", "failure"]): 
+        results["sentiment"] = "negative"
+    
     return results

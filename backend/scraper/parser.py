@@ -52,31 +52,41 @@ def is_junk_body(body: Optional[str], brand_keywords: List[str] = None) -> bool:
     if word_count < 80: return True
     return any(pat in body_lower for pat in JUNK_PATTERNS)
 
-def extract_author(html: str) -> Optional[str]:
+def extract_author_v2(html: str) -> Dict[str, Any]:
+    """
+    State-of-the-art author extraction: Multi-stage ensemble with confidence scoring.
+    Returns: { "name": str, "handle": str, "method": str, "confidence": float }
+    """
+    candidates = []
+    handle = None
     try:
         soup = BeautifulSoup(html, "lxml")
-        # 1. JSON-LD
+        
+        # 1. JSON-LD (High Confidence)
         for script in soup.find_all("script", type="application/ld+json"):
             try:
                 data = json.loads(script.string)
                 items = data if isinstance(data, list) else [data]
+                if isinstance(data, dict) and "@graph" in data:
+                    items.extend(data["@graph"])
+                
                 for item in items:
-                    if item.get("@type") in ["Article", "NewsArticle", "BlogPosting", "WebPage"]:
+                    if not isinstance(item, dict): continue
+                    if item.get("@type") in ["Article", "NewsArticle", "BlogPosting", "Person"]:
                         auth_data = item.get("author")
                         if isinstance(auth_data, dict):
-                            res = clean_author_text(auth_data.get("name"))
-                            if res: return res
-                        elif isinstance(auth_data, list) and auth_data:
+                            name = clean_author_text(auth_data.get("name"))
+                            if name: candidates.append({"name": name, "method": "json-ld", "confidence": 0.95})
+                        elif isinstance(auth_data, list):
                             for a in auth_data:
-                                name = a.get("name") if isinstance(a, dict) else a
-                                res = clean_author_text(name)
-                                if res: return res
+                                name = clean_author_text(a.get("name") if isinstance(a, dict) else a)
+                                if name: candidates.append({"name": name, "method": "json-ld", "confidence": 0.9})
                         elif isinstance(auth_data, str):
-                            res = clean_author_text(auth_data)
-                            if res: return res
+                            name = clean_author_text(auth_data)
+                            if name: candidates.append({"name": name, "method": "json-ld", "confidence": 0.85})
             except: continue
-        
-        # 2. Meta Tags (Prioritized for publishers)
+
+        # 2. Meta Tags
         for attr in ["name", "property"]:
             for val in [
                 "author", "article:author", "og:article:author", "dc.creator", "sailthru.author",
@@ -84,35 +94,51 @@ def extract_author(html: str) -> Optional[str]:
             ]:
                 tag = soup.find("meta", {attr: re.compile(f"^{val}$", re.I)})
                 if tag and tag.get("content"):
-                    res = clean_author_text(tag["content"])
-                    if res: return res
+                    name = clean_author_text(tag["content"])
+                    if name: candidates.append({"name": name, "method": "meta", "confidence": 0.8})
 
-        # 3. CSS Selectors (Common News CMS Patterns)
+        # 3. Regex Patterns (Physical Byline)
+        text_snippet = soup.get_text(separator=" ", strip=True)[:3000]
+        byline_match = re.search(r"(?:By|Written\s+by|Reported\s+by)\s+([A-Z][a-z]+(?:\s+[A-Z][\w-]+){1,3})", text_snippet)
+        if byline_match:
+            name = clean_author_text(byline_match.group(1))
+            if name: candidates.append({"name": name, "method": "regex-byline", "confidence": 0.7})
+
+        # 4. Social Media Handles
+        social_match = re.search(r"(?:twitter\.com|x\.com|linkedin\.com/in)/([A-Za-z0-9_.-]+)", html[:10000])
+        if social_match:
+            cand_handle = social_match.group(1).lower()
+            blocklist = ["about", "home", "intent", "share", "status", "legal", "privacy", "tos", "i"]
+            if cand_handle not in blocklist:
+                handle = cand_handle
+
+        # 5. CSS Selectors (Fallback)
         selectors = [
             ".author", ".byline", ".entry-author", ".article-author", 
             '[rel="author"]', '[itemprop="author"]', ".author-name",
-            ".byline-name", ".article-byline", ".p-author", ".author-link",
-            ".posted-by", ".writer"
+            ".byline-name", ".article-byline", ".p-author", ".author-link"
         ]
         for sel in selectors:
             el = soup.select_one(sel)
             if el:
-                # Handle cases where the author name is nested (e.g., [itemprop="author"] > span)
-                nested_selectors = ['.name', 'span', 'a']
-                found_text = None
-                for n_sel in nested_selectors:
-                    n_el = el.select_one(n_sel)
-                    if n_el:
-                        found_text = n_el.get_text(strip=True)
-                        break
-                
-                if not found_text:
-                    found_text = el.get_text(strip=True)
-                
-                res = clean_author_text(found_text)
-                if res: return res
-    except: pass
-    return None
+                name = clean_author_text(el.get_text(strip=True))
+                if name: candidates.append({"name": name, "method": "css", "confidence": 0.6})
+
+    except Exception as e:
+        logger.error(f"Author extraction error: {e}")
+
+    # Resolve: Pick highest confidence unique name
+    if not candidates:
+        return {"name": None, "handle": handle, "method": None, "confidence": 0}
+    
+    candidates.sort(key=lambda x: x["confidence"], reverse=True)
+    best = candidates[0]
+    return {**best, "handle": handle}
+
+# Legacy wrapper to avoid breaking existing code immediately
+def extract_author(html: str) -> Optional[str]:
+    res = extract_author_v2(html)
+    return res.get("name")
 
 def extract_date(html: str) -> Optional[datetime]:
     try:
