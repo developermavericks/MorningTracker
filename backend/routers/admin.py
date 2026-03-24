@@ -128,14 +128,14 @@ async def get_job_detail(
     db: AsyncSession = Depends(get_db_yield),
     _admin: TokenData = Depends(get_admin_user)
 ):
-    query = select(ScrapeJob, User.name, User.email).join(User, ScrapeJob.user_id == User.id).where(ScrapeJob.id == job_id)
+    query = select(ScrapeJob, User.name, User.email).join(User, ScrapeJob.user_id == User.id, isouter=True).where(ScrapeJob.id == job_id)
     res = await db.execute(query)
-    row = res.one_or_none()
+    row = res.all() # Use all() and check length to avoid one_or_none issues with joins
     
     if not row:
         raise HTTPException(404, "Job not found")
         
-    job, name, email = row
+    job, name, email = row[0]
     job_dict = {c.name: getattr(job, c.name) for c in job.__table__.columns}
     job_dict["user_name"] = name
     job_dict["user_email"] = email
