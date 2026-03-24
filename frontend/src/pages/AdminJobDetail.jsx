@@ -24,7 +24,16 @@ export default function AdminJobDetail({ id, onNavigate }) {
     if (loading) return <div className="spinner-container"><div className="spinner" /></div>;
     if (!job) return <div className="error-state">Job not found.</div>;
 
-    const phaseStats = job.phase_stats ? JSON.parse(job.phase_stats) : null;
+    const phaseStats = (() => {
+        try {
+            return job.phase_stats ? (typeof job.phase_stats === 'string' ? JSON.parse(job.phase_stats) : job.phase_stats) : null;
+        } catch (e) {
+            console.error("Failed to parse phase_stats", e);
+            return null;
+        }
+    })();
+
+    const displayId = typeof job.id === 'string' ? job.id.split('-')[0] : 'UNKNOWN';
 
     return (
         <div className="page-container" style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -32,15 +41,15 @@ export default function AdminJobDetail({ id, onNavigate }) {
                 <button className="btn btn-secondary" onClick={() => onNavigate('admin')} style={{ marginBottom: '16px' }}>← Back to Jobs</button>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                        <h1 className="page-title">Mission Blueprint: {job.id.split('-')[0]}</h1>
-                        <p className="page-subtitle">Detailed execution log for {job.user_name} ({job.sector})</p>
+                        <h1 className="page-title">Mission Blueprint: {displayId}</h1>
+                        <p className="page-subtitle">Detailed execution log for {job.user_name || 'System'} ({job.sector || 'N/A'})</p>
                     </div>
                     <div className="badge" style={{ 
                         padding: '8px 16px', fontSize: '14px',
                         background: job.status === 'completed' ? 'var(--success-bg)' : 'var(--surface2)',
                         color: job.status === 'completed' ? 'var(--success)' : 'var(--text)'
                     }}>
-                        {job.status.toUpperCase()}
+                        {(job.status || 'unknown').toUpperCase()}
                     </div>
                 </div>
             </header>

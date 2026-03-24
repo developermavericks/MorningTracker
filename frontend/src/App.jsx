@@ -123,6 +123,7 @@ function ProtectedApp() {
   const statusColor = apiStatus === "online" ? "var(--success)" : "var(--danger)";
 
   const handleNavigate = (pageId, context) => {
+    console.log(`[Navigation] To: ${pageId}`, context);
     setNavContext(context);
     setPage(pageId);
   };
