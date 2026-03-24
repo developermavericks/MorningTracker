@@ -185,7 +185,7 @@ export default function Jobs() {
   return (
     <div>
       <header className="page-header" style={{ marginBottom: '40px' }}>
-        <h1 className="page-title">Mission Control</h1>
+        <h1 className="page-title">Mission Control (v2.0 - With Initiator Info)</h1>
         <p className="page-subtitle">Monitoring background operations and data streams</p>
       </header>
 
