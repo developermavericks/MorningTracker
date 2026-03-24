@@ -24,7 +24,16 @@ export default function AdminJobDetail({ id, onNavigate }) {
     if (loading) return <div className="spinner-container"><div className="spinner" /></div>;
     if (!job) return <div className="error-state">Job not found.</div>;
 
-    const phaseStats = job.phase_stats ? JSON.parse(job.phase_stats) : null;
+    const phaseStats = (() => {
+        try {
+            return job.phase_stats ? (typeof job.phase_stats === 'string' ? JSON.parse(job.phase_stats) : job.phase_stats) : null;
+        } catch (e) {
+            console.error("Failed to parse phase_stats", e);
+            return null;
+        }
+    })();
+
+    const displayId = typeof job.id === 'string' ? job.id.split('-')[0] : 'UNKNOWN';
 
     return (
         <div className="page-container" style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -32,15 +41,15 @@ export default function AdminJobDetail({ id, onNavigate }) {
                 <button className="btn btn-secondary" onClick={() => onNavigate('admin')} style={{ marginBottom: '16px' }}>← Back to Jobs</button>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                        <h1 className="page-title">Mission Blueprint: {job.id.split('-')[0]}</h1>
-                        <p className="page-subtitle">Detailed execution log for {job.user_name} ({job.sector})</p>
+                        <h1 className="page-title">Mission Blueprint: {displayId}</h1>
+                        <p className="page-subtitle">Detailed execution log for {job.user_name || 'System'} ({job.sector || 'N/A'})</p>
                     </div>
                     <div className="badge" style={{ 
                         padding: '8px 16px', fontSize: '14px',
                         background: job.status === 'completed' ? 'var(--success-bg)' : 'var(--surface2)',
                         color: job.status === 'completed' ? 'var(--success)' : 'var(--text)'
                     }}>
-                        {job.status.toUpperCase()}
+                        {(job.status || 'unknown').toUpperCase()}
                     </div>
                 </div>
             </header>
@@ -72,11 +81,11 @@ export default function AdminJobDetail({ id, onNavigate }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'var(--muted)' }}>Started</span>
-                            <span style={{ fontWeight: 600 }}>{new Date(job.started_at).toLocaleString()}</span>
+                            <span style={{ fontWeight: 600 }}>{new Date(job.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'var(--muted)' }}>Completed</span>
-                            <span style={{ fontWeight: 600 }}>{job.completed_at ? new Date(job.completed_at).toLocaleString() : 'In Progress'}</span>
+                            <span style={{ fontWeight: 600 }}>{job.completed_at ? new Date(job.completed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'In Progress'}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'var(--muted)' }}>Date Range</span>
@@ -101,13 +110,19 @@ export default function AdminJobDetail({ id, onNavigate }) {
                 <div className="card" style={{ border: 'none' }}>
                     <h3 style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '16px' }}>PHASE BREAKDOWN</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {Object.entries(phaseStats).map(([phase, count]) => (
-                            <div key={phase} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '80px', fontSize: '12px', color: 'var(--muted)' }}>PHASE {phase}</div>
-                                <div style={{ flex: 1, height: '8px', background: 'var(--surface2)', borderRadius: '4px', overflow: 'hidden' }}>
-                                    <div style={{ width: `${Math.min(100, (count / (job.total_scraped || 1)) * 100)}%`, height: '100%', background: 'var(--accent)' }} />
+                        {Object.entries(phaseStats).map(([phase, data]) => (
+                            <div key={phase} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'var(--surface2)', borderRadius: '8px' }}>
+                                <div>
+                                    <div style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase' }}>PHASE {phase}</div>
+                                    <div style={{ fontWeight: 600, color: data.status === 'completed' ? 'var(--success)' : 'var(--text)' }}>
+                                        {data.status.toUpperCase()}
+                                    </div>
                                 </div>
-                                <div style={{ width: '40px', fontSize: '12px', textAlign: 'right' }}>{count}</div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                                        {data.updated_at ? new Date(data.updated_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }) : "—"}
+                                    </div>
+                                </div>
                             </div>
                         ))}
                     </div>
