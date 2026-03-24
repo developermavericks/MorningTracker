@@ -283,7 +283,8 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         extra_meta = {"author_metadata": author_data}
         try:
             # Strategic HTML Snippeting for LLM Judge
-            head_match = re.search(r"<head>.*?</head>", content, re.I | re.S)
+            # Use limited slice to avoid backtracking on huge pages
+            head_match = re.search(r"<head>.*?</head>", content[:15000], re.I | re.S)
             html_head = head_match.group(0) if head_match else ""
             
             # Take snippets from the start and end of body
