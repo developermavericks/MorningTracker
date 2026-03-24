@@ -203,11 +203,20 @@ async def export_xlsx(
         alternate_fill = PatternFill(start_color="F0F4FA", end_color="F0F4FA", fill_type="solid")
         for i, a in enumerate(articles, start=2):
             published_str = a.published_at.strftime("%d %b %Y %H:%M") if a.published_at else ""
+            
+            # Robust Author Selection
+            primary_author = a.author
+            if not primary_author and a.extra_metadata:
+                # Try fallback to stored metadata if enrichment didn't run yet
+                meta = a.extra_metadata.get("author_metadata", {})
+                if isinstance(meta, dict):
+                    primary_author = meta.get("name")
+            
             row_data = [
                 a.title,
                 a.resolved_url or a.url,
-                a.agency,
-                a.author or a.agency or "Staff Reporter",
+                a.agency or "Unknown Publisher",
+                primary_author or "Staff Reporter",
                 a.summary,
                 published_str,
                 a.source_feed or "google_news",
