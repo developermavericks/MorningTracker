@@ -226,16 +226,12 @@ export default function Jobs() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ textAlign: "center", padding: 60 }}>
+                <tr><td colSpan={7} style={{ textAlign: "center", padding: 60 }}>
                   <div className="spinner" />
                 </td></tr>
-              ) : jobs.length === 0 ? (
-                <tr><td colSpan={6}>
-                  <div className="empty-state">
-                    <div className="empty-state-icon">◎</div>
-                    <h3>No mission history</h3>
-                    <p>Start a new tracking mission to populate this archive.</p>
-                  </div>
+              ) : safeJobs.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: "center", padding: 60, color: "var(--muted)" }}>
+                  No jobs found. Start a scrape to see them here!
                 </td></tr>
               ) : jobs.map((job) => (
                 <JobRow key={job.id} job={job} onDelete={deleteJob} onRefresh={refreshJob} />
