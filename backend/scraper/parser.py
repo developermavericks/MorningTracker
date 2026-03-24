@@ -6,7 +6,7 @@ import json
 import re
 import logging
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from bs4 import BeautifulSoup
 import trafilatura
 
