@@ -208,7 +208,7 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
 
         is_brand_tracker = False
         from db.database import WatchedBrand
-        if db.execute(select(WatchedBrand).where(WatchedBrand.name == sector_name)).scalar_one_or_none():
+        if db.execute(select(WatchedBrand).where(WatchedBrand.name == sector_name)).first():
             is_brand_tracker = True
     
     if not is_brand_tracker:
@@ -374,7 +374,7 @@ def bulk_insert_placeholders(db, job_id, articles, sector, region, user_id):
         try:
             val_dict = {"title": a["title"], "url": a["url"], "published_at": datetime.fromisoformat(a["published_at"]), "sector": sector, "region": region, "scrape_job_id": job_id, "user_id": user_id, "agency": a.get("agency")}
             from sqlalchemy.dialects.postgresql import insert as pg_upsert
-            db.execute(pg_upsert(Article).values(**val_dict).on_conflict_do_nothing(index_elements=['url']))
+            db.execute(pg_upsert(Article).values(**val_dict).on_conflict_do_nothing(index_elements=[Article.url]))
         except: pass
     db.commit()
 
