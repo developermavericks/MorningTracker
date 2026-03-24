@@ -82,7 +82,7 @@ async def list_all_jobs(
     offset = (page - 1) * limit
     
     # Count total for pagination
-    count_query = select(func.count()).select_from(ScrapeJob).join(User, ScrapeJob.user_id == User.id)
+    count_query = select(func.count()).select_from(ScrapeJob).join(User, ScrapeJob.user_id == User.id, isouter=True)
     if filters:
         count_query = count_query.where(and_(*filters))
     

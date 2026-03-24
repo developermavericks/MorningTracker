@@ -91,13 +91,14 @@ async def start_enrichment(current_user: TokenData = Depends(get_current_user)):
 
 @router.get("/jobs")
 async def list_jobs(limit: int = 20, current_user: TokenData = Depends(get_current_user)):
-    """List recent scrape jobs for current user."""
+    """List recent scrape jobs for current user (or all if admin)."""
     async with get_db() as db:
+        stmt = select(ScrapeJob)
+        if not current_user.is_admin:
+            stmt = stmt.where(ScrapeJob.user_id == current_user.id)
+            
         res = await db.execute(
-            select(ScrapeJob)
-            .where(ScrapeJob.user_id == current_user.id)
-            .order_by(ScrapeJob.started_at.desc())
-            .limit(limit)
+            stmt.order_by(ScrapeJob.started_at.desc()).limit(limit)
         )
         return res.scalars().all()
 
@@ -105,24 +106,28 @@ async def list_jobs(limit: int = 20, current_user: TokenData = Depends(get_curre
 async def get_job_status(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Get status and progress of a scrape job."""
     async with get_db() as db:
-        res = await db.execute(
-            select(ScrapeJob).where(ScrapeJob.id == job_id).where(ScrapeJob.user_id == current_user.id)
-        )
+        stmt = select(ScrapeJob).where(ScrapeJob.id == job_id)
+        if not current_user.is_admin:
+            stmt = stmt.where(ScrapeJob.user_id == current_user.id)
+            
+        res = await db.execute(stmt)
         job = res.scalar_one_or_none()
         if not job:
-            raise HTTPException(404, "Job not found")
+            raise HTTPException(404, "Job not found or access denied")
         return job
 
 @router.delete("/job/{job_id}")
 async def delete_job(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Delete a job and its articles."""
     async with get_db() as db:
-        res = await db.execute(
-            select(ScrapeJob).where(ScrapeJob.id == job_id).where(ScrapeJob.user_id == current_user.id)
-        )
+        stmt = select(ScrapeJob).where(ScrapeJob.id == job_id)
+        if not current_user.is_admin:
+            stmt = stmt.where(ScrapeJob.user_id == current_user.id)
+            
+        res = await db.execute(stmt)
         job = res.scalar_one_or_none()
         if not job:
-            raise HTTPException(404, "Job not found")
+            raise HTTPException(404, "Job not found or access denied")
         
         # C-X: Signal cancellation to workers via Redis
         from scraper.llm import get_redis

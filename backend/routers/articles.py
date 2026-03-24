@@ -27,10 +27,12 @@ async def get_articles(
     page_size: int = 25,
     current_user: TokenData = Depends(get_current_user)
 ):
-    """Fetch articles with filtering and pagination."""
+    """Fetch articles with filtering and pagination (Global for admin)."""
     offset = (page - 1) * page_size
     async with get_db() as db:
-        stmt = select(Article).where(Article.user_id == current_user.id)
+        stmt = select(Article)
+        if not current_user.is_admin:
+            stmt = stmt.where(Article.user_id == current_user.id)
         
         if sector: stmt = stmt.where(Article.sector == sector)
         if region: stmt = stmt.where(Article.region == region)
@@ -65,27 +67,38 @@ async def get_articles(
         "articles": articles
     }
 
-async def _fetch_stats_logic(user_id: str):
-    """Internal stats logic."""
+async def _fetch_stats_logic(user_id: str, is_admin: bool = False):
+    """Internal stats logic (Global for admins)."""
     async with get_db() as db:
+        # Build base filters
+        def apply_user_filter(query):
+            if not is_admin:
+                return query.where(Article.user_id == user_id)
+            return query
+
+        def apply_job_user_filter(query):
+            if not is_admin:
+                return query.where(ScrapeJob.user_id == user_id)
+            return query
+
         # Total
-        total_res = await db.execute(select(func.count(Article.id)).where(Article.user_id == user_id))
+        total_res = await db.execute(apply_user_filter(select(func.count(Article.id))))
         total = total_res.scalar() or 0
         
         # With Body
-        body_res = await db.execute(select(func.count(Article.id)).where(Article.user_id == user_id, Article.full_body != None, func.length(Article.full_body) > 150))
+        body_res = await db.execute(apply_user_filter(select(func.count(Article.id)).where(Article.full_body != None, func.length(Article.full_body) > 150)))
         with_body = body_res.scalar() or 0
         
         # With Summary
-        sum_res = await db.execute(select(func.count(Article.id)).where(Article.user_id == user_id, Article.summary != None))
+        sum_res = await db.execute(apply_user_filter(select(func.count(Article.id)).where(Article.summary != None)))
         with_summary = sum_res.scalar() or 0
         
         # By Sector
-        sect_res = await db.execute(select(Article.sector, func.count(Article.id)).where(Article.user_id == user_id).group_by(Article.sector).order_by(desc(func.count(Article.id))))
+        sect_res = await db.execute(apply_user_filter(select(Article.sector, func.count(Article.id)).group_by(Article.sector).order_by(desc(func.count(Article.id)))))
         by_sector = [{"sector": r[0], "count": r[1]} for r in sect_res.all()]
         
         # Jobs
-        jobs_res = await db.execute(select(ScrapeJob.status, func.count(ScrapeJob.id)).where(ScrapeJob.user_id == user_id).group_by(ScrapeJob.status))
+        jobs_res = await db.execute(apply_job_user_filter(select(ScrapeJob.status, func.count(ScrapeJob.id)).group_by(ScrapeJob.status)))
         jobs_by_status = [{"status": r[0], "count": r[1]} for r in jobs_res.all()]
 
     return {
@@ -99,7 +112,7 @@ async def _fetch_stats_logic(user_id: str):
 
 @router.get("/stats/summary")
 async def get_stats(current_user: TokenData = Depends(get_current_user)):
-    return await _fetch_stats_logic(current_user.id)
+    return await _fetch_stats_logic(current_user.id, current_user.is_admin)
 
 @router.get("/export/csv")
 async def export_csv(
@@ -114,7 +127,10 @@ async def export_csv(
         yield output.getvalue().encode("utf-8")
         
         async with get_db() as db:
-            stmt = select(Article).where(Article.scrape_job_id == job_id, Article.user_id == current_user.id)
+            stmt = select(Article).where(Article.scrape_job_id == job_id)
+            if not current_user.is_admin:
+                stmt = stmt.where(Article.user_id == current_user.id)
+                
             res = await db.execute(stmt)
             for a in res.scalars():
                 out = io.StringIO()
@@ -132,14 +148,21 @@ async def export_xlsx(
     """Excel export with formatting (Blueprint Phase 5)."""
     async with get_db() as db:
         # Get job for naming
-        job_res = await db.execute(select(ScrapeJob).where(ScrapeJob.id == job_id, ScrapeJob.user_id == current_user.id))
+        stmt_job = select(ScrapeJob).where(ScrapeJob.id == job_id)
+        if not current_user.is_admin:
+            stmt_job = stmt_job.where(ScrapeJob.user_id == current_user.id)
+            
+        job_res = await db.execute(stmt_job)
         job = job_res.scalar_one_or_none()
         if not job:
-            raise HTTPException(404, "Job not found")
+            raise HTTPException(404, "Job not found or access denied")
         
         # Get articles
-        count_stmt = select(func.count()).where(Article.scrape_job_id == job_id, Article.user_id == current_user.id)
-        total_count = (await db.execute(count_stmt)).scalar() or 0
+        stmt_count = select(func.count()).where(Article.scrape_job_id == job_id)
+        if not current_user.is_admin:
+            stmt_count = stmt_count.where(Article.user_id == current_user.id)
+            
+        total_count = (await db.execute(stmt_count)).scalar() or 0
         
         if total_count == 0:
             raise HTTPException(400, "No articles found for this job. Ensure discovery is complete.")
@@ -148,8 +171,12 @@ async def export_xlsx(
             # Hard limit for XLSX to prevent OOM
             raise HTTPException(400, "Job too large for XLSX (Max 5,000 articles). Use CSV export instead.")
 
-        stmt = select(Article).where(Article.scrape_job_id == job_id, Article.user_id == current_user.id).order_by(Article.published_at.desc())
-        res = await db.execute(stmt)
+        stmt_articles = select(Article).where(Article.scrape_job_id == job_id)
+        if not current_user.is_admin:
+            stmt_articles = stmt_articles.where(Article.user_id == current_user.id)
+            
+        stmt_articles = stmt_articles.order_by(Article.published_at.desc())
+        res = await db.execute(stmt_articles)
         articles = res.scalars().all()
 
         wb = Workbook()
@@ -225,9 +252,13 @@ async def export_xlsx(
 @router.get("/{article_id}")
 async def get_article(article_id: int, current_user: TokenData = Depends(get_current_user)):
     async with get_db() as db:
-        res = await db.execute(select(Article).where(Article.id == article_id, Article.user_id == current_user.id))
+        stmt = select(Article).where(Article.id == article_id)
+        if not current_user.is_admin:
+            stmt = stmt.where(Article.user_id == current_user.id)
+            
+        res = await db.execute(stmt)
         art = res.scalar_one_or_none()
-        if not art: raise HTTPException(404)
+        if not art: raise HTTPException(404, "Article not found or access denied")
         return art
 
 @router.delete("/bulk")
@@ -241,7 +272,9 @@ async def delete_bulk_articles(
     current_user: TokenData = Depends(get_current_user)
 ):
     async with get_db() as db:
-        stmt = delete(Article).where(Article.user_id == current_user.id)
+        stmt = delete(Article)
+        if not current_user.is_admin:
+            stmt = stmt.where(Article.user_id == current_user.id)
         
         if sector: stmt = stmt.where(Article.sector == sector)
         if region: stmt = stmt.where(Article.region == region)
@@ -261,7 +294,11 @@ async def delete_bulk_articles(
 @router.delete("/{article_id}")
 async def delete_article(article_id: int, current_user: TokenData = Depends(get_current_user)):
     async with get_db() as db:
-        res = await db.execute(select(Article).where(Article.id == article_id, Article.user_id == current_user.id))
+        stmt = select(Article).where(Article.id == article_id)
+        if not current_user.is_admin:
+            stmt = stmt.where(Article.user_id == current_user.id)
+            
+        res = await db.execute(stmt)
         art = res.scalar_one_or_none()
         if not art: raise HTTPException(404, "Article not found or access denied")
         
@@ -284,12 +321,12 @@ async def websocket_stats(websocket: WebSocket, token: Optional[str] = Query(Non
 
     try:
         # Send initial stats immediately
-        initial_stats = await _fetch_stats_logic(user_data.user_id)
+        initial_stats = await _fetch_stats_logic(user_data.user_id, user_data.is_admin)
         await websocket.send_json(initial_stats)
         
         while True:
             await asyncio.sleep(10)
-            stats = await _fetch_stats_logic(user_data.user_id)
+            stats = await _fetch_stats_logic(user_data.user_id, user_data.is_admin)
             await websocket.send_json(stats)
     except WebSocketDisconnect:
         pass
