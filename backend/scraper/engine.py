@@ -343,12 +343,15 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
                 }
                 from sqlalchemy.dialects.postgresql import insert as pg_upsert
                 stmt = pg_upsert(Article).values(**val_dict).on_conflict_do_update(
-                    index_elements=['url'],
+                    index_elements=[Article.url],
                     set_={
-                        "full_body": text("excluded.full_body"),
-                        "resolved_url": text("excluded.resolved_url"),
-                        "scrape_job_id": text("excluded.scrape_job_id"),
-                        "agency": text("excluded.agency")
+                        "full_body": val_dict["full_body"],
+                        "author": val_dict["author"],
+                        "agency": val_dict["agency"],
+                        "extra_metadata": val_dict["extra_metadata"],
+                        "published_at": val_dict["published_at"],
+                        "scrape_job_id": val_dict["scrape_job_id"],
+                        "resolved_url": val_dict["resolved_url"]
                     }
                 ).returning(Article.id)
                 res = db.execute(stmt)
