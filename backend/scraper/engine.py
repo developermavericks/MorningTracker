@@ -21,7 +21,9 @@ from scraper.network import NetworkHandler
 # from playwright.sync_api import sync_playwright
 # from playwright_stealth import Stealth
 from scraper.parser import extract_body, extract_author, extract_author_v2, extract_date, is_junk_body
-# Removed resolve_google_news_url_sync as it's now internal to tasks.py Fast-Track
+from scraper.sitemap import SitemapManager, DEFAULT_INDIA_SITEMAPS
+from scraper.llm import get_redis_sync
+from scraper.orchestrator import update_phase_status
 
 from db.database import get_db_sync, Article, ScrapeJob
 from scraper.config import SECTOR_KEYWORDS, REGION_MAP, SEARCH_MODIFIERS, USER_AGENTS
@@ -55,48 +57,7 @@ class ProxyFailureError(NexusBaseError): pass
 class RateLimitError(NexusBaseError): pass
 class ArticleFetchError(NexusBaseError): pass
 
-# --- Proxy Management ---
-class ProxyGuard:
-    _unhealthy = {} 
-    
-    @classmethod
-    def mark_unhealthy(cls, proxy_url: str, duration: int = 300):
-        if not proxy_url: return
-        cls._unhealthy[proxy_url] = time.time() + duration
-        logger.info(f"PROXY-GUARD: Blacklisted {proxy_url[:30]}... for {duration}s")
-        
-    @classmethod
-    def is_healthy(cls, proxy_url: str) -> bool:
-        if not proxy_url: return True
-        expiry = cls._unhealthy.get(proxy_url, 0)
-        if time.time() > expiry:
-            if proxy_url in cls._unhealthy: del cls._unhealthy[proxy_url]
-            return True
-        return False
-
-    @classmethod
-    def get_healthy_proxy(cls, pool: List[str]) -> Optional[str]:
-        healthy = [p for p in pool if cls.is_healthy(p)]
-        return random.choice(healthy) if healthy else (random.choice(pool) if pool else None)
-
-def load_proxies():
-    proxies = []
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    for fname in ["Webshare 10 proxies.txt", "webshare_proxies.txt"]:
-        fpath = os.path.join(base_dir, fname)
-        if os.path.exists(fpath):
-            with open(fpath, "r") as f:
-                for line in f:
-                    parts = line.strip().split(":")
-                    if len(parts) == 4: proxies.append(f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}")
-    
-    user_base = os.getenv("WEBSHARE_PROXY_USER", "jxgqvosn")
-    pw = os.getenv("WEBSHARE_PROXY_PASS", "symou02ck2bw")
-    if user_base and pw:
-        for i in range(1, 11): proxies.append(f"http://{user_base}-{i}:{pw}@p.webshare.io:80")
-            
-    proxies = list(dict.fromkeys(proxies))
-    return proxies
+from scraper.network import NetworkHandler, ProxyGuard, load_proxies
 
 def log(msg: str):
     logger.info(msg)
@@ -104,16 +65,7 @@ def log(msg: str):
 def random_ua() -> str:
     return random.choice(USER_AGENTS)
 
-def update_phase_status(db, job_id, phase_name, status):
-    try:
-        res = db.execute(select(ScrapeJob.phase_stats).where(ScrapeJob.id == job_id))
-        phase_stats_raw = res.scalar()
-        current_stats = json.loads(phase_stats_raw) if phase_stats_raw else {}
-        current_stats[phase_name] = {"status": status, "updated_at": datetime.now().isoformat()}
-        db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(phase_stats=json.dumps(current_stats), current_phase=phase_name))
-        db.commit()
-    except Exception as e:
-        log(f"Error updating phase status: {e}")
+# update_phase_status moved to orchestrator.py
 
 def is_job_cancelled(job_id: str) -> bool:
     from scraper.llm import get_redis_sync
@@ -231,6 +183,36 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
     if cumulative is not None: cumulative.update(seen_urls)
     return articles
 
+# ─── High-Throughput Discovery (Scaling Strategy) ───
+
+async def discover_articles_scaling(job_id: str, sectors: List[str] = None) -> List[dict]:
+    """
+    Scaling Discovery: Uses SitemapManager for parallel multi-sector scanning.
+    """
+    update_phase_status(get_db_sync(), job_id, "Discovery", "running")
+    sm = SitemapManager(target_sectors=sectors)
+    redis = get_redis_sync()
+    
+    # Fetch all URLs from sitemaps
+    raw_articles = await sm.discover_all(DEFAULT_INDIA_SITEMAPS)
+    
+    final_articles = []
+    seen_in_batch = set()
+    
+    for a in raw_articles:
+        url = a["url"]
+        url_hash = hashlib.md5(url.encode()).hexdigest()
+        
+        # Redis-based deduplication (O(1))
+        if redis.sismember("nexus:processed_urls", url_hash) or url in seen_in_batch:
+            continue
+            
+        final_articles.append(a)
+        seen_in_batch.add(url)
+    
+    log(f"Discovery Burst: {len(final_articles)} new articles discovered across {sectors or 'all'} sectors.")
+    return final_articles
+
 # ─── Scraper Phase ───
 
 def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: str) -> Optional[int]:
@@ -242,9 +224,8 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         raw_html = article.get("raw_html")
 
         if not raw_html:
-            # Fallback if somehow triggered without tasks.py wrapper
-            with get_db_sync() as db: 
-                db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_scraped=ScrapeJob.total_scraped + 1))
+            from scraper.orchestrator import _mark_article_processed
+            _mark_article_processed(job_id)
             return None
 
         keywords = []
@@ -270,14 +251,9 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
             # but usually handled in browser.py or discovery phase.
             pass
 
-        body = trafilatura.extract(content)
-        if not body or len(body) < 200:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(content, "lxml")
-            for s in soup(["script", "style", "nav", "header", "footer"]): s.decompose()
-            body = soup.get_text(separator="\n", strip=True)
-
-        author_data = extract_author_v2(content)
+        from scraper import parser
+        body = parser.extract_body(content)
+        author_data = parser.extract_author_v2(content)
         author = author_data.get("name")
         
         extra_meta = {"author_metadata": author_data}
@@ -301,7 +277,7 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         except Exception as e:
             logger.warning(f"Metadata snippeting failed for {url}: {e}")
 
-        extracted_date = extract_date(content)
+        extracted_date = parser.extract_date(content)
         if extracted_date: final_pub_at = extracted_date
 
         if keywords:
@@ -324,8 +300,9 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
 
         with get_db_sync() as db:
             if not body or date_invalid:
+                from scraper.orchestrator import _mark_article_processed
                 db.execute(delete(Article).where(Article.url == article["url"]))
-                db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_scraped=ScrapeJob.total_scraped + 1))
+                _mark_article_processed(job_id)
             else:
                 val_dict = {
                     "title": article["title"],
@@ -354,14 +331,9 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
                         "resolved_url": val_dict["resolved_url"]
                     }
                 ).returning(Article.id)
-                res = db.execute(stmt)
-                article_id = res.scalar()
-                db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_scraped=ScrapeJob.total_scraped + 1))
-            
-            job = db.execute(select(ScrapeJob).where(ScrapeJob.id == job_id)).scalar_one_or_none()
-            if job and job.total_scraped >= job.total_found:
-                db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(status='completed', completed_at=datetime.now()))
-            db.commit()
+                db.execute(stmt)
+                from scraper.orchestrator import _mark_article_processed
+                _mark_article_processed(job_id)
             
             if body and not date_invalid:
                 return article_id
@@ -370,13 +342,33 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
     return None
 
 def bulk_insert_placeholders(db, job_id, articles, sector, region, user_id):
-    for a in articles:
-        try:
-            val_dict = {"title": a["title"], "url": a["url"], "published_at": datetime.fromisoformat(a["published_at"]), "sector": sector, "region": region, "scrape_job_id": job_id, "user_id": user_id, "agency": a.get("agency")}
-            from sqlalchemy.dialects.postgresql import insert as pg_upsert
-            db.execute(pg_upsert(Article).values(**val_dict).on_conflict_do_nothing(index_elements=[Article.url]))
-        except: pass
-    db.commit()
+    """
+    Optimized batch ingestion using on_conflict_do_nothing.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_upsert
+    
+    # Chunker for batch scale
+    BATCH_SIZE = 2000
+    for i in range(0, len(articles), BATCH_SIZE):
+        batch = articles[i:i + BATCH_SIZE]
+        values = []
+        for a in batch:
+            try:
+                values.append({
+                    "title": a.get("title", "Article Discovery"), 
+                    "url": a["url"], 
+                    "published_at": datetime.fromisoformat(a["published_at"].replace('Z', '+00:00')) if isinstance(a["published_at"], str) else datetime.now(),
+                    "sector": a.get("sector") or sector, 
+                    "region": region, 
+                    "scrape_job_id": job_id, 
+                    "user_id": user_id, 
+                    "agency": a.get("agency") or "Sitemap Discovery"
+                })
+            except: continue
+        
+        if values:
+            db.execute(pg_upsert(Article).values(values).on_conflict_do_nothing(index_elements=[Article.url]))
+            db.commit()
 
 def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user_id):
     log(f"Job {job_id} Start.")
@@ -401,11 +393,30 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
         all_discovered = []
         cumulative = set()
         
+        # Parallel Discovery (Issue #4)
+        from asgiref.sync import async_to_sync
+        import asyncio
+        
+        dates = []
         curr = date_from
         while curr <= date_to:
-            if is_job_cancelled(job_id): break
-            all_discovered.extend(discover_articles(keywords, curr, geo, region, job_id, cumulative))
+            dates.append(curr)
             curr += timedelta(days=1)
+
+        async def _parallel_discovery():
+            tasks = []
+            for d in dates:
+                if is_job_cancelled(job_id): break
+                tasks.append(asyncio.to_thread(discover_articles, keywords, d, geo, region, job_id, cumulative))
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, list):
+                    all_discovered.extend(res)
+                elif isinstance(res, Exception):
+                    logger.error(f"Discovery error in parallel batch: {res}")
+
+        async_to_sync(_parallel_discovery)()
         
         db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(cumulative_found=len(cumulative)))
         update_phase_status(db, job_id, "Discovery", "completed")

@@ -19,39 +19,39 @@ services:
       timeout: 5s
       retries: 10
 
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: nexus_backend
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql://postgres:password@db:5432/news_scraper
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
-
   redis:
     image: redis:7-alpine
     container_name: nexus_redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --appendfsync everysec
+    command: redis-server --appendonly yes
     ports:
       - "6379:6379"
 
-  celery_worker:
+  backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+    container_name: nexus_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://postgres:password@db:5432/news_scraper
+      REDIS_URL: redis://redis:6379/0
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  worker:
+    build:
+      context: ./backend
     container_name: nexus_worker
     restart: unless-stopped
     command: celery -A celery_app worker --loglevel=info --concurrency=4
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:password@db:5432/news_scraper
+      DATABASE_URL: postgresql://postgres:password@db:5432/news_scraper
       REDIS_URL: redis://redis:6379/0
       GROQ_API_KEY: ${GROQ_API_KEY}
     depends_on:
@@ -59,15 +59,29 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-    volumes:
-      - ./backend:/app
+
+  beat:
+    build:
+      context: ./backend
+    container_name: nexus_beat
+    restart: unless-stopped
+    command: celery -A celery_app beat --loglevel=info
+    environment:
+      DATABASE_URL: postgresql://postgres:password@db:5432/news_scraper
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
     container_name: nexus_frontend
     restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:8000
     ports:
       - "5173:80"
     depends_on:

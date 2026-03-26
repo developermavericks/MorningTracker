@@ -13,7 +13,7 @@ _groq_raw = os.getenv("GROQ_API_KEY") or os.getenv("XAI_API_KEY") or ""
 GROQ_API_KEYS = [k.strip() for k in _groq_raw.split(",") if k.strip()]
 XAI_API_KEYS = [k.strip() for k in os.getenv("XAI_API_KEY", "").split(",") if k.strip()]
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "minimax-m2:cloud")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 
 # --- Redis for Global Throttling (C-7) ---
 import redis.asyncio as redis
@@ -22,7 +22,7 @@ _redis_client = None
 async def get_redis():
     global _redis_client
     if _redis_client is None:
-        _redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+        _redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), decode_responses=True)
     return _redis_client
 
 # Synchronous Redis for gevent workers
@@ -32,14 +32,15 @@ _redis_sync_client = None
 def get_redis_sync():
     global _redis_sync_client
     if _redis_sync_client is None:
-        _redis_sync_client = redis_sync.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+        _redis_sync_client = redis_sync.from_url(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), decode_responses=True)
     return _redis_sync_client
 
 _ollama_semaphore = None
 def get_ollama_semaphore():
     global _ollama_semaphore
     if _ollama_semaphore is None:
-        _ollama_semaphore = asyncio.Semaphore(2) # Throttles to max 2 concurrent LLM requests to prevent connection closure on mid-range hardware
+        # Optimized for USER hardware (RTX 3060 12GB + 64GB RAM)
+        _ollama_semaphore = asyncio.Semaphore(4) 
     return _ollama_semaphore
 
 def log(msg: str):

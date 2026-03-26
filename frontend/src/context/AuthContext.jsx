@@ -51,7 +51,11 @@ export const AuthProvider = ({ children }) => {
       
       const { access_token } = data;
       localStorage.setItem('token', access_token);
-      await fetchUser();
+      
+      // Attempt to fetch user, but don't block login if it's the first time
+      // The home page will handle its own loading state
+      fetchUser().catch(err => console.error("Initial fetchUser failed", err));
+      
       return { success: true };
     } catch (err) {
       console.error("Login failed", err);
@@ -83,4 +87,10 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

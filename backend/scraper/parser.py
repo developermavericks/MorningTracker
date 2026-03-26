@@ -84,7 +84,9 @@ def extract_author_v2(html: str) -> Dict[str, Any]:
                         elif isinstance(auth_data, str):
                             name = clean_author_text(auth_data)
                             if name: candidates.append({"name": name, "method": "json-ld", "confidence": 0.85})
-            except: continue
+            except Exception as e:
+                logger.debug(f"JSON-LD parse failure in author extraction: {e}")
+                continue
 
         # 2. Meta Tags
         for attr in ["name", "property"]:
@@ -149,11 +151,14 @@ def extract_date(html: str) -> Optional[datetime]:
                 data = json.loads(script.string)
                 items = data if isinstance(data, list) else [data]
                 for item in items:
+                    if not isinstance(item, dict): continue
                     if item.get("@type") in ["Article", "NewsArticle", "BlogPosting", "WebPage"]:
                         for date_key in ["datePublished", "dateCreated", "pubDate"]:
                             if item.get(date_key):
                                 return datetime.fromisoformat(item[date_key].replace('Z', '+00:00'))
-            except: continue
+            except Exception as e:
+                logger.debug(f"JSON-LD parse failure in date extraction: {e}")
+                continue
             
         # 2. Meta Tags
         for attr in ["name", "property"]:
@@ -162,17 +167,26 @@ def extract_date(html: str) -> Optional[datetime]:
                 if tag and tag.get("content"):
                     try:
                         return datetime.fromisoformat(tag["content"].replace('Z', '+00:00'))
-                    except: pass
-    except: pass
+                    except:
+                        pass
+    except Exception as e:
+        logger.warning(f"Global date extraction failed: {e}")
     return None
 
 def extract_body(html: str) -> str:
+    """
+    Consolidated body extraction with multiple strategies.
+    1. Trafilatura bare extraction (Best for news)
+    2. JSON-LD articleBody (Most reliable if present)
+    3. Trafilatura standard (Good fallback)
+    """
     # 1. Trafilatura bare extraction
     try:
         res = trafilatura.bare_extraction(html)
         if res and res.get('text') and len(res.get('text')) > 400:
             return res.get('text')
-    except: pass
+    except Exception as e:
+        logger.debug(f"Trafilatura bare extraction failed: {e}")
 
     # 2. JSON-LD articleBody
     try:
@@ -182,16 +196,20 @@ def extract_body(html: str) -> str:
                 data = json.loads(script.string)
                 items = data if isinstance(data, list) else [data]
                 for item in items:
+                    if not isinstance(item, dict): continue
                     if item.get("@type") in ["Article", "NewsArticle", "BlogPosting"]:
                         body = item.get("articleBody")
                         if body and len(body) > 400: return body
-            except: continue
-    except: pass
+            except:
+                continue
+    except Exception as e:
+        logger.debug(f"JSON-LD body extraction failed: {e}")
 
     # 3. Trafilatura standard
     try:
         ext = trafilatura.extract(html, include_comments=False, no_fallback=False)
         if ext and len(ext) > 400: return ext
-    except: pass
+    except Exception as e:
+        logger.debug(f"Trafilatura standard extraction failed: {e}")
 
     return ""

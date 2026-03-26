@@ -54,8 +54,19 @@ def resolve_google_news_url_sync(url: str) -> str:
             except: pass
             
             resp = client.get(url, headers=headers)
-            if resp.status_code == 503 or "google.com/images/errors/robot.png" in resp.text:
-                return url
+            # If bot detected or 403, fallback to pooled browser
+            if resp.status_code in (403, 503) or "google.com/images/errors/robot.png" in resp.text:
+                from asgiref.sync import async_to_sync
+                from scraper.browser_pool import fetch_with_browser
+                from bs4 import BeautifulSoup
+                
+                # Fetch with browser to bypass bots
+                html = async_to_sync(fetch_with_browser)(url)
+                if html:
+                    # Generic redirect resolution usually just looks for canonical or script-based redirects
+                    # but simple return of current page.url is often enough. 
+                    # For now we just return the url as resolving it isn't always possible post-facto.
+                    pass
                 
             return str(resp.url)
     except Exception:

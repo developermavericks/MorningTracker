@@ -1,6 +1,13 @@
 import axios from 'axios';
 
-const API_BASE = "https://morningtracker-production.up.railway.app/api/";
+const getApiBase = () => {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://127.0.0.1:8000/api/';
+  }
+  return '/api/'; // Use relative path in production
+};
+
+const API_BASE = getApiBase();
 
 const apiClient = axios.create({
   baseURL: API_BASE,

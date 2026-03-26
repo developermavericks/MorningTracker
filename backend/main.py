@@ -13,14 +13,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # Load environment variables from .env file
 load_dotenv()
 
-# FIX: Force ProactorEventLoop on Windows for Playwright/Subprocess support
-if sys.platform == 'win32':
-    try:
-        # Standard in Python 3.8+, but some Celery/Playwright versions still prefer explicit setting
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    except Exception:
-        pass
-
 from fastapi import FastAPI, Depends, Request, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,7 +59,7 @@ async def global_exception_handler(request: Request, call_next):
 # CORS
 _raw_origins = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:3000,https://morning-tracker-sigma.vercel.app"
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:3000,http://127.0.0.1:3000,https://morning-tracker-sigma.vercel.app"
 )
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
@@ -85,8 +77,11 @@ app.add_middleware(
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.getenv("SECRET_KEY", "fallback_secret_key_nexus_6000"),
+    secret_key=os.getenv("SECRET_KEY"),
 )
+if not os.getenv("SECRET_KEY"):
+    logger.critical("FATAL: SECRET_KEY environment variable is missing!")
+    sys.exit(1)
 
 def handle_loop_exception(loop, context):
     exception = context.get("exception")
@@ -102,16 +97,10 @@ async def startup_event():
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(handle_loop_exception)
     except Exception: pass
-
-    # Initialize DB (Alembic is better, but this handles simple runs)
-    try:
-        await init_db()
-    except Exception as e:
-        print(f"DB Init Error (likely connection): {e}")
     
     print(f"API started. CORS origins: {ALLOWED_ORIGINS}")
 
-@app.on_event("startup")
+# @app.on_event("startup")
 async def recover_stuck_jobs():
     """Mark interrupted jobs on startup."""
     try:
@@ -230,3 +219,17 @@ app.include_router(api_router)
 @app.get("/")
 def root():
     return {"status": "Crexito Scrape Distributed API is running", "version": "6.0.0"}
+
+if __name__ == "__main__":
+    from db.database import init_db_sync
+    # Pre-initialize DB synchronously to avoid loop hangs
+    print("NEXUS: Sync Database Initialization Starting...")
+    try:
+        init_db_sync()
+        print("NEXUS: Sync Database Initialization Complete.")
+    except Exception as e:
+        print(f"NEXUS: Sync DB Init Error: {e}")
+        
+    import uvicorn
+    print("NEXUS: Starting Uvicorn Server...")
+    uvicorn.run(app, host="127.0.0.1", port=8000)

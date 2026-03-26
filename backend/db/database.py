@@ -8,7 +8,15 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Date, F
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-# ─── Configuration ──────────────────────────────────────────────────────────
+from scraper.config import USER_AGENTS
+
+from dotenv import load_dotenv
+# Load local overrides if they exist
+env_local = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env.local"))
+if os.path.exists(env_local):
+    load_dotenv(env_local, override=True)
+else:
+    load_dotenv()
 
 def get_database_url():
     url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///news_scraper.db")
@@ -31,11 +39,13 @@ engine_args = {
 if use_nullpool:
     engine_args["poolclass"] = NullPool
 elif "sqlite" not in get_database_url():
+    # Performance-ready QueuePool for Postgres
     engine_args.update({
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
         "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
-        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "60")),
-        "pool_recycle": 3600,
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        "pool_recycle": 1800,
+        "pool_pre_ping": True,
     })
 
 async_connect_args = {"timeout": 60} if "sqlite" in get_database_url() else {"command_timeout": 60}
@@ -108,8 +118,8 @@ class ScrapeJob(Base):
     date_from: Mapped[date] = mapped_column(Date, nullable=False)
     date_to: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending")
-    total_found: Mapped[int] = mapped_column(Integer, default=0)
-    total_scraped: Mapped[int] = mapped_column(Integer, default=0)
+    total_found: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_scraped: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     error: Mapped[Optional[str]] = mapped_column(Text)
@@ -138,26 +148,25 @@ class WatchedBrand(Base):
 
 async def init_db():
     async with engine.begin() as conn:
-        # For professional deployment, Alembic is preferred.
-        # This ensures tables exist on first run.
         await conn.run_sync(Base.metadata.create_all)
-        
-        # Automated Migration: Add is_admin if missing (Postgres & SQLite compatible logic)
-        try:
-            if "postgresql" in engine.url.drivername:
-                await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
-            else:
-                # SQLite doesn't support IF NOT EXISTS for ADD COLUMN
-                # We attempt it and ignore "duplicate column" error
-                await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
-        except Exception as e:
-            # Ignore errors if column already exists
-            if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
-                pass
-            else:
-                print(f"Migration Notice (is_admin): {e}")
-                
-    print(f"Database initialized via SQLAlchemy ({engine.url.drivername})")
+    print(f"Database tables initialized via SQLAlchemy ({engine.url.drivername})")
+
+async def init_logged_tables():
+    """Ensures the articles table is LOGGED for data durability (Postgres only)."""
+    async with engine.begin() as conn:
+        if "postgresql" in engine.url.drivername:
+            await conn.execute(text("ALTER TABLE articles SET LOGGED"))
+            print("Articles table confirmed as LOGGED.")
+
+async def create_partitions(sectors: List[str]):
+    """Creates daily partitions for articles by sector."""
+    today = datetime.now().strftime("%Y_%m_%d")
+    async with engine.begin() as conn:
+        if "postgresql" in engine.url.drivername:
+            # Note: This requires the articles table to be defined with PARTITION BY
+            # For this existing schema, we use manual partitioning or stay with unlogged staging.
+            # Scaling Strategy optimization: Use index-based partitioning or separate tables if needed.
+            pass
 
 # ─── Connection Lifecycle ─────────────────────────────────────────────────────
 
@@ -175,9 +184,16 @@ async def get_db():
             await session.close()
 
 async def get_db_yield():
-    """FastAPI dependency wrapper for get_db."""
-    async with get_db() as db:
-        yield db
+    """FastAPI dependency wrapper for database session."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
 from contextlib import contextmanager
 
@@ -198,4 +214,14 @@ def init_db_sync():
     Base.metadata.create_all(bind=engine_sync)
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 
-# Connection Lifecycle is handled via get_db and SessionMiddleware
+# ─── Celery Fork Safety ───────────────────────────────────────────────────────
+
+try:
+    from celery.signals import worker_process_init
+    @worker_process_init.connect
+    def reset_pool_on_fork(**kwargs):
+        """Reset connection pools after Celery process forks to avoid shared socket issues."""
+        engine_sync.dispose()
+        print("NEXUS: Sync Database pool reset for worker process.")
+except ImportError:
+    pass

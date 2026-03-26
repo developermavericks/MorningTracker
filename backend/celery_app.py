@@ -13,15 +13,24 @@ try:
 except ImportError:
     pass
 
+# Apply gevent monkey-patching ONLY if we are running the worker with gevent pool
+# or if specifically forced via environment variable.
 if os.environ.get("CELERY_WORKER_GEVENT") == "1":
-    from gevent import monkey
-    monkey.patch_all()
+    is_gevent_worker = "worker" in sys.argv and any(arg in ["gevent", "-Pgevent"] for arg in sys.argv)
+    if is_gevent_worker or os.environ.get("FORCE_GEVENT_PATCHING") == "1":
+        from gevent import monkey
+        monkey.patch_all()
+        print("NEXUS: Gevent Monkey-Patching Applied.")
 from celery import Celery
 from dotenv import load_dotenv
 
 load_dotenv()
+# Also try .env.local for local restructure
+env_local = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env.local")
+if os.path.exists(env_local):
+    load_dotenv(env_local, override=True)
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 
 app = Celery(
     "nexus_tasks",

@@ -5,9 +5,13 @@ __pycache__/
 venv/
 .env
 *.log
-*.db
-*.db-shm
 *.db-wal
+celerybeat-schedule*
+*.log
+api.log
+worker.log
+beat.log
+frontend.log
 
 # Debug Scripts & Temporary Files
 backend/*_check.py
