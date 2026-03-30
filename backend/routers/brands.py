@@ -66,32 +66,31 @@ async def add_brand(req: BrandRequest, current_user: TokenData = Depends(get_cur
     async with get_db() as db:
         try:
             target_name = req.name.strip()
-            # Upsert logic: Find if this brand already exists for this user
-            stmt = select(WatchedBrand).where(
+            # Uniquify logic: Find all brands for this user that start with the same name
+            stmt = select(WatchedBrand.name).where(
                 WatchedBrand.user_id == current_user.id,
-                func.lower(WatchedBrand.name) == func.lower(target_name)
-            )
+                WatchedBrand.name.like(f"{target_name}%")
+            ).order_by(WatchedBrand.name.asc())
             
             res = await db.execute(stmt)
-            existing_brand = res.scalar_one_or_none()
+            existing_names = set(res.scalars().all())
             
-            if existing_brand:
-                # Update existing record
-                existing_brand.keywords = req.keywords
-                existing_brand.region = req.region or "india"
-                await db.commit()
-                return {"status": "updated", "brand": existing_brand.name, "action": "merged"}
+            final_name = target_name
+            if final_name in existing_names:
+                counter = 1
+                while f"{target_name} {counter}" in existing_names:
+                    counter += 1
+                final_name = f"{target_name} {counter}"
             
-            # Create new record
             new_brand = WatchedBrand(
-                name=target_name,
+                name=final_name,
                 user_id=current_user.id,
                 keywords=req.keywords,
                 region=req.region or "india"
             )
             db.add(new_brand)
             await db.commit()
-            return {"status": "success", "brand": target_name, "action": "created"}
+            return {"status": "success", "brand": final_name, "original_request": target_name}
         except Exception as e:
             await db.rollback()
             raise HTTPException(400, f"Error adding brand: {str(e)}")
