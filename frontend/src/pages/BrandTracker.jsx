@@ -35,7 +35,7 @@ export default function BrandTracker({ onNavigate }) {
 
     const fetchBrands = async () => {
         try {
-            const data = await api.get("brands/");
+            const data = await api.get(`brands/?t=${Date.now()}`);
             setBrands(Array.isArray(data) ? data : []);
         } catch (err) {
             console.error("Failed to fetch brands", err);

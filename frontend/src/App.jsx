@@ -163,14 +163,14 @@ function ProtectedApp() {
       </aside>
 
       <main className="main-content">
-        {page === "dashboard" && <Dashboard onNavigate={setPage} />}
-        {page === "articles" && <ArticlesBrowser />}
-        {page === "brands" && <BrandTracker />}
+        {page === "dashboard" && <Dashboard onNavigate={navigateWithContext} />}
+        {page === "articles" && <ArticlesBrowser initialFilters={navContext} />}
+        {page === "brands" && <BrandTracker onNavigate={navigateWithContext} initialFilters={navContext} />}
         {page === "jobs" && <Jobs />}
         {page === "diagnostics" && <Diagnostics />}
-        {page === "admin" && <AdminDashboard onNavigate={handleNavigate} />}
-        {page === "admin-user" && <AdminUserDetail email={navContext?.email} onNavigate={handleNavigate} />}
-        {page === "admin-job" && <AdminJobDetail id={navContext?.id} onNavigate={handleNavigate} />}
+        {page === "admin" && <AdminDashboard onNavigate={navigateWithContext} />}
+        {page === "admin-user" && <AdminUserDetail email={navContext?.email} onNavigate={navigateWithContext} />}
+        {page === "admin-job" && <AdminJobDetail id={navContext?.id} onNavigate={navigateWithContext} />}
       </main>
     </div>
   );

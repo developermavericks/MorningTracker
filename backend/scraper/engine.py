@@ -361,22 +361,22 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
                 if "postgresql" in str(db.bind.url):
                     from sqlalchemy.dialects.postgresql import insert as pg_upsert
                     stmt = pg_upsert(Article).values(**val_dict).on_conflict_do_update(
-                        index_elements=[Article.url],
+                        index_elements=[Article.url, Article.user_id],
                         set_={
                             "full_body": val_dict["full_body"],
                             "author": val_dict["author"],
                             "agency": val_dict["agency"],
                             "extra_metadata": val_dict["extra_metadata"],
                             "published_at": val_dict["published_at"],
-                            "scrape_job_id": val_dict["scrape_job_id"],
-                            "resolved_url": val_dict["resolved_url"]
+                            "resolved_url": val_dict["resolved_url"],
+                            "scrape_job_id": val_dict["scrape_job_id"]
                         }
                     ).returning(Article.id)
                     res = db.execute(stmt)
                     article_id = res.scalar()
                 else:
                     # SQLite-safe upsert
-                    existing = db.execute(select(Article).where(Article.url == normalized_url)).first()
+                    existing = db.execute(select(Article).where(Article.url == normalized_url).where(Article.user_id == user_id)).first()
                     if existing:
                         existing_obj = existing[0]
                         for k, v in val_dict.items():

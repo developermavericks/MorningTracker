@@ -30,7 +30,7 @@ export const AuthProvider = ({ children }) => {
 
   const fetchUser = async () => {
     try {
-      const userData = await api.get('/auth/me');
+      const userData = await api.get(`/auth/me?t=${Date.now()}`);
       setUser(userData);
     } catch (err) {
       console.error("Auth verify failed", err);
