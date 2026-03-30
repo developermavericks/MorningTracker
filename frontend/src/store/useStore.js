@@ -16,7 +16,7 @@ const useStore = create((set, get) => ({
   
   fetchStats: async () => {
     try {
-      const stats = await api.get('/articles/stats/summary');
+      const stats = await api.get(`/articles/stats/summary?t=${Date.now()}`);
       set({ stats });
     } catch (err) {
       console.error('Stats fetch failed:', err);
@@ -25,7 +25,7 @@ const useStore = create((set, get) => ({
 
   fetchJobs: async () => {
     try {
-      const data = await api.get('/scrape/jobs');
+      const data = await api.get(`/scrape/jobs?t=${Date.now()}`);
       // Ensure jobs is always an array for UI stability
       set({ jobs: Array.isArray(data) ? data : [] });
     } catch (err) {

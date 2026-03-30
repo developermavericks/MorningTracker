@@ -161,7 +161,7 @@ export default function Jobs() {
 
   const refreshJob = async (id) => {
     try {
-      const updated = await api.get(`/scrape/job/${id}`);
+      const updated = await api.get(`/scrape/job/${id}?t=${Date.now()}`);
       useStore.setState({
         jobs: useStore.getState().jobs.map(j => j.id === id ? updated : j)
       });

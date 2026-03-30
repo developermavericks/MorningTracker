@@ -2,7 +2,7 @@ import uuid
 import asyncio
 from datetime import date, datetime
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Response
 from pydantic import BaseModel
 from sqlalchemy import select, func, update, delete
 from db.database import get_db, ScrapeJob, Article, User
@@ -90,8 +90,13 @@ async def start_enrichment(current_user: TokenData = Depends(get_current_user)):
     return {"status": "enqueued", "count": len(ids)}
 
 @router.get("/jobs")
-async def list_jobs(limit: int = 20, current_user: TokenData = Depends(get_current_user)):
+async def list_jobs(response: Response, limit: int = 20, current_user: TokenData = Depends(get_current_user)):
     """List recent scrape jobs for current user (or all if admin)."""
+    # Prevent caching of job progress status
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    
     async with get_db() as db:
         # Join with User to get initiator info
         stmt = select(ScrapeJob, User.name, User.email).join(User, ScrapeJob.user_id == User.id, isouter=True)
@@ -115,8 +120,13 @@ async def list_jobs(limit: int = 20, current_user: TokenData = Depends(get_curre
         return jobs
 
 @router.get("/job/{job_id}")
-async def get_job_status(job_id: str, current_user: TokenData = Depends(get_current_user)):
+async def get_job_status(job_id: str, response: Response, current_user: TokenData = Depends(get_current_user)):
     """Get status and progress of a scrape job."""
+    # Prevent caching of single job status
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    
     async with get_db() as db:
         stmt = select(ScrapeJob).where(ScrapeJob.id == job_id)
         if not current_user.is_admin:
