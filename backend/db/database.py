@@ -133,6 +133,10 @@ class WatchedBrand(Base):
     region: Mapped[str] = mapped_column(String, default="india")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     last_scraped: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    
+    __table_args__ = (
+        Index("idx_unique_brand_user", "name", "user_id", unique=True),
+    )
 
 # ─── Initialization ───────────────────────────────────────────────────────────
 
@@ -142,20 +146,40 @@ async def init_db():
         # This ensures tables exist on first run.
         await conn.run_sync(Base.metadata.create_all)
         
-        # Automated Migration: Add is_admin if missing (Postgres & SQLite compatible logic)
+        # Automated Migration: Add is_admin if missing
         try:
             if "postgresql" in engine.url.drivername:
                 await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
             else:
-                # SQLite doesn't support IF NOT EXISTS for ADD COLUMN
-                # We attempt it and ignore "duplicate column" error
                 await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
+        except: pass
+
+        # Automated Cleanup: Duplicate Brands
+        try:
+            # We use a raw SQL approach for broad compatibility
+            res = await conn.execute(text("""
+                SELECT name, user_id, COUNT(*) 
+                FROM watched_brands 
+                GROUP BY name, user_id 
+                HAVING COUNT(*) > 1
+            """))
+            duplicates = res.all()
+            for name, user_id, count in duplicates:
+                # Find all records for this duplicate pair
+                res_all = await conn.execute(text(
+                    "SELECT id FROM watched_brands WHERE name = :name AND user_id = :user_id ORDER BY id ASC"
+                ), {"name": name, "user_id": user_id})
+                ids = [r[0] for r in res_all.all()]
+                
+                # Keep the first one, rename the rest
+                for i, brand_id in enumerate(ids[1:], start=1):
+                    new_name = f"{name} {i}"
+                    await conn.execute(text(
+                        "UPDATE watched_brands SET name = :new_name WHERE id = :id"
+                    ), {"new_name": new_name, "id": brand_id})
+                    print(f"Migration: Renamed duplicate brand '{name}' to '{new_name}' (User: {user_id})")
         except Exception as e:
-            # Ignore errors if column already exists
-            if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
-                pass
-            else:
-                print(f"Migration Notice (is_admin): {e}")
+            print(f"Migration Notice (Brand Cleanup): {e}")
                 
     print(f"Database initialized via SQLAlchemy ({engine.url.drivername})")
 

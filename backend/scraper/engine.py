@@ -125,6 +125,31 @@ def is_job_cancelled(job_id: str) -> bool:
     except:
         return False
 
+def normalize_url(url: str) -> str:
+    """
+    Strips tracking parameters and normalizes Google News redirects.
+    Ensures URL collision detection works reliably.
+    """
+    if not url: return ""
+    from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+    
+    # 1. Strip common tracking params
+    u = urlparse(url)
+    query = dict(parse_qsl(u.query))
+    tracking_params = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "oc", "hl", "gl", "ceid"]
+    for p in tracking_params:
+        if p in query: del query[p]
+    
+    # Rebuild URL without tracking
+    u = u._replace(query=urlencode(query))
+    normalized = urlunparse(u)
+    
+    # 2. Lowercase domain for consistency
+    u = urlparse(normalized)
+    normalized = u._replace(netloc=u.netloc.lower()).geturl()
+    
+    return normalized
+
 def verify_brand_relevance(text: str, keywords: List[str]) -> bool:
     if not text or not keywords: return True
     text_lower = text.lower()
@@ -237,6 +262,9 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
     if is_job_cancelled(job_id): return None
     try:
         url = article["url"]
+        # Normalize original URL for lookups/duplicates
+        normalized_url = normalize_url(url)
+        
         # Redirection and scraping are now handled in tasks.py via threaded browser
         resolved_url = article.get("resolved_url", url)
         raw_html = article.get("raw_html")
@@ -250,8 +278,11 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         keywords = []
         with get_db_sync() as db:
             from db.database import WatchedBrand
-            brand_obj = db.execute(select(WatchedBrand).where(WatchedBrand.name == sector).where(WatchedBrand.user_id == user_id)).scalar_one_or_none()
-            if brand_obj and brand_obj.keywords: keywords = [k.strip() for k in brand_obj.keywords.split(",") if k.strip()]
+            # Use .first() as per user request to handle legacy duplicates gracefully
+            brand_obj = db.execute(select(WatchedBrand).where(WatchedBrand.name == sector).where(WatchedBrand.user_id == user_id)).first()
+            if brand_obj:
+                brand_obj = brand_obj[0] # SQLAlchemy returns a Row object
+                if brand_obj.keywords: keywords = [k.strip() for k in brand_obj.keywords.split(",") if k.strip()]
         
         if not keywords:
             from scraper.config import SECTOR_KEYWORDS
@@ -265,11 +296,6 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         body, author = None, None
         content = raw_html
         
-        if any(x in content for x in ["403 Forbidden", "429 Too Many Requests", "Access Denied"]):
-            # Note: marking unhealthiness is tricky without the proxy object here, 
-            # but usually handled in browser.py or discovery phase.
-            pass
-
         body = trafilatura.extract(content)
         if not body or len(body) < 200:
             from bs4 import BeautifulSoup
@@ -282,19 +308,13 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         
         extra_meta = {"author_metadata": author_data}
         try:
-            # Strategic HTML Snippeting for LLM Judge
-            # Use limited slice to avoid backtracking on huge pages
-            head_match = re.search(r"<head>.*?</head>", content[:15000], re.I | re.S)
-            html_head = head_match.group(0) if head_match else ""
-            
             # Take snippets from the start and end of body
-            body_start_match = re.search(r"<body.*?>", content, re.I)
+            body_start_match = re.search(r"<body.*?>", content[:15000], re.I)
             body_start_idx = body_start_match.end() if body_start_match else 0
             html_top = content[body_start_idx:body_start_idx + 3000]
             html_bottom = content[-3000:]
             
             extra_meta["html_snippets"] = {
-                "head": html_head[:2000],
                 "top": html_top,
                 "bottom": html_bottom
             }
@@ -305,31 +325,26 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         if extracted_date: final_pub_at = extracted_date
 
         if keywords:
-            # Check relevance more robustly: title is high priority
             title_body = f"{article['title']} {body}"
-            # Brand Tracker: If the brand name (sector) or ANY keyword is found, it's relevant.
             is_relevant = any(kw.lower() in title_body.lower() for kw in keywords)
-            if not is_relevant:
-                # If it's a brand tracker, also check the sector name itself just in case
-                if sector.lower() in title_body.lower():
-                    is_relevant = True
+            if not is_relevant and sector.lower() in title_body.lower():
+                is_relevant = True
             
             if not is_relevant:
                 body = None
         
-        # 48h filter (Relaxed from 24h to avoid nuking articles discovered by Google but slightly older)
         now = datetime.now()
         if final_pub_at.tzinfo: now = now.astimezone(final_pub_at.tzinfo)
         date_invalid = (now - final_pub_at) > timedelta(hours=48)
 
         with get_db_sync() as db:
             if not body or date_invalid:
-                db.execute(delete(Article).where(Article.url == article["url"]))
+                db.execute(delete(Article).where(Article.url == normalized_url))
                 db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_scraped=ScrapeJob.total_scraped + 1))
             else:
                 val_dict = {
                     "title": article["title"],
-                    "url": article["url"],
+                    "url": normalized_url,
                     "resolved_url": resolved_url,
                     "full_body": body,
                     "author": author,
@@ -341,26 +356,43 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
                     "user_id": user_id,
                     "extra_metadata": extra_meta
                 }
-                from sqlalchemy.dialects.postgresql import insert as pg_upsert
-                stmt = pg_upsert(Article).values(**val_dict).on_conflict_do_update(
-                    index_elements=[Article.url],
-                    set_={
-                        "full_body": val_dict["full_body"],
-                        "author": val_dict["author"],
-                        "agency": val_dict["agency"],
-                        "extra_metadata": val_dict["extra_metadata"],
-                        "published_at": val_dict["published_at"],
-                        "scrape_job_id": val_dict["scrape_job_id"],
-                        "resolved_url": val_dict["resolved_url"]
-                    }
-                ).returning(Article.id)
-                res = db.execute(stmt)
-                article_id = res.scalar()
+                
+                # Portable Upsert: Check if exists for SQLite, use ON CONFLICT for PG
+                if "postgresql" in str(db.bind.url):
+                    from sqlalchemy.dialects.postgresql import insert as pg_upsert
+                    stmt = pg_upsert(Article).values(**val_dict).on_conflict_do_update(
+                        index_elements=[Article.url],
+                        set_={
+                            "full_body": val_dict["full_body"],
+                            "author": val_dict["author"],
+                            "agency": val_dict["agency"],
+                            "extra_metadata": val_dict["extra_metadata"],
+                            "published_at": val_dict["published_at"],
+                            "scrape_job_id": val_dict["scrape_job_id"],
+                            "resolved_url": val_dict["resolved_url"]
+                        }
+                    ).returning(Article.id)
+                    res = db.execute(stmt)
+                    article_id = res.scalar()
+                else:
+                    # SQLite-safe upsert
+                    existing = db.execute(select(Article).where(Article.url == normalized_url)).first()
+                    if existing:
+                        existing_obj = existing[0]
+                        for k, v in val_dict.items():
+                            setattr(existing_obj, k, v)
+                        article_id = existing_obj.id
+                    else:
+                        res = db.execute(insert(Article).values(**val_dict).returning(Article.id))
+                        article_id = res.scalar()
+
                 db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_scraped=ScrapeJob.total_scraped + 1))
             
-            job = db.execute(select(ScrapeJob).where(ScrapeJob.id == job_id)).scalar_one_or_none()
-            if job and job.total_scraped >= job.total_found:
-                db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(status='completed', completed_at=datetime.now()))
+            job = db.execute(select(ScrapeJob).where(ScrapeJob.id == job_id)).first()
+            if job:
+                job_obj = job[0]
+                if job_obj.total_scraped >= job_obj.total_found:
+                    db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(status='completed', completed_at=datetime.now()))
             db.commit()
             
             if body and not date_invalid:
@@ -372,10 +404,16 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
 def bulk_insert_placeholders(db, job_id, articles, sector, region, user_id):
     for a in articles:
         try:
-            val_dict = {"title": a["title"], "url": a["url"], "published_at": datetime.fromisoformat(a["published_at"]), "sector": sector, "region": region, "scrape_job_id": job_id, "user_id": user_id, "agency": a.get("agency")}
-            from sqlalchemy.dialects.postgresql import insert as pg_upsert
-            db.execute(pg_upsert(Article).values(**val_dict).on_conflict_do_nothing(index_elements=[Article.url]))
-        except: pass
+            norm_url = normalize_url(a["url"])
+            val_dict = {"title": a["title"], "url": norm_url, "published_at": datetime.fromisoformat(a["published_at"]), "sector": sector, "region": region, "scrape_job_id": job_id, "user_id": user_id, "agency": a.get("agency")}
+            
+            # Portable Upsert Hack: Check if exists first for SQLite compliance 
+            # while maintaining speed for placeholder phase.
+            exists = db.execute(select(Article.id).where(Article.url == norm_url)).first()
+            if not exists:
+                db.execute(insert(Article).values(**val_dict))
+        except Exception as e:
+            logger.debug(f"Placeholder insert skip for {a['url']}: {e}")
     db.commit()
 
 def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user_id):

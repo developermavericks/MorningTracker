@@ -6,7 +6,9 @@ from datetime import datetime
 from celery_app import app as celery_app
 from db.database import get_db_sync, Article, ScrapeJob
 from scraper.browser import scrape_url
-from sqlalchemy import select, update
+from sqlalchemy import select, update, insert
+from scraper.engine import normalize_url
+from scraper.llm import get_redis_sync
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +96,18 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
             _mark_article_processed(job_id)
             return None
         
+        # ─── URL NORMALIZATION & LOCKING ───
+        normalized_url = normalize_url(resolved_url)
+        lock_key = f"lock:scrape:{normalized_url}"
+        r = get_redis_sync()
+        
+        # Try to acquire lock for 10 minutes to prevent overlaps
+        #nx=True means only set if it doesn't exist
+        if not r.set(lock_key, job_id, nx=True, ex=600):
+            logger.info(f"Task overlap detected for {normalized_url}. Skipping redundant node.")
+            _mark_article_processed(job_id)
+            return None
+
         # --- FAST-TRACK SCRAPING (httpx + trafilatura) ---
         html = None
         try:

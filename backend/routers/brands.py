@@ -61,22 +61,39 @@ async def get_brands(current_user: TokenData = Depends(get_current_user)):
 
 @router.post("/")
 async def add_brand(req: BrandRequest, current_user: TokenData = Depends(get_current_user)):
-    """Add a new brand to watch list."""
+    """Add a new brand to watch list with automatic uniquification of name."""
     validate_keywords(req.keywords)
     async with get_db() as db:
         try:
+            target_name = req.name.strip()
+            # Uniquify logic: Find all brands for this user that start with the same name
+            stmt = select(WatchedBrand.name).where(
+                WatchedBrand.user_id == current_user.id,
+                WatchedBrand.name.like(f"{target_name}%")
+            ).order_by(WatchedBrand.name.asc())
+            
+            res = await db.execute(stmt)
+            existing_names = set(res.scalars().all())
+            
+            final_name = target_name
+            if final_name in existing_names:
+                counter = 1
+                while f"{target_name} {counter}" in existing_names:
+                    counter += 1
+                final_name = f"{target_name} {counter}"
+            
             new_brand = WatchedBrand(
-                name=req.name,
+                name=final_name,
                 user_id=current_user.id,
                 keywords=req.keywords,
                 region=req.region or "india"
             )
             db.add(new_brand)
             await db.commit()
-            return {"status": "success", "brand": req.name}
-        except Exception:
+            return {"status": "success", "brand": final_name, "original_request": target_name}
+        except Exception as e:
             await db.rollback()
-            raise HTTPException(400, "Brand already being watched or error occurred")
+            raise HTTPException(400, f"Error adding brand: {str(e)}")
 
 @router.put("/{name}")
 async def update_brand(name: str, req: BrandRequest, current_user: TokenData = Depends(get_current_user)):
