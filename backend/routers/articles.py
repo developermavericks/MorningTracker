@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, HTTPException, WebSocket, WebSocketDisconnect, Depends, status
+from fastapi import APIRouter, Query, HTTPException, WebSocket, WebSocketDisconnect, Depends, status, Response
 import asyncio
 import csv
 import io
@@ -111,7 +111,11 @@ async def _fetch_stats_logic(user_id: str, is_admin: bool = False):
     }
 
 @router.get("/stats/summary")
-async def get_stats(current_user: TokenData = Depends(get_current_user)):
+async def get_stats(response: Response, current_user: TokenData = Depends(get_current_user)):
+    # Prevent caching of dashboard stats
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return await _fetch_stats_logic(current_user.id, current_user.is_admin)
 
 @router.get("/export/csv")
