@@ -8,6 +8,7 @@ const useStore = create((set, get) => ({
   stats: null,
   articles: [],
   totalArticles: 0,
+  totalJobs: 0,
   loading: false,
   error: null,
 
@@ -23,14 +24,20 @@ const useStore = create((set, get) => ({
     }
   },
 
-  fetchJobs: async () => {
+  fetchJobs: async (page = 1, append = false) => {
     try {
-      const data = await api.get(`/scrape/jobs?t=${Date.now()}`);
-      // Ensure jobs is always an array for UI stability
-      set({ jobs: Array.isArray(data) ? data : [] });
+      const data = await api.get(`/scrape/jobs?page=${page}&page_size=50&t=${Date.now()}`);
+      
+      const newJobs = data.jobs || (Array.isArray(data) ? data : []);
+      const total = data.total ?? 0;
+
+      set((state) => ({
+        jobs: append ? [...state.jobs, ...newJobs] : newJobs,
+        totalJobs: total ?? (append ? state.totalJobs : newJobs.length)
+      }));
     } catch (err) {
       console.error('Jobs fetch failed:', err);
-      set({ jobs: [] });
+      if (!append) set({ jobs: [] });
     }
   },
 
