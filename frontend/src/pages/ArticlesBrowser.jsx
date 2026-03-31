@@ -54,14 +54,14 @@ function ArticleModal({ article, onClose, onDelete }) {
   );
 }
 
-export default function ArticlesBrowser() {
+export default function ArticlesBrowser({ initialFilters }) {
   const { articles, totalArticles, loading, fetchArticles, deleteArticle, deleteBulkArticles } = useStore();
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [filters, setFilters] = useState({
-    sector: "",
-    region: "",
-    search: "",
+    sector: initialFilters?.sector || "",
+    region: initialFilters?.region || "",
+    search: initialFilters?.search || "",
   });
 
   const load = useCallback((pg = 1) => {
@@ -73,7 +73,7 @@ export default function ArticlesBrowser() {
 
   const openArticle = async (id) => {
     try {
-      const full = await api.get(`/articles/${id}`);
+      const full = await api.get(`/articles/${id}?t=${Date.now()}`);
       setSelected(full);
     } catch { }
   };

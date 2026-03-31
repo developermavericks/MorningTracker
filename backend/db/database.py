@@ -71,7 +71,7 @@ class Article(Base):
     __tablename__ = "articles"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
     resolved_url: Mapped[Optional[str]] = mapped_column(Text)
     full_body: Mapped[Optional[str]] = mapped_column(Text)
     author: Mapped[Optional[str]] = mapped_column(String)
@@ -97,6 +97,7 @@ class Article(Base):
         Index("idx_articles_sector", "sector"),
         Index("idx_articles_region", "region"),
         Index("idx_articles_published_at", "published_at"),
+        Index("idx_unique_url_user", "url", "user_id", unique=True),
     )
 
 class ScrapeJob(Base):
@@ -146,6 +147,19 @@ async def init_db():
         # This ensures tables exist on first run.
         await conn.run_sync(Base.metadata.create_all)
         
+        # Automated Migration: Article Multi-tenancy (Drop old URL unique constraint)
+        try:
+            if "postgresql" in engine.url.drivername:
+                # PostgreSQL creates a constraint called 'articles_url_key' for unique=True
+                await conn.execute(text("ALTER TABLE articles DROP CONSTRAINT IF EXISTS articles_url_key"))
+                # Also ensure the new composite index exists (if create_all didn't catch it)
+                await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_url_user ON articles (url, user_id)"))
+            else:
+                # SQLite - we manually create the index as a fallback
+                await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_url_user ON articles (url, user_id)"))
+        except Exception as e:
+            print(f"Migration Notice (Article Schema): {e}")
+
         # Automated Migration: Add is_admin if missing
         try:
             if "postgresql" in engine.url.drivername:

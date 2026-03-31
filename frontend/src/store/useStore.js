@@ -37,7 +37,7 @@ const useStore = create((set, get) => ({
   fetchArticles: async (params = {}) => {
     set({ loading: true });
     try {
-      const data = await api.get('/articles/', params);
+      const data = await api.get('/articles/', { ...params, t: Date.now() });
       // Defensive checks for production stability
       const safeArticles = Array.isArray(data.articles) ? data.articles : [];
       const safeTotal = typeof data.total === 'number' ? data.total : 0;

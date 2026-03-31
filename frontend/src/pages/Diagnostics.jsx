@@ -7,7 +7,7 @@ export default function Diagnostics() {
 
     const fetchDiagnostics = async () => {
         try {
-            const json = await api.get("/diagnostics/health");
+            const json = await api.get(`/diagnostics/health?t=${Date.now()}`);
             setData(json);
         } catch (e) {
             console.error(e);

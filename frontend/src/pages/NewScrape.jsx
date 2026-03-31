@@ -15,7 +15,7 @@ export default function NewScrape({ onNavigate }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    api.get("/scrape/options")
+    api.get(`/scrape/options?t=${Date.now()}`)
       .then(setOptions)
       .catch(() => { });
   }, []);

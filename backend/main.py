@@ -64,6 +64,16 @@ async def global_exception_handler(request: Request, call_next):
             content={"detail": "Internal server error. The NEXUS team has been notified."}
         )
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Ensure sensitive API data is never cached by browsers or proxies."""
+    response = await call_next(request)
+    if request.url.path.startswith("/api"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # CORS
 _raw_origins = os.getenv(
     "CORS_ORIGINS",
