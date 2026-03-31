@@ -97,6 +97,13 @@ async def list_all_jobs(
     for row in rows:
         job, name, email = row
         job_dict = {c.name: getattr(job, c.name) for c in job.__table__.columns}
+        
+        # Safe ISO Formatting for UTC
+        for key in ["started_at", "completed_at"]:
+            ts = job_dict.get(key)
+            if ts:
+                job_dict[key] = ts.isoformat() + ("Z" if ts.tzinfo is None else "")
+            
         job_dict["user_name"] = name
         job_dict["user_email"] = email
         jobs.append(job_dict)
@@ -137,6 +144,13 @@ async def get_job_detail(
         
     job, name, email = row[0]
     job_dict = {c.name: getattr(job, c.name) for c in job.__table__.columns}
+    
+    # Safe ISO Formatting for UTC
+    for key in ["started_at", "completed_at"]:
+        ts = job_dict.get(key)
+        if ts:
+            job_dict[key] = ts.isoformat() + ("Z" if ts.tzinfo is None else "")
+        
     job_dict["user_name"] = name
     job_dict["user_email"] = email
     
@@ -212,11 +226,34 @@ async def get_user_jobs(
     # Brands/Keywords Watchlist
     brands_query = select(WatchedBrand).where(WatchedBrand.user_id == user.id)
     brands_res = await db.execute(brands_query)
-    brands = brands_res.scalars().all()
+    brands_orm = brands_res.scalars().all()
+    
+    # Explicit Dict Conversion (ORM objects aren't JSON serializable by default)
+    # Also standardize ISO format with 'Z' for UTC if naive
+    brands = []
+    for b in brands_orm:
+        brands.append({
+            "id": b.id,
+            "name": b.name,
+            "region": b.region,
+            "keywords": b.keywords,
+            "last_scraped": b.last_scraped.isoformat() + ("Z" if b.last_scraped.tzinfo is None else "") if b.last_scraped else None
+        })
+    
+    # Standardize Job timestamps
+    formatted_jobs = []
+    for j in jobs:
+        # Note: 'j' is already an ORM object here, so we convert to dict
+        j_dict = {c.name: getattr(j, c.name) for c in j.__table__.columns}
+        for key in ["started_at", "completed_at"]:
+            ts = j_dict.get(key)
+            if ts:
+                j_dict[key] = ts.isoformat() + ("Z" if ts.tzinfo is None else "")
+        formatted_jobs.append(j_dict)
     
     return {
         "user": {"name": user.name, "email": user.email},
-        "jobs": jobs,
+        "jobs": formatted_jobs,
         "brands": brands,
         "stats": {
             "total_jobs": job_count or 0,

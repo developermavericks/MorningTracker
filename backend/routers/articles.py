@@ -63,10 +63,12 @@ async def get_articles(
         articles = []
         for a in articles_orm:
             a_dict = {c.name: getattr(a, c.name) for c in a.__table__.columns}
-            if a_dict.get("published_at"):
-                a_dict["published_at"] = a_dict["published_at"].isoformat() + "Z"
-            if a_dict.get("created_at"):
-                a_dict["created_at"] = a_dict["created_at"].isoformat() + "Z"
+            
+            # Safe ISO Formatting for UTC
+            for key in ["published_at", "created_at"]:
+                ts = a_dict.get(key)
+                if ts:
+                    a_dict[key] = ts.isoformat() + ("Z" if ts.tzinfo is None else "")
             articles.append(a_dict)
 
     return {
