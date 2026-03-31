@@ -316,7 +316,8 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         
         now = datetime.now()
         if final_pub_at.tzinfo: now = now.astimezone(final_pub_at.tzinfo)
-        date_invalid = (now - final_pub_at) > timedelta(hours=48)
+        # Increase threshold to 96h (4 days) to support 3-day lookback window
+        date_invalid = (now - final_pub_at) > timedelta(hours=96)
 
         with get_db_sync() as db:
             if not body or date_invalid:
