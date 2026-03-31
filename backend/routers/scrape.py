@@ -132,6 +132,12 @@ async def list_jobs(
         for row in rows:
             job, user_name, user_email = row
             job_dict = {c.name: getattr(job, c.name) for c in job.__table__.columns}
+            
+            if job_dict.get("started_at"):
+                job_dict["started_at"] = job_dict["started_at"].isoformat() + "Z"
+            if job_dict.get("completed_at"):
+                job_dict["completed_at"] = job_dict["completed_at"].isoformat() + "Z"
+                
             job_dict["user_name"] = user_name or "System/Unknown"
             job_dict["user_email"] = user_email or "N/A"
             jobs.append(job_dict)
