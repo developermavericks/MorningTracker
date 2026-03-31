@@ -5,7 +5,7 @@ from typing import Optional, List
 import datetime as dt
 from datetime import date, datetime, time
 
-from db.database import get_db_yield, ScrapeJob, User, Article
+from db.database import get_db_yield, ScrapeJob, User, Article, WatchedBrand
 from .auth_utils import get_auth_user, TokenData
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -209,9 +209,15 @@ async def get_user_jobs(
     stats_res = await db.execute(select(func.count(ScrapeJob.id), func.sum(ScrapeJob.total_scraped)).where(ScrapeJob.user_id == user.id))
     job_count, article_sum = stats_res.one()
     
+    # Brands/Keywords Watchlist
+    brands_query = select(WatchedBrand).where(WatchedBrand.user_id == user.id)
+    brands_res = await db.execute(brands_query)
+    brands = brands_res.scalars().all()
+    
     return {
         "user": {"name": user.name, "email": user.email},
         "jobs": jobs,
+        "brands": brands,
         "stats": {
             "total_jobs": job_count or 0,
             "total_articles": article_sum or 0,
