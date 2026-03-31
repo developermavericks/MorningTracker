@@ -57,7 +57,19 @@ async def get_articles(
         # Get results
         stmt = stmt.order_by(Article.published_at.desc()).offset(offset).limit(page_size)
         res_articles = await db.execute(stmt)
-        articles = res_articles.scalars().all()
+        articles_orm = res_articles.scalars().all()
+        
+        # Explicit Dict Conversion & ISO Timestamp Formatting
+        articles = []
+        for a in articles_orm:
+            a_dict = {c.name: getattr(a, c.name) for c in a.__table__.columns}
+            
+            # Safe ISO Formatting for UTC
+            for key in ["published_at", "created_at"]:
+                ts = a_dict.get(key)
+                if ts:
+                    a_dict[key] = ts.isoformat() + ("Z" if ts.tzinfo is None else "")
+            articles.append(a_dict)
 
     return {
         "total": total,

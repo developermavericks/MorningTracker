@@ -48,7 +48,45 @@ export default function AdminUserDetail({ email, onNavigate }) {
                 </div>
             </header>
 
-            <div className="card" style={{ border: 'none' }}>
+            <div className="card" style={{ border: 'none', marginTop: '32px' }}>
+                <div className="card-title">User Watchlist & Keywords</div>
+                <div className="table-wrap">
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Brand Name</th>
+                                <th>Region</th>
+                                <th>Keywords</th>
+                                <th>Last Scraped</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {userData.brands && userData.brands.length > 0 ? (
+                                userData.brands.map(b => (
+                                    <tr key={b.id}>
+                                        <td style={{ fontWeight: '600', textTransform: 'capitalize' }}>{b.name}</td>
+                                        <td style={{ textTransform: 'capitalize' }}>{b.region}</td>
+                                        <td style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                            {b.keywords || 'Default (Brand Name)'}
+                                        </td>
+                                        <td style={{ fontSize: '12px' }}>
+                                            {b.last_scraped ? new Date(b.last_scraped).toLocaleString() : 'Never'}
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan="4" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                                        No brands in watchlist.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div className="card" style={{ border: 'none', marginTop: '32px' }}>
                 <div className="card-title">Activity Timeline</div>
                 <div className="table-wrap">
                     <table className="table">
