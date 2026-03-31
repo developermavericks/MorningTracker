@@ -214,8 +214,7 @@ export default function BrandTracker({ onNavigate }) {
                             disabled={loading}
                         >
                             <option value={1}>24 Hours</option>
-                            {/* <option value={7}>7 Days</option>
-                            <option value={30}>30 Days</option> */}
+                            <option value={3}>3 Days</option>
                         </select>
                     </div>
                     <button
