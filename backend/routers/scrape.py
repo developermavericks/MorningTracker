@@ -119,6 +119,10 @@ async def list_jobs(
         max_history = 5000 if current_user.is_admin else 1000
         total = min(total, max_history)
         
+        # Guard: Ensure offset doesn't exceed the historical cap
+        offset = min(offset, max_history - page_size)
+        if offset < 0: offset = 0
+        
         res = await db.execute(
             stmt.order_by(ScrapeJob.started_at.desc()).offset(offset).limit(page_size)
         )

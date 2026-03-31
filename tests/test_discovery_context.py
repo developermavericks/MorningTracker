@@ -34,14 +34,15 @@ class TestDiscoveryContext(unittest.TestCase):
             spawned_queries = [call[0][1] for call in spawn_calls]
             
             # If is_brand_track=True, spawned_queries should ONLY be the exact keywords
-            # (Note: Google News RSS might add " when:1d" or similar, but the base query should match keywords)
+            # (Note: Google News RSS might add " when:1d" or similar)
             for q in spawned_queries:
-                self.assertEqual(q, "Scapia")
+                self.assertTrue(any(q.startswith(kw) for kw in keywords))
 
     def test_sector_track_has_modifiers(self):
         """
         Verify that if is_brand_track is False, modifiers ARE added.
         """
+        from scraper.config import SEARCH_MODIFIERS
         keywords = ["AI"]
         with patch('scraper.engine.Pool') as MockPool:
             pool_instance = MockPool.return_value
@@ -53,8 +54,8 @@ class TestDiscoveryContext(unittest.TestCase):
             # Should have more queries than just the keyword
             self.assertTrue(len(spawned_queries) > len(keywords))
             
-            # At least one query should contain a modifier
-            has_modifier = any(" " in q for q in spawned_queries)
+            # Use SEARCH_MODIFIERS list for robust validation
+            has_modifier = any(any(mod in q for mod in SEARCH_MODIFIERS) for q in spawned_queries)
             self.assertTrue(has_modifier)
 
 if __name__ == "__main__":

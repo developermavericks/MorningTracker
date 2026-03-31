@@ -159,17 +159,25 @@ export default function Jobs() {
     // Fetch aggregate stats independently for accuracy
     fetchStats();
     
-    // Initial fetch
-    fetchJobs(1, false).finally(() => setLoading(false));
+    // Initial fetch for the CURRENT page (if we just loaded, it's 1)
+    if (page === 1) {
+      fetchJobs(1, false).finally(() => setLoading(false));
+    }
     
-    // Poll only for the first page to maintain performance and keep list fresh
-    const interval = setInterval(() => {
-      fetchJobs(1, false);
-      fetchStats();
-    }, 10000); // 10s is sufficient for monitoring
+    // Poll only for the first page to maintain performance and keep list fresh.
+    // If the user has loaded page 2+, we stop auto-refreshing to prevent the list from resetting.
+    let interval = null;
+    if (page === 1) {
+      interval = setInterval(() => {
+        fetchJobs(1, false);
+        fetchStats();
+      }, 10000);
+    }
     
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [page]); // Restart/Stop interval based on current page
 
   const handleLoadMore = async () => {
     setLoadingMore(true);

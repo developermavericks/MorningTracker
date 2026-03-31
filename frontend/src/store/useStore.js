@@ -26,14 +26,14 @@ const useStore = create((set, get) => ({
 
   fetchJobs: async (page = 1, append = false) => {
     try {
-      const data = await api.get(`/scrape/jobs?page=${page}&t=${Date.now()}`);
+      const data = await api.get(`/scrape/jobs?page=${page}&page_size=50&t=${Date.now()}`);
       
       const newJobs = data.jobs || (Array.isArray(data) ? data : []);
-      const total = data.total || 0;
+      const total = data.total ?? 0;
 
       set((state) => ({
         jobs: append ? [...state.jobs, ...newJobs] : newJobs,
-        totalJobs: total || (append ? state.totalJobs : newJobs.length)
+        totalJobs: total ?? (append ? state.totalJobs : newJobs.length)
       }));
     } catch (err) {
       console.error('Jobs fetch failed:', err);
