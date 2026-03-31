@@ -150,14 +150,34 @@ function JobRow({ job, onDelete, onRefresh }) {
 }
 
 export default function Jobs() {
-  const { jobs, fetchJobs } = useStore();
+  const { jobs, totalJobs, stats, fetchJobs, fetchStats } = useStore();
   const [loading, setLoading] = useState(!jobs.length);
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
-    fetchJobs().finally(() => setLoading(false));
-    const interval = setInterval(fetchJobs, 5000);
+    // Fetch aggregate stats independently for accuracy
+    fetchStats();
+    
+    // Initial fetch
+    fetchJobs(1, false).finally(() => setLoading(false));
+    
+    // Poll only for the first page to maintain performance and keep list fresh
+    const interval = setInterval(() => {
+      fetchJobs(1, false);
+      fetchStats();
+    }, 10000); // 10s is sufficient for monitoring
+    
     return () => clearInterval(interval);
   }, []);
+
+  const handleLoadMore = async () => {
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    await fetchJobs(nextPage, true);
+    setPage(nextPage);
+    setLoadingMore(false);
+  };
 
   const refreshJob = async (id) => {
     try {
@@ -192,18 +212,18 @@ export default function Jobs() {
       <div className="stats-grid" style={{ marginBottom: 32 }}>
         <div className="stat-card" style={{ boxShadow: 'var(--glow)' }}>
           <div className="stat-label">System Active</div>
-          <div className="stat-value">{activeCount}</div>
+          <div className="stat-value">{stats?.active_jobs || 0}</div>
           <div className="stat-sub">Concurrent Missions</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Yield</div>
-          <div className="stat-value">{totalArticles.toLocaleString()}</div>
+          <div className="stat-value">{(stats?.total_articles || 0).toLocaleString()}</div>
           <div className="stat-sub">Total Insights Gathered</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Success Rate</div>
           <div className="stat-value">
-            {safeJobs.length > 0 ? Math.round((safeJobs.filter(j => j.status === 'completed').length / safeJobs.length) * 100) : 0}%
+            {stats?.success_rate || 0}%
           </div>
           <div className="stat-sub">Reliability Metric</div>
         </div>
@@ -238,6 +258,19 @@ export default function Jobs() {
               ))}
             </tbody>
           </table>
+          
+          {jobs.length < totalJobs && (
+            <div style={{ textAlign: "center", padding: "24px 0" }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={handleLoadMore} 
+                disabled={loadingMore}
+                style={{ padding: "8px 24px", minWidth: "160px" }}
+              >
+                {loadingMore ? "Loading..." : "Load More Archive Data"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

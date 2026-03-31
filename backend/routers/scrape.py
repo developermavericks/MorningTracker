@@ -90,22 +90,37 @@ async def start_enrichment(current_user: TokenData = Depends(get_current_user)):
     return {"status": "enqueued", "count": len(ids)}
 
 @router.get("/jobs")
-async def list_jobs(response: Response, limit: int = 20, current_user: TokenData = Depends(get_current_user)):
-    """List recent scrape jobs for current user (or all if admin)."""
+async def list_jobs(
+    response: Response, 
+    page: int = 1, 
+    page_size: int = 50, 
+    current_user: TokenData = Depends(get_current_user)
+):
+    """List recent scrape jobs with pagination (Global for admin)."""
     # Prevent caching of job progress status
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     
+    offset = (page - 1) * page_size
     async with get_db() as db:
-        # Join with User to get initiator info
+        # Base query
         stmt = select(ScrapeJob, User.name, User.email).join(User, ScrapeJob.user_id == User.id, isouter=True)
         
         if not current_user.is_admin:
             stmt = stmt.where(ScrapeJob.user_id == current_user.id)
             
+        # Total Count (Database-wide)
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        res_total = await db.execute(count_stmt)
+        total = res_total.scalar() or 0
+        
+        # Paginated results (capped at 5000 for admins, 1000 for users)
+        max_history = 5000 if current_user.is_admin else 1000
+        total = min(total, max_history)
+        
         res = await db.execute(
-            stmt.order_by(ScrapeJob.started_at.desc()).limit(limit)
+            stmt.order_by(ScrapeJob.started_at.desc()).offset(offset).limit(page_size)
         )
         rows = res.all()
         
@@ -117,7 +132,12 @@ async def list_jobs(response: Response, limit: int = 20, current_user: TokenData
             job_dict["user_email"] = user_email or "N/A"
             jobs.append(job_dict)
             
-        return jobs
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "jobs": jobs
+        }
 
 @router.get("/job/{job_id}")
 async def get_job_status(job_id: str, response: Response, current_user: TokenData = Depends(get_current_user)):
