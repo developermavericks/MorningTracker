@@ -159,7 +159,7 @@ def verify_brand_relevance(text: str, keywords: List[str]) -> bool:
 
 # ─── Discovery Phase ───
 
-def discover_articles(keywords: List[str], day: date, geo: str, region_name: str, job_id: str, cumulative: set = None) -> List[dict]:
+def discover_articles(keywords: List[str], day: date, geo: str, region_name: str, job_id: str, cumulative: set = None, is_brand_track: bool = False) -> List[dict]:
     articles = []
     seen_urls = set()
     proxy_pool = load_proxies() or []
@@ -213,30 +213,11 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
             log(f"Discovery fail for '{q}': {exc}")
 
     search_languages = [{"code": "en-IN", "ceid": "IN:en"}]
-    with get_db_sync() as db:
-        job_res = db.execute(select(ScrapeJob.sector).where(ScrapeJob.id == job_id))
-        sector_name = job_res.scalar() or "Technology"
-        
-        # if region_name.lower() == "india":
-        #    from scraper.config import INDIAN_LANGUAGES
-        #    search_languages = INDIAN_LANGUAGES
-
-        # Base queries: Start with exact keywords provided
-        window_queries = [kw for kw in keywords]
-        
-        # ADD BRAND NAME (SECTOR) AS A SAFETY NET (captured broadly)
-        # if sector_name and sector_name not in window_queries:
-        #    window_queries.append(sector_name)
-        #    # Also try brand + "India" for geo-specificity if it's the India region
-        #    if region_name.lower() == "india" and f"{sector_name} India" not in window_queries:
-        #        window_queries.append(f"{sector_name} India")
-
-        is_brand_tracker = False
-        from db.database import WatchedBrand
-        if db.execute(select(WatchedBrand).where(WatchedBrand.name == sector_name)).first():
-            is_brand_tracker = True
     
-    if not is_brand_tracker:
+    # Base queries: Start with exact keywords provided
+    window_queries = [kw for kw in keywords]
+    
+    if not is_brand_track:
         for kw in keywords:
             for mod in random.sample(SEARCH_MODIFIERS, min(len(SEARCH_MODIFIERS), 5)): 
                 window_queries.append(f"{kw} {mod}")
@@ -405,11 +386,12 @@ def bulk_insert_placeholders(db, job_id, articles, sector, region, user_id):
     for a in articles:
         try:
             norm_url = normalize_url(a["url"])
-            val_dict = {"title": a["title"], "url": norm_url, "published_at": datetime.fromisoformat(a["published_at"]), "sector": sector, "region": region, "scrape_job_id": job_id, "user_id": user_id, "agency": a.get("agency")}
+            final_sector = a.get("brand_name", sector)
+            val_dict = {"title": a["title"], "url": norm_url, "published_at": datetime.fromisoformat(a["published_at"]), "sector": final_sector, "region": region, "scrape_job_id": job_id, "user_id": user_id, "agency": a.get("agency")}
             
             # Portable Upsert Hack: Check if exists first for SQLite compliance 
             # while maintaining speed for placeholder phase.
-            exists = db.execute(select(Article.id).where(Article.url == norm_url)).first()
+            exists = db.execute(select(Article.id).where(Article.url == norm_url).where(Article.user_id == user_id)).first()
             if not exists:
                 db.execute(insert(Article).values(**val_dict))
         except Exception as e:
@@ -425,25 +407,47 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
         db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(status='running', started_at=datetime.now()))
         update_phase_status(db, job_id, "Discovery", "running")
         
-        keywords = []
-        is_brand = False
-        from db.database import WatchedBrand
-        brand_obj = db.execute(select(WatchedBrand).where(WatchedBrand.name == sector).where(WatchedBrand.user_id == user_id)).scalar_one_or_none()
-        if brand_obj:
-            is_brand = True
-            keywords = [k.strip() for k in brand_obj.keywords.split(",")] if brand_obj.keywords else [brand_obj.name]
-        else:
-            keywords = SECTOR_KEYWORDS.get(sector.lower(), [sector])
-
-        geo = REGION_MAP.get(region.lower(), {"geo": "IN"})["geo"]
         all_discovered = []
         cumulative = set()
-        
-        curr = date_from
-        while curr <= date_to:
-            if is_job_cancelled(job_id): break
-            all_discovered.extend(discover_articles(keywords, curr, geo, region, job_id, cumulative))
-            curr += timedelta(days=1)
+        geo = REGION_MAP.get(region.lower(), {"geo": "IN"})["geo"]
+        from db.database import WatchedBrand
+
+        if sector == "brand_tracker":
+            # Global Brand Scrape: iterate over all brands for this user
+            res = db.execute(select(WatchedBrand).where(WatchedBrand.user_id == user_id))
+            user_brands = res.scalars().all()
+            if not user_brands:
+                log(f"No brands found for user {user_id}. Job {job_id} terminating.")
+                db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(status='completed', completed_at=datetime.now(), total_found=0))
+                return {"job_id": job_id, "found": 0}
+
+            for brand_obj in user_brands:
+                if is_job_cancelled(job_id): break
+                keywords = [k.strip() for k in brand_obj.keywords.split(",")] if brand_obj.keywords else [brand_obj.name]
+                
+                curr = date_from
+                while curr <= date_to:
+                    if is_job_cancelled(job_id): break
+                    found = discover_articles(keywords, curr, geo, region, job_id, cumulative, is_brand_track=True)
+                    for f in found:
+                        f["brand_name"] = brand_obj.name # Tag for later phases
+                    all_discovered.extend(found)
+                    curr += timedelta(days=1)
+        else:
+            # Single Sector/Brand Scrape
+            keywords = []
+            brand_obj = db.execute(select(WatchedBrand).where(WatchedBrand.name == sector).where(WatchedBrand.user_id == user_id)).scalar_one_or_none()
+            if brand_obj:
+                keywords = [k.strip() for k in brand_obj.keywords.split(",")] if brand_obj.keywords else [brand_obj.name]
+            else:
+                keywords = SECTOR_KEYWORDS.get(sector.lower(), [sector])
+
+            is_bt = (brand_obj is not None)
+            curr = date_from
+            while curr <= date_to:
+                if is_job_cancelled(job_id): break
+                all_discovered.extend(discover_articles(keywords, curr, geo, region, job_id, cumulative, is_brand_track=is_bt))
+                curr += timedelta(days=1)
         
         db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(cumulative_found=len(cumulative)))
         update_phase_status(db, job_id, "Discovery", "completed")
@@ -459,6 +463,8 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
         from scraper.tasks import scrape_article_node
         for a in all_discovered:
             if is_job_cancelled(job_id): break
-            scrape_article_node.delay(a, job_id, sector, region, user_id)
+            # Crucial: pass the actual brand name as sector if it's a global job
+            final_sector = a.get("brand_name", sector)
+            scrape_article_node.delay(a, job_id, final_sector, region, user_id)
         
         return {"job_id": job_id, "found": len(all_discovered)}
