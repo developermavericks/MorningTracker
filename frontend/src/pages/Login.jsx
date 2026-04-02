@@ -113,7 +113,7 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           <div className="form-group">
-            <label className="form-label" style={{ fontSize: '10px', letterSpacing: '0.15em' }}>ACCESS IDENTIFIER</label>
+            <label className="form-label" style={{ fontSize: '10px', letterSpacing: '0.15em' }}>EMAIL ADDRESS</label>
             <input 
               type="email" 
               className="form-control" 
@@ -128,7 +128,7 @@ const Login = () => {
             />
           </div>
           <div className="form-group">
-            <label className="form-label" style={{ fontSize: '10px', letterSpacing: '0.15em' }}>SECURITY CLEARANCE</label>
+            <label className="form-label" style={{ fontSize: '10px', letterSpacing: '0.15em' }}>PASSWORD</label>
             <input 
               type="password" 
               className="form-control" 
@@ -151,7 +151,7 @@ const Login = () => {
             fontSize: '14px',
             boxShadow: '0 4px 15px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.3)'
           }} disabled={loading}>
-            {loading ? <div className="spinner" style={{ borderTopColor: '#000' }} /> : 'ESTABLISH CONNECTION'}
+            {loading ? <div className="spinner" style={{ borderTopColor: '#000' }} /> : 'SIGN IN'}
           </button>
         </form>
 
@@ -168,7 +168,7 @@ const Login = () => {
             fontWeight: '700',
             color: 'var(--muted)',
             letterSpacing: '0.1em'
-          }}>FEDERATED AUTH</span>
+          }}>CONTINUE WITH</span>
         </div>
 
         <button 
@@ -185,12 +185,12 @@ const Login = () => {
             border: '1px solid var(--border)'
           }}
         >
-          Authorize via Google
+          Sign in with Google
         </button>
 
         <p style={{ marginTop: '32px', textAlign: 'center', fontSize: '13px', color: 'var(--muted)' }}>
           Unauthorized access is prohibited. <br/>
-          <Link to="/signup" style={{ fontWeight: '700', color: 'var(--accent)', marginTop: '8px', display: 'inline-block' }}>REQUEST OPERATOR CLEARANCE</Link>
+          <Link to="/signup" style={{ fontWeight: '700', color: 'var(--accent)', marginTop: '8px', display: 'inline-block' }}>Don't have an account? Sign up here</Link>
         </p>
       </div>
     </div>

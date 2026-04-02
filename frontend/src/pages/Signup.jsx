@@ -42,13 +42,43 @@ const Signup = () => {
       alignItems: 'center', 
       justifyContent: 'center', 
       minHeight: '100vh',
-      background: 'var(--bg)'
+      background: 'radial-gradient(circle at top right, hsla(var(--accent-h), 80%, 80%, 0.1), transparent), radial-gradient(circle at bottom left, hsla(var(--accent-h), 80%, 40%, 0.05), transparent), var(--bg)',
+      padding: '24px'
     }}>
-      <div className="card" style={{ maxWidth: '400px', width: '100%', boxShadow: 'var(--glow)' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div className="brand-icon" style={{ fontSize: '48px', marginBottom: '12px' }}>✦</div>
-          <h1 className="page-title" style={{ fontSize: '24px' }}>NEXUS</h1>
-          <p className="page-subtitle">Request Intelligence Access</p>
+      <div className="card" style={{ 
+        maxWidth: '440px', 
+        width: '100%', 
+        padding: '40px',
+        boxShadow: 'var(--glow), 0 0 0 1px var(--border)',
+        backdropFilter: 'blur(10px)',
+        background: 'rgba(255, 255, 255, 0.8)',
+        borderRadius: '24px',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Subtle decorative glow */}
+        <div style={{ 
+          position: 'absolute', 
+          top: '-50px', 
+          right: '-50px', 
+          width: '150px', 
+          height: '150px', 
+          background: 'var(--accent)', 
+          filter: 'blur(100px)', 
+          opacity: 0.1 
+        }} />
+
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div className="brand-icon" style={{ 
+            fontSize: '56px', 
+            marginBottom: '16px',
+            background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            display: 'inline-block'
+          }}>✦</div>
+          <h1 className="page-title" style={{ fontSize: '32px', marginBottom: '4px', letterSpacing: '0.1em' }}>NEXUS</h1>
+          <p className="page-subtitle" style={{ fontSize: '11px', fontWeight: '600' }}>CREATE YOUR ACCOUNT</p>
         </div>
 
         {error && (
@@ -59,15 +89,15 @@ const Signup = () => {
         )}
 
         {success && (
-          <div className="alert alert-success">
+          <div className="alert alert-success" style={{ marginBottom: '24px', borderRadius: '12px', fontSize: '13px' }}>
             <span style={{ fontSize: '18px' }}>✓</span>
-            Account requested successfully! Redirecting to login...
+            Account created successfully! Redirecting to login...
           </div>
         )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="form-group">
-            <label className="form-label">Full Name</label>
+            <label className="form-label" style={{ fontSize: '10px', letterSpacing: '0.15em' }}>FULL NAME</label>
             <input 
               type="text" 
               className="form-control" 
@@ -77,11 +107,12 @@ const Signup = () => {
                 setName(e.target.value);
                 if (error) setError('');
               }}
+              style={{ borderRadius: '12px', padding: '14px 18px' }}
               required
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Email Address</label>
+            <label className="form-label" style={{ fontSize: '10px', letterSpacing: '0.15em' }}>EMAIL ADDRESS</label>
             <input 
               type="email" 
               className="form-control" 
@@ -91,11 +122,12 @@ const Signup = () => {
                 setEmail(e.target.value);
                 if (error) setError('');
               }}
+              style={{ borderRadius: '12px', padding: '14px 18px' }}
               required
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Password</label>
+            <label className="form-label" style={{ fontSize: '10px', letterSpacing: '0.15em' }}>PASSWORD</label>
             <input 
               type="password" 
               className="form-control" 
@@ -105,12 +137,20 @@ const Signup = () => {
                 setPassword(e.target.value);
                 if (error) setError('');
               }}
+              style={{ borderRadius: '12px', padding: '14px 18px' }}
               required
             />
           </div>
 
-          <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={loading || success}>
-            {loading ? 'Processing...' : 'Request Access'}
+          <button type="submit" className="btn btn-primary" style={{ 
+            width: '100%', 
+            justifyContent: 'center', 
+            height: '52px', 
+            borderRadius: '12px',
+            fontSize: '14px',
+            boxShadow: '0 4px 15px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.3)'
+          }} disabled={loading || success}>
+            {loading ? <div className="spinner" style={{ borderTopColor: '#000' }} /> : 'CREATE ACCOUNT'}
           </button>
         </form>
 
