@@ -6,9 +6,10 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, update, delete, and_
+from sqlalchemy import select, func, update, delete, or_, and_
 from db.database import get_db, WatchedBrand, Article, ScrapeJob
 from .auth_utils import get_auth_user as get_current_user, TokenData
+from scraper.search_utils import parse_boolean_query
 from celery_app import app as celery_app
 
 router = APIRouter()
@@ -222,6 +223,11 @@ async def download_brand_articles_excel(
     import io
 
     async with get_db() as db:
+        # Fetch brand to get keywords
+        res = await db.execute(select(WatchedBrand).where(WatchedBrand.name == name).where(WatchedBrand.user_id == current_user.id))
+        brand = res.scalar_one_or_none()
+        keywords = [k.strip() for k in brand.keywords.split(",")] if brand and brand.keywords else [name]
+
         stmt = (
             select(Article)
             .where(Article.sector == name)
@@ -231,6 +237,22 @@ async def download_brand_articles_excel(
         if date_from: stmt = stmt.where(Article.published_at >= date_from)
         if date_to: stmt = stmt.where(Article.published_at <= date_to)
         
+        # Apply boolean keyword filter
+        if keywords:
+            search_filters = []
+            for kw in keywords:
+                parsed = parse_boolean_query(kw)
+                sf = []
+                for w in parsed["not"]: sf.append(and_(~Article.title.ilike(f"%{w}%"), ~Article.full_body.ilike(f"%{w}%")))
+                for w in parsed["must"]: sf.append(or_(Article.title.ilike(f"%{w}%"), Article.full_body.ilike(f"%{w}%")))
+                if parsed["should"]:
+                    sc = [or_(Article.title.ilike(f"%{w}%"), Article.full_body.ilike(f"%{w}%")) for w in parsed["should"]]
+                    sf.append(or_(*sc))
+                if sf: search_filters.append(and_(*sf))
+            
+            if search_filters:
+                stmt = stmt.where(or_(*search_filters))
+
         res = await db.execute(stmt)
         articles = res.scalars().all()
         

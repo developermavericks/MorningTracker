@@ -25,6 +25,7 @@ from scraper.parser import extract_body, extract_author, extract_author_v2, extr
 
 from db.database import get_db_sync, Article, ScrapeJob
 from scraper.config import SECTOR_KEYWORDS, REGION_MAP, SEARCH_MODIFIERS, USER_AGENTS
+from scraper.search_utils import verify_boolean_relevance
 
 # --- Logging ---
 import logging
@@ -151,11 +152,9 @@ def normalize_url(url: str) -> str:
     return normalized
 
 def verify_brand_relevance(text: str, keywords: List[str]) -> bool:
+    """Verifies if the text matches the brand keywords using boolean logic."""
     if not text or not keywords: return True
-    text_lower = text.lower()
-    for kw in keywords:
-        if kw.lower() in text_lower: return True
-    return False
+    return verify_boolean_relevance(text, keywords)
 
 # ─── Discovery Phase ───
 
@@ -307,7 +306,10 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
 
         if keywords:
             title_body = f"{article['title']} {body}"
-            is_relevant = any(kw.lower() in title_body.lower() for kw in keywords)
+            is_relevant = verify_boolean_relevance(title_body, keywords)
+            
+            # Fallback: if no keywords match but the sector name is mentioned, consider it relevant
+            # This handles cases where modifiers might be too strict
             if not is_relevant and sector.lower() in title_body.lower():
                 is_relevant = True
             

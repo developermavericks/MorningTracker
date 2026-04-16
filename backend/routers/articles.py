@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from scraper.search_utils import parse_boolean_query
 
 router = APIRouter()
 
@@ -158,47 +159,57 @@ async def export_csv(
 
 @router.get("/export/xlsx")
 async def export_xlsx(
-    job_id: str,
+    job_id: Optional[str] = None,
+    sector: Optional[str] = None,
+    region: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    search: Optional[str] = None,
     current_user: TokenData = Depends(get_current_user)
 ):
-    """Excel export with formatting (Blueprint Phase 5)."""
+    """Excel export with full dynamic filtering (Replacement for job-only export)."""
     async with get_db() as db:
-        # Get job for naming
-        stmt_job = select(ScrapeJob).where(ScrapeJob.id == job_id)
-        if not current_user.is_admin:
-            stmt_job = stmt_job.where(ScrapeJob.user_id == current_user.id)
+        # Reusable filter logic for articles
+        def apply_filters(query):
+            if not current_user.is_admin:
+                query = query.where(Article.user_id == current_user.id)
+            if job_id: query = query.where(Article.scrape_job_id == job_id)
+            if sector: query = query.where(Article.sector == sector)
+            if region: query = query.where(Article.region == region)
+            if date_from: query = query.where(Article.published_at >= date_from)
+            if date_to: query = query.where(Article.published_at <= date_to)
             
-        job_res = await db.execute(stmt_job)
-        job = job_res.scalar_one_or_none()
-        if not job:
-            raise HTTPException(404, "Job not found or access denied")
-        
-        # Get articles
-        stmt_count = select(func.count()).where(Article.scrape_job_id == job_id)
-        if not current_user.is_admin:
-            stmt_count = stmt_count.where(Article.user_id == current_user.id)
-            
+            if search:
+                parsed = parse_boolean_query(search)
+                sf = []
+                for w in parsed["not"]: sf.append(and_(~Article.title.ilike(f"%{w}%"), ~Article.full_body.ilike(f"%{w}%")))
+                for w in parsed["must"]: sf.append(or_(Article.title.ilike(f"%{w}%"), Article.full_body.ilike(f"%{w}%")))
+                if parsed["should"]:
+                    sc = [or_(Article.title.ilike(f"%{w}%"), Article.full_body.ilike(f"%{w}%")) for w in parsed["should"]]
+                    sf.append(or_(*sc))
+                if sf: query = query.where(and_(*sf))
+            return query
+
+        # Get total count
+        stmt_count = apply_filters(select(func.count(Article.id)))
         total_count = (await db.execute(stmt_count)).scalar() or 0
         
         if total_count == 0:
-            raise HTTPException(400, "No articles found for this job. Ensure discovery is complete.")
+            raise HTTPException(400, "No articles found for this criteria. Ensure discovery is complete.")
             
         if total_count > 5000:
             # Hard limit for XLSX to prevent OOM
-            raise HTTPException(400, "Job too large for XLSX (Max 5,000 articles). Use CSV export instead.")
+            raise HTTPException(400, "Export too large for XLSX (Max 5,000 articles). Use CSV export instead.")
 
-        stmt_articles = select(Article).where(Article.scrape_job_id == job_id)
-        if not current_user.is_admin:
-            stmt_articles = stmt_articles.where(Article.user_id == current_user.id)
-            
-        stmt_articles = stmt_articles.order_by(Article.published_at.desc())
+        stmt_articles = apply_filters(select(Article)).order_by(Article.published_at.desc())
         res = await db.execute(stmt_articles)
         articles = res.scalars().all()
 
         wb = Workbook()
         ws = wb.active
-        brand_name = job.sector.replace(" ", "_")
-        ws.title = f"Nexus_{brand_name}"
+        # Use sector or search query for naming
+        display_name = (sector or search or "Export").replace(" ", "_")
+        ws.title = f"Nexus_{display_name[:20]}"
 
         # Columns: Title, Resolved URL, Publisher/Agency, Author, Summary, Published At, Source Feed, Keyword Matched
         headers = ["Title", "Resolved URL", "Publisher/Agency", "Author", "Summary", "Published At", "Source Feed", "Keyword Matched"]
@@ -236,7 +247,7 @@ async def export_xlsx(
                 a.summary,
                 published_str,
                 a.source_feed or "google_news",
-                job.sector
+                a.sector
             ]
             ws.append(row_data)
             
@@ -267,9 +278,9 @@ async def export_xlsx(
         wb.save(output)
         output.seek(0)
         
-        filename = f"NEXUS_{brand_name}_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        filename = f"NEXUS_Export_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
         return StreamingResponse(
-            io.BytesIO(output.read()),
+            output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
