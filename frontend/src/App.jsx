@@ -17,8 +17,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import "./index.css";
 
 const NAV = [
-// { id: "dashboard", label: "Dashboard", icon: "◈" },
-// { id: "articles", label: "Articles", icon: "≡" },
+  { id: "dashboard", label: "Dashboard", icon: "◈", adminOnly: true },
+  { id: "articles", label: "Articles", icon: "≡", adminOnly: true },
   { id: "brands", label: "Keyword Setup", icon: "🏢" },
   { id: "jobs", label: "Tracker", icon: "◎" },
   { id: "admin", label: "Admin Portal", icon: "⚙", adminOnly: true },
@@ -77,6 +77,12 @@ function ProtectedApp() {
     setPage(pageId);
     setNavContext(context);
   };
+
+  useEffect(() => {
+    if (!loading && user?.is_admin && page === "brands") {
+      setPage("dashboard");
+    }
+  }, [user, loading]);
 
   useEffect(() => {
     if (!user) return;

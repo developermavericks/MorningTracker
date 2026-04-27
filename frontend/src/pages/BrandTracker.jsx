@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { api } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 export default function BrandTracker({ onNavigate }) {
+    const { user } = useAuth();
     const [brands, setBrands] = useState([]);
     const [newBrand, setNewBrand] = useState("");
     const [newKeywords, setNewKeywords] = useState("");
@@ -259,7 +261,10 @@ export default function BrandTracker({ onNavigate }) {
                                 filteredBrands.map((b) => (
                                     <tr key={b.name}>
                                         <td style={{ fontWeight: 600, color: "var(--accent)", fontSize: '15px' }}>
-                                            <span>
+                                            <span 
+                                                style={{ cursor: user?.is_admin ? 'pointer' : 'default' }} 
+                                                onClick={() => user?.is_admin && onNavigate('articles', { sector: b.name })}
+                                            >
                                                 {b.name}
                                             </span>
                                         </td>

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import useStore from "../store/useStore";
 import { api } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 export default function Dashboard({ onNavigate }) {
+  const { user } = useAuth();
   const { stats, fetchStats, jobs, fetchJobs } = useStore();
   // const [enriching, setEnriching] = useState(false);
   // const [enrichMsg, setEnrichMsg] = useState(null);
@@ -151,11 +153,11 @@ export default function Dashboard({ onNavigate }) {
           <button className="btn btn-primary" onClick={() => onNavigate("scrape")} style={{ padding: '12px 24px' }}>
             ⊕ New Intelligence Mission
           </button>
-          {/* 
-          <button className="btn btn-secondary" onClick={() => onNavigate("articles")}>
-             Global Archive
-          </button>
-          */}
+          {user?.is_admin && (
+            <button className="btn btn-secondary" onClick={() => onNavigate("articles")}>
+               Global Archive
+            </button>
+          )}
           {/* 
           <button className="btn btn-secondary" onClick={handleEnrich} disabled={enriching}>
             {enriching ? <><div className="spinner" /> Processing...</> : "↻ Deep Refresh Bodies"}
