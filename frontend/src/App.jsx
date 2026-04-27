@@ -17,27 +17,27 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import "./index.css";
 
 const NAV = [
-// { id: "dashboard", label: "Dashboard", icon: "◈" },
-// { id: "articles", label: "Articles", icon: "≡" },
-  { id: "brands", label: "Brand Tracker", icon: "🏢" },
-  { id: "jobs", label: "Jobs", icon: "◎" },
+  { id: "dashboard", label: "Dashboard", icon: "◈" },
+  { id: "articles", label: "Articles", icon: "≡" },
+  { id: "brands", label: "Keyword Setup", icon: "🏢" },
+  { id: "jobs", label: "Tracker", icon: "◎" },
   { id: "admin", label: "Admin Portal", icon: "⚙", adminOnly: true },
   { id: "diagnostics", label: "", icon: "" },
 ];
 
 function ThemeToggle() {
   const { primaryColor, setPrimaryColor } = useTheme();
-  
+
   return (
-    <div 
+    <div
       className="nav-item"
-      style={{ 
+      style={{
         position: 'fixed',
         top: '12px',
         left: '12px',
         zIndex: 9999,
         width: 'auto',
-        background: 'var(--surface)', 
+        background: 'var(--surface)',
         border: '1px solid var(--border)',
         boxShadow: 'var(--glow)',
         padding: '6px 12px',
@@ -48,11 +48,11 @@ function ThemeToggle() {
       }}
     >
       <span style={{ fontSize: '11px', fontWeight: '800', color: 'var(--accent)' }}>🎨 COLOUR</span>
-      <input 
-        type="color" 
+      <input
+        type="color"
         value={primaryColor}
         onChange={(e) => setPrimaryColor(e.target.value)}
-        style={{ 
+        style={{
           border: 'none',
           width: '24px',
           height: '24px',
@@ -68,7 +68,7 @@ function ThemeToggle() {
 
 function ProtectedApp() {
   const { user, loading, logout } = useAuth();
-  const [page, setPage] = useState("brands");
+  const [page, setPage] = useState("dashboard");
   const { stats, jobs, fetchStats, fetchJobs } = useStore();
   const [apiStatus, setApiStatus] = useState("checking");
   const [navContext, setNavContext] = useState(null);
@@ -82,12 +82,12 @@ function ProtectedApp() {
     if (!user) return;
     fetchStats();
     fetchJobs();
-    
+
     let ws;
     const connect = () => {
       const token = localStorage.getItem('token');
       if (!token) return;
-      
+
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       // WebSocket MUST connect directly to Railway (Vercel proxy doesn't support WS)
       const target = 'morningtracker-production.up.railway.app';
@@ -135,7 +135,7 @@ function ProtectedApp() {
           <div className="brand-icon" style={{ color: 'var(--accent)' }}>✦</div>
           <div>
             <div className="brand-name">NEXUS</div>
-            <div className="brand-sub">Intelligence Tracker</div>
+            <div className="brand-sub">Morning Tracker</div>
           </div>
         </div>
 
@@ -152,13 +152,13 @@ function ProtectedApp() {
           ))}
         </nav>
         <div className="sidebar-footer" style={{ flexDirection: 'column', gap: '12px', alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div className="status-dot" style={{ background: statusColor }} />
-                <span style={{ fontSize: '10px' }}>{apiStatus === "online" ? "Connected" : "Offline"}</span>
-            </div>
-            <button onClick={logout} className="nav-item" style={{ padding: '4px 0', fontSize: '11px', color: 'var(--danger)' }}>
-                ✕ Sign Out
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="status-dot" style={{ background: statusColor }} />
+            <span style={{ fontSize: '10px' }}>{apiStatus === "online" ? "Connected" : "Offline"}</span>
+          </div>
+          <button onClick={logout} className="nav-item" style={{ padding: '4px 0', fontSize: '11px', color: 'var(--danger)' }}>
+            ✕ Sign Out
+          </button>
         </div>
       </aside>
 
