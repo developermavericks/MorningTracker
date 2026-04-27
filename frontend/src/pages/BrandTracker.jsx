@@ -314,12 +314,7 @@ export default function BrandTracker({ onNavigate }) {
                                                 <button className="btn btn-primary" onClick={() => startIndividualScrape(b.name)} style={{ padding: '4px 12px', fontSize: '11px' }}>
                                                     🚀 Start
                                                 </button>
-                                                <button className="btn btn-secondary"
-                                                    onClick={() => handleDownload(b.name)}
-                                                    style={{ padding: '4px 12px', fontSize: '11px' }}
-                                                >
-                                                    {/*  Excel */}
-                                                </button>
+
                                                 <button className="btn btn-danger" onClick={() => deleteBrand(b.name)} style={{ padding: "4px 12px", fontSize: "11px" }}>
                                                     Remove
                                                 </button>
