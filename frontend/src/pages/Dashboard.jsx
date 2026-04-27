@@ -151,9 +151,11 @@ export default function Dashboard({ onNavigate }) {
           <button className="btn btn-primary" onClick={() => onNavigate("scrape")} style={{ padding: '12px 24px' }}>
             ⊕ New Intelligence Mission
           </button>
+          {/* 
           <button className="btn btn-secondary" onClick={() => onNavigate("articles")}>
              Global Archive
           </button>
+          */}
           {/* 
           <button className="btn btn-secondary" onClick={handleEnrich} disabled={enriching}>
             {enriching ? <><div className="spinner" /> Processing...</> : "↻ Deep Refresh Bodies"}

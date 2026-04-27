@@ -17,8 +17,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import "./index.css";
 
 const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "◈" },
-  { id: "articles", label: "Articles", icon: "≡" },
+// { id: "dashboard", label: "Dashboard", icon: "◈" },
+// { id: "articles", label: "Articles", icon: "≡" },
   { id: "brands", label: "Brand Tracker", icon: "🏢" },
   { id: "jobs", label: "Jobs", icon: "◎" },
   { id: "admin", label: "Admin Portal", icon: "⚙", adminOnly: true },
@@ -68,7 +68,7 @@ function ThemeToggle() {
 
 function ProtectedApp() {
   const { user, loading, logout } = useAuth();
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState("brands");
   const { stats, jobs, fetchStats, fetchJobs } = useStore();
   const [apiStatus, setApiStatus] = useState("checking");
   const [navContext, setNavContext] = useState(null);

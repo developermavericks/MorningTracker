@@ -49,7 +49,7 @@ export default function BrandTracker({ onNavigate }) {
             return;
         }
         try {
-            await api.post("brands/", { 
+            await api.post("brands/", {
                 name: newBrand.trim(),
                 keywords: newKeywords.trim() || null,
                 region: newRegion
@@ -87,7 +87,7 @@ export default function BrandTracker({ onNavigate }) {
         let url = `/api/brands/download/${encodeURIComponent(name)}/excel?token=${localStorage.getItem('token')}`;
         if (from) url += `&date_from=${from}`;
         if (to) url += `&date_to=${to}`;
-        
+
         window.open(url, '_blank');
     };
 
@@ -133,8 +133,8 @@ export default function BrandTracker({ onNavigate }) {
         <div className="page-container">
             <header className="page-header" style={{ marginBottom: '40px' }}>
                 <div>
-                    <h1 className="page-title">Portfolio Monitoring</h1>
-                    <p className="page-subtitle">Strategic intelligence for specific brand nodes</p>
+                    {/* <h1 className="page-title">Portfolio Monitoring</h1>
+                    <p className="page-subtitle">Strategic intelligence for specific brand nodes</p> */}
                 </div>
             </header>
 
@@ -152,12 +152,12 @@ export default function BrandTracker({ onNavigate }) {
                             <input
                                 type="text"
                                 className="form-control"
-                                placeholder="Brand Name"
+                                placeholder="Title"
                                 value={newBrand}
                                 onChange={(e) => setNewBrand(e.target.value)}
                                 style={{ flex: 1.5, height: '48px' }}
                             />
-                            <select 
+                            <select
                                 className="form-control"
                                 value={newRegion}
                                 onChange={(e) => setNewRegion(e.target.value)}
@@ -173,14 +173,14 @@ export default function BrandTracker({ onNavigate }) {
                                 placeholder="Keywords (comma separated)"
                                 value={newKeywords}
                                 onChange={(e) => setNewKeywords(e.target.value)}
-                                style={{ 
+                                style={{
                                     width: '100%', height: '48px', paddingRight: '100px',
                                     borderColor: countKws(newKeywords) > 15 ? 'var(--danger)' : 'initial',
                                     boxShadow: countKws(newKeywords) > 15 ? '0 0 0 2px var(--danger-bg)' : 'none'
                                 }}
                             />
-                            <div style={{ 
-                                position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', 
+                            <div style={{
+                                position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
                                 fontSize: '11px', color: countKws(newKeywords) > 15 ? 'var(--danger)' : 'var(--muted)',
                                 fontWeight: '700'
                             }}>
@@ -192,13 +192,13 @@ export default function BrandTracker({ onNavigate }) {
                                 ⚠ Intelligence limit reached. Remove {countKws(newKeywords) - 15} keyword(s) to proceed.
                             </div>
                         )}
-                        <button 
-                            className="btn btn-primary" 
-                            onClick={addBrand} 
+                        <button
+                            className="btn btn-primary"
+                            onClick={addBrand}
                             disabled={countKws(newKeywords) > 15 || !newBrand.trim()}
                             style={{ height: '48px', justifyContent: 'center', opacity: countKws(newKeywords) > 15 ? 0.5 : 1 }}
                         >
-                            ⊕ Add Brand Node
+                            ⊕ Save
                         </button>
                     </div>
                 </div>
@@ -223,7 +223,7 @@ export default function BrandTracker({ onNavigate }) {
                         disabled={loading || brands.length === 0}
                         style={{ width: '100%', marginTop: '16px', height: '42px', justifyContent: 'center' }}
                     >
-                        {loading ? <div className="spinner" /> : "🚀 Scrape All Brands"}
+                        {loading ? <div className="spinner" /> : "🚀 Start"}
                     </button>
                 </div>
             </div>
@@ -231,16 +231,16 @@ export default function BrandTracker({ onNavigate }) {
             <div className="card" style={{ border: 'none' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div className="card-title" style={{ margin: 0 }}>Active Monitoring ({brands.length})</div>
-                    <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="Filter watchlist..." 
+                    <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Filter watchlist..."
                         style={{ width: '250px', fontSize: '13px' }}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
-                
+
                 <div className="table-wrap">
                     <table className="table">
                         <thead>
@@ -259,13 +259,13 @@ export default function BrandTracker({ onNavigate }) {
                                 filteredBrands.map((b) => (
                                     <tr key={b.name}>
                                         <td style={{ fontWeight: 600, color: "var(--accent)", fontSize: '15px' }}>
-                                            <span style={{ cursor: 'pointer' }} onClick={() => onNavigate('articles', { sector: b.name })}>
+                                            <span>
                                                 {b.name}
                                             </span>
                                         </td>
                                         <td>
                                             {editingBrand === b.name ? (
-                                                <select 
+                                                <select
                                                     className="form-control"
                                                     style={{ height: '32px', fontSize: '12px' }}
                                                     defaultValue={b.region || "india"}
@@ -274,8 +274,8 @@ export default function BrandTracker({ onNavigate }) {
                                                     {regions.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
                                                 </select>
                                             ) : (
-                                                <div 
-                                                    className="badge" 
+                                                <div
+                                                    className="badge"
                                                     style={{ cursor: 'pointer', background: 'var(--surface2)', color: 'var(--text)', fontSize: '11px', textTransform: 'capitalize' }}
                                                     onClick={() => setEditingBrand(b.name)}
                                                 >
@@ -285,7 +285,7 @@ export default function BrandTracker({ onNavigate }) {
                                         </td>
                                         <td>
                                             {editingBrand === b.name ? (
-                                                <input 
+                                                <input
                                                     autoFocus
                                                     className="form-control"
                                                     style={{ height: '32px', fontSize: '12px' }}
@@ -294,7 +294,7 @@ export default function BrandTracker({ onNavigate }) {
                                                     onKeyDown={(e) => e.key === 'Enter' && updateBrandNode(b.name, e.target.value, b.region)}
                                                 />
                                             ) : (
-                                                <div 
+                                                <div
                                                     style={{ cursor: 'pointer', fontStyle: b.keywords ? 'normal' : 'italic', color: b.keywords ? 'inherit' : 'var(--muted)', fontSize: '12px' }}
                                                     onClick={() => setEditingBrand(b.name)}
                                                 >
@@ -312,13 +312,13 @@ export default function BrandTracker({ onNavigate }) {
                                         <td>
                                             <div style={{ display: "flex", gap: "8px" }}>
                                                 <button className="btn btn-primary" onClick={() => startIndividualScrape(b.name)} style={{ padding: '4px 12px', fontSize: '11px' }}>
-                                                    🚀 Scrape
+                                                    🚀 Start
                                                 </button>
-                                                <button className="btn btn-secondary" 
+                                                <button className="btn btn-secondary"
                                                     onClick={() => handleDownload(b.name)}
                                                     style={{ padding: '4px 12px', fontSize: '11px' }}
                                                 >
-                                                    Excel
+                                                    {/*  Excel */}
                                                 </button>
                                                 <button className="btn btn-danger" onClick={() => deleteBrand(b.name)} style={{ padding: "4px 12px", fontSize: "11px" }}>
                                                     Remove
