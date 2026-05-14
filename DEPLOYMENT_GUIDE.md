@@ -7,7 +7,7 @@ This guide details the steps to deploy the NEXUS News Tracker to a production en
 - [Vercel](https://vercel.com) account
 - [SendGrid](https://sendgrid.com) API Key (for notifications)
 - [Groq](https://console.groq.com) API Key
-- [Webshare.io](https://www.webshare.io) Rotating Proxy (Backconnect URL)
+- [DataImpulse](https://dataimpulse.com) Residential Proxy (Login/Password)
 - Google Cloud Console Project (for OAuth 2.0)
 
 ---
@@ -28,7 +28,10 @@ This guide details the steps to deploy the NEXUS News Tracker to a production en
    - `REDIS_URL`: (Railway will auto-populate this from the Redis service)
    - `JWT_SECRET_KEY`: `openssl rand -hex 32`
    - `GROQ_API_KEY`: Your Groq API key
-   - `WEBSHARE_PROXY_URL`: Your Webshare backconnect URL (e.g., `http://user:pass@p.webshare.io:80`)
+   - `DATAIMPULSE_USER`: Your DataImpulse username
+   - `DATAIMPULSE_PASS`: Your DataImpulse password
+   - `DATAIMPULSE_HOST`: `gw.dataimpulse.com`
+   - `DATAIMPULSE_PORT`: `823`
    - `GOOGLE_CLIENT_ID`: From Google Cloud Console
    - `GOOGLE_CLIENT_SECRET`: From Google Cloud Console
    - `FRONTEND_URL`: Your Vercel deployment URL (e.g., `https://nexus-tracker.vercel.app`)

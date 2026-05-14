@@ -81,22 +81,58 @@ class ProxyGuard:
         return random.choice(healthy) if healthy else (random.choice(pool) if pool else None)
 
 def load_proxies():
+    """
+    Loads a pool of proxies from various sources:
+    1. Local text files (Legacy Webshare and new DataImpulse files)
+    2. DataImpulse Residential Proxies (Primary Provider)
+    3. Webshare.io (Legacy Fallback)
+    
+    Returns:
+        List[str]: A list of proxy URLs in the format http://user:pass@host:port
+    """
     proxies = []
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    for fname in ["Webshare 10 proxies.txt", "webshare_proxies.txt"]:
+    
+    # --- 1. File-Based Proxies ---
+    # Supports both legacy Webshare and new DataImpulse proxy list files
+    proxy_files = ["Webshare 10 proxies.txt", "webshare_proxies.txt", "dataimpulse_proxies.txt"]
+    for fname in proxy_files:
         fpath = os.path.join(base_dir, fname)
         if os.path.exists(fpath):
-            with open(fpath, "r") as f:
-                for line in f:
-                    parts = line.strip().split(":")
-                    if len(parts) == 4: proxies.append(f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}")
+            try:
+                with open(fpath, "r") as f:
+                    for line in f:
+                        parts = line.strip().split(":")
+                        # Expected format: host:port:user:pass
+                        if len(parts) == 4: 
+                            proxies.append(f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}")
+            except Exception as e:
+                logger.error(f"Error reading proxy file {fname}: {e}")
     
-    user_base = os.getenv("WEBSHARE_PROXY_USER", "jxgqvosn")
-    pw = os.getenv("WEBSHARE_PROXY_PASS", "symou02ck2bw")
-    if user_base and pw:
-        for i in range(1, 11): proxies.append(f"http://{user_base}-{i}:{pw}@p.webshare.io:80")
+    # --- 2. DataImpulse Integration (New Primary Provider) ---
+    # Credentials from documentation: f09e44298d845a38e099 / 824d84ed7a235cef
+    # Port 823 = HTTP/HTTPS Rotating, Port 824 = SOCKS5 Rotating
+    di_user = os.getenv("DATAIMPULSE_USER", "f09e44298d945a38e099")
+    di_pass = os.getenv("DATAIMPULSE_PASS", "824d84ed7a235aef")
+    di_host = os.getenv("DATAIMPULSE_HOST", "gw.dataimpulse.com")
+    di_port = os.getenv("DATAIMPULSE_PORT", "823")
+    
+    if di_user and di_pass:
+        proxies.append(f"http://{di_user}:{di_pass}@{di_host}:{di_port}")
             
+    # --- 3. Webshare.io Fallback (Disabled) ---
+    # ws_user = os.getenv("WEBSHARE_PROXY_USER")
+    # ws_pw = os.getenv("WEBSHARE_PROXY_PASS")
+    # if ws_user and ws_pw:
+    #     for i in range(1, 11): 
+    #         proxies.append(f"http://{ws_user}-{i}:{ws_pw}@p.webshare.io:80")
+            
+    # Remove duplicates while preserving order
     proxies = list(dict.fromkeys(proxies))
+    
+    if not proxies:
+        logger.warning("No proxies loaded. Scraper will run without proxy protection.")
+        
     return proxies
 
 def log(msg: str):
