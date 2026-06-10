@@ -35,18 +35,49 @@ def resolve_google_news_url_sync(url: str) -> str:
     if not url:
         return ""
         
-    # 1. Try decoding (Instant, Google specific)
+    # 1. Try googlenewsdecoder with proxies
+    if "news.google.com" in url:
+        try:
+            from scraper.engine import load_proxies
+            import googlenewsdecoder
+            import logging
+            logger = logging.getLogger("scraper.google_news")
+            
+            proxies = load_proxies()
+            proxy_url = proxies[0] if proxies else None
+            
+            res = googlenewsdecoder.gnewsdecoder(url, proxy=proxy_url)
+            if res.get("status") and res.get("decoded_url"):
+                return res["decoded_url"]
+            else:
+                logger.warning(f"googlenewsdecoder failed to decode: {res.get('message') or res}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger("scraper.google_news")
+            logger.error(f"googlenewsdecoder error: {e}", exc_info=True)
+
+    # 2. Try old base64 decoder as a local offline fallback
     if "news.google.com" in url:
         decoded = decode_google_news_url(url)
         if decoded:
             return decoded
     
-    # 2. HTTP redirect resolution (Generic)
+    # 3. HTTP redirect resolution (Generic)
     try:
+        from scraper.engine import load_proxies
+        proxies = load_proxies()
+        proxy_url = proxies[0] if proxies else None
+        
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         }
-        with httpx.Client(follow_redirects=True, timeout=8) as client:
+        
+        # Configure httpx client with proxy if available
+        client_kwargs = {"follow_redirects": True, "timeout": 8}
+        if proxy_url:
+            client_kwargs["proxy"] = proxy_url
+            
+        with httpx.Client(**client_kwargs) as client:
             try:
                 resp = client.head(url, headers=headers)
                 if resp.status_code < 400:

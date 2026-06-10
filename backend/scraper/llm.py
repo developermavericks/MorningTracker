@@ -19,10 +19,40 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 import redis.asyncio as redis
 _redis_client = None
 
+class DummyRedis:
+    def __init__(self):
+        self._data = {}
+    async def get(self, key): return self._data.get(key)
+    async def set(self, key, val, *args, **kwargs): self._data[key] = val; return True
+    async def ping(self): return True
+    async def sismember(self, name, val): return False
+    async def sadd(self, name, *values): return 0
+    # Sync methods
+    def get_sync(self, key): return self._data.get(key)
+    def set_sync(self, key, val, *args, **kwargs): self._data[key] = val; return True
+    def ping_sync(self): return True
+    def sismember_sync(self, name, val): return False
+    def sadd_sync(self, name, *values): return 0
+    # Fallback support
+    def __getattr__(self, name):
+        def _mock(*args, **kwargs):
+            return None
+        return _mock
+
 async def get_redis():
     global _redis_client
     if _redis_client is None:
-        _redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+        url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        if not url or "localhost" in url or "127.0.0.1" in url:
+            try:
+                client = redis.from_url(url or "redis://localhost:6379/0", decode_responses=True)
+                await asyncio.wait_for(client.ping(), timeout=2.0)
+                _redis_client = client
+            except Exception:
+                print("Celery/LLM: Redis offline. Initializing Mock Async Redis.")
+                _redis_client = DummyRedis()
+        else:
+            _redis_client = redis.from_url(url, decode_responses=True)
     return _redis_client
 
 # Synchronous Redis for gevent workers
@@ -32,7 +62,17 @@ _redis_sync_client = None
 def get_redis_sync():
     global _redis_sync_client
     if _redis_sync_client is None:
-        _redis_sync_client = redis_sync.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+        url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        if not url or "localhost" in url or "127.0.0.1" in url:
+            try:
+                client = redis_sync.from_url(url or "redis://localhost:6379/0", decode_responses=True)
+                client.ping()
+                _redis_sync_client = client
+            except Exception:
+                print("Celery/LLM: Redis offline. Initializing Mock Sync Redis.")
+                _redis_sync_client = DummyRedis()
+        else:
+            _redis_sync_client = redis_sync.from_url(url, decode_responses=True)
     return _redis_sync_client
 
 _ollama_semaphore = None

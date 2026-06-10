@@ -11,6 +11,7 @@ import Diagnostics from "./pages/Diagnostics";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminUserDetail from "./pages/AdminUserDetail";
 import AdminJobDetail from "./pages/AdminJobDetail";
+import ClientReports from "./pages/ClientReports";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -19,6 +20,7 @@ import "./index.css";
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "◈", adminOnly: true },
   { id: "articles", label: "Articles", icon: "≡", adminOnly: true },
+  { id: "client-reports", label: "Client Automation", icon: "⚡", adminOnly: true },
   { id: "brands", label: "Keyword Setup", icon: "🏢" },
   { id: "jobs", label: "Tracker", icon: "◎" },
   { id: "admin", label: "Admin Portal", icon: "⚙", adminOnly: true },
@@ -171,6 +173,7 @@ function ProtectedApp() {
       <main className="main-content">
         {page === "dashboard" && <Dashboard onNavigate={navigateWithContext} />}
         {page === "articles" && <ArticlesBrowser initialFilters={navContext} />}
+        {page === "client-reports" && <ClientReports />}
         {page === "brands" && <BrandTracker onNavigate={navigateWithContext} initialFilters={navContext} />}
         {page === "jobs" && <Jobs />}
         {page === "diagnostics" && <Diagnostics />}

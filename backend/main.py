@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy import select, update, func
-from routers import scrape, articles, diagnostics, brands, auth, admin
+from routers import scrape, articles, diagnostics, brands, auth, admin, clients
 from db.database import init_db, get_db, ScrapeJob, Article
 import logging
 
@@ -183,6 +183,7 @@ api_router.include_router(articles.router, prefix="/articles", tags=["articles"]
 api_router.include_router(diagnostics.router, prefix="/diagnostics", tags=["diagnostics"])
 api_router.include_router(brands.router, prefix="/brands", tags=["brands"])
 api_router.include_router(admin.router)
+api_router.include_router(clients.router)
 
 @api_router.get("/health")
 async def health():

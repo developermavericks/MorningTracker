@@ -23,10 +23,30 @@ load_dotenv()
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+# Check Redis connectivity to fall back to SQLite locally
+redis_offline = False
+if "localhost" in REDIS_URL or "127.0.0.1" in REDIS_URL or not REDIS_URL:
+    try:
+        import redis
+        r = redis.from_url(REDIS_URL or "redis://localhost:6379/0", socket_timeout=2)
+        r.ping()
+    except Exception:
+        redis_offline = True
+
+if redis_offline:
+    # Use SQLite for Celery Broker & Backend in local mode
+    db_dir = os.path.dirname(os.path.abspath(__file__))
+    broker_url = f"sqla+sqlite:///{os.path.join(db_dir, 'news_scraper.db')}"
+    backend_url = f"db+sqlite:///{os.path.join(db_dir, 'news_scraper.db')}"
+    print("Celery WARNING: Redis is offline. Falling back to local SQLite broker & backend.")
+else:
+    broker_url = REDIS_URL
+    backend_url = REDIS_URL
+
 app = Celery(
     "nexus_tasks",
-    broker=REDIS_URL,
-    backend=REDIS_URL
+    broker=broker_url,
+    backend=backend_url
 )
 
 app.conf.update(
@@ -47,10 +67,16 @@ app.conf.update(
         "scraper.tasks.scrape_article_node": {"queue": "celery"},
         "scraper.tasks.enrich_article_node": {"queue": "celery"},
         "scraper.tasks.complete_stale_jobs": {"queue": "celery"},
+        "scraper.tasks.run_client_report_task": {"queue": "celery"},
+        "scraper.tasks.check_client_schedules": {"queue": "celery"},
     },
     beat_schedule={
         "complete-stale-jobs-every-5-min": {
             "task": "scraper.tasks.complete_stale_jobs",
+            "schedule": 5 * 60,  # Every 5 minutes
+        },
+        "check-client-schedules-every-5-min": {
+            "task": "scraper.tasks.check_client_schedules",
             "schedule": 5 * 60,  # Every 5 minutes
         },
     }

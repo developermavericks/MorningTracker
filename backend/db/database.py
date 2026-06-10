@@ -139,6 +139,44 @@ class WatchedBrand(Base):
         Index("idx_unique_brand_user", "name", "user_id", unique=True),
     )
 
+class Client(Base):
+    __tablename__ = "clients"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    scheduled_time: Mapped[str] = mapped_column(String, default="07:00")
+    timezone: Mapped[str] = mapped_column(String, default="Asia/Kolkata")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    template_path: Mapped[Optional[str]] = mapped_column(String)
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+class ClientSection(Base):
+    __tablename__ = "client_sections"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_id: Mapped[int] = mapped_column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+
+class ClientKeyword(Base):
+    __tablename__ = "client_keywords"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    section_id: Mapped[int] = mapped_column(Integer, ForeignKey("client_sections.id", ondelete="CASCADE"), nullable=False)
+    keyword: Mapped[str] = mapped_column(String, nullable=False)
+
+class ClientRecipient(Base):
+    __tablename__ = "client_recipients"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_id: Mapped[int] = mapped_column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False)
+
+class ClientRunLog(Base):
+    __tablename__ = "client_run_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_id: Mapped[int] = mapped_column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String, default="pending")  # running, completed, failed
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    generated_file_path: Mapped[Optional[str]] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
 # ─── Initialization ───────────────────────────────────────────────────────────
 
 async def init_db():
