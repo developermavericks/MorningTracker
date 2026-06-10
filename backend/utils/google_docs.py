@@ -1,8 +1,14 @@
 import os
 import logging
+from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from docx import Document
+from docx.shared import RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +16,90 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/documents'
 ]
+
+def add_horizontal_line(paragraph):
+    """Adds a thin bottom border to a paragraph (horizontal divider line)."""
+    pPr = paragraph._p.get_or_add_pPr()
+    pBdr = OxmlElement('w:pBdr')
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'), 'single')
+    bottom.set(qn('w:sz'), '6')  # Size 6 = 3/4 pt
+    bottom.set(qn('w:space'), '12')
+    bottom.set(qn('w:color'), 'D3D3D3')  # Light grey
+    pBdr.append(bottom)
+    pPr.append(pBdr)
+
+def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: str):
+    """
+    Combines two DOCX files.
+    The new daily briefing is prepended at the top, followed by a divider, 
+    and then the previous days' content from the existing monthly file.
+    """
+    # Read new briefing
+    new_doc = Document(new_docx_path)
+    # Read existing master doc
+    existing_doc = Document(existing_docx_path)
+    
+    # Create combined document
+    combined = Document()
+    
+    # Copy margins from new_doc
+    for section in new_doc.sections:
+        for comb_section in combined.sections:
+            comb_section.top_margin = section.top_margin
+            comb_section.bottom_margin = section.bottom_margin
+            comb_section.left_margin = section.left_margin
+            comb_section.right_margin = section.right_margin
+            
+    # 1. Copy paragraphs from new_doc (the new daily briefing)
+    for paragraph in new_doc.paragraphs:
+        new_p = combined.add_paragraph()
+        new_p.alignment = paragraph.alignment
+        new_p.paragraph_format.space_before = paragraph.paragraph_format.space_before
+        new_p.paragraph_format.space_after = paragraph.paragraph_format.space_after
+        new_p.paragraph_format.line_spacing = paragraph.paragraph_format.line_spacing
+        
+        for run in paragraph.runs:
+            new_run = new_p.add_run(run.text)
+            new_run.bold = run.bold
+            new_run.italic = run.italic
+            new_run.underline = run.underline
+            new_run.font.name = run.font.name
+            new_run.font.size = run.font.size
+            if run.font.color and run.font.color.rgb:
+                new_run.font.color.rgb = run.font.color.rgb
+            
+        if paragraph._p.pPr is not None and paragraph._p.pPr.find(qn('w:pBdr')) is not None:
+            add_horizontal_line(new_p)
+            
+    # Add page/spacer break
+    sep_p = combined.add_paragraph()
+    sep_run = sep_p.add_run("\n" + "="*40 + "\n")
+    sep_run.font.color.rgb = RGBColor(180, 180, 180)
+    sep_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # 2. Copy paragraphs from existing_doc (previous days)
+    for paragraph in existing_doc.paragraphs:
+        new_p = combined.add_paragraph()
+        new_p.alignment = paragraph.alignment
+        new_p.paragraph_format.space_before = paragraph.paragraph_format.space_before
+        new_p.paragraph_format.space_after = paragraph.paragraph_format.space_after
+        new_p.paragraph_format.line_spacing = paragraph.paragraph_format.line_spacing
+        
+        for run in paragraph.runs:
+            new_run = new_p.add_run(run.text)
+            new_run.bold = run.bold
+            new_run.italic = run.italic
+            new_run.underline = run.underline
+            new_run.font.name = run.font.name
+            new_run.font.size = run.font.size
+            if run.font.color and run.font.color.rgb:
+                new_run.font.color.rgb = run.font.color.rgb
+            
+        if paragraph._p.pPr is not None and paragraph._p.pPr.find(qn('w:pBdr')) is not None:
+            add_horizontal_line(new_p)
+            
+    combined.save(output_path)
 
 def get_drive_service():
     """Initializes the Google Drive API service using local credentials JSON."""
@@ -30,7 +120,6 @@ def get_drive_service():
 def get_or_create_reports_folder(service, client_name: str) -> str:
     """Finds or creates a client-specific reports folder in Google Drive."""
     try:
-        # Check if the folder already exists
         query = f"name = 'Morning Tracker - {client_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
         files = results.get('files', [])
@@ -38,7 +127,6 @@ def get_or_create_reports_folder(service, client_name: str) -> str:
         if files:
             return files[0]['id']
             
-        # Create folder if it doesn't exist
         folder_metadata = {
             'name': f'Morning Tracker - {client_name}',
             'mimeType': 'application/vnd.google-apps.folder'
@@ -53,7 +141,9 @@ def get_or_create_reports_folder(service, client_name: str) -> str:
 def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, recipients: list) -> str:
     """
     Uploads a local DOCX file to Google Drive and converts it to a native Google Doc.
-    Shares the generated Google Doc with the list of recipient email addresses.
+    Supports continuous daily appending into a single monthly document (e.g. Scapia - June 2026).
+    Appends new reports at the top of the monthly Google Doc to align with outline-navigation.
+    Shares the Google Doc with the list of recipient email addresses.
     Returns the URL link of the Google Doc.
     """
     service = get_drive_service()
@@ -61,46 +151,105 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
         return None
         
     try:
-        # Get target folder
         folder_id = get_or_create_reports_folder(service, client_name)
         
-        file_name = f"{client_name} Briefing - {date_str}"
+        # Build Monthly Document Name (e.g., "Scapia - June 2026")
+        month_year_str = datetime.now().strftime("%B %Y")
+        file_name = f"{client_name} - {month_year_str}"
         
-        # Metadata configuration to automatically convert DOCX to Google Docs
-        file_metadata = {
-            'name': file_name,
-            'mimeType': 'application/vnd.google-apps.document'  # Converts to Google Docs format
-        }
+        # Search for an existing monthly Google Doc inside the client's folder
+        query = f"name = '{file_name}' and mimeType = 'application/vnd.google-apps.document' and '{folder_id}' in parents and trashed = false"
+        results = service.files().list(q=query, spaces='drive', fields='files(id, webViewLink)').execute()
+        files = results.get('files', [])
         
-        if folder_id:
-            file_metadata['parents'] = [folder_id]
+        doc_id = None
+        web_link = None
+        
+        if files:
+            # Monthly document already exists -> Export, Merge, and Update in-place
+            doc_id = files[0]['id']
+            web_link = files[0]['webViewLink']
+            logger.info(f"Monthly document exists: ID {doc_id}. Initiating daily append merge...")
             
-        media = MediaFileUpload(
-            docx_path, 
-            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
-            resumable=True
-        )
+            temp_existing_path = docx_path + ".existing.docx"
+            temp_combined_path = docx_path + ".combined.docx"
+            
+            try:
+                # 1. Export Google Doc as a local DOCX using downloader
+                from googleapiclient.http import MediaIoBaseDownload
+                import io
+                
+                export_request = service.files().export_media(
+                    fileId=doc_id, 
+                    mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                )
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, export_request)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+                    
+                with open(temp_existing_path, "wb") as f:
+                    f.write(fh.getvalue())
+                
+                # 2. Merge new daily report with existing month report (new on top)
+                merge_docx_files(docx_path, temp_existing_path, temp_combined_path)
+                
+                # 3. Update the existing Google Doc content
+                media = MediaFileUpload(
+                    temp_combined_path, 
+                    mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
+                    resumable=True
+                )
+                service.files().update(
+                    fileId=doc_id,
+                    media_body=media
+                ).execute()
+                
+                logger.info(f"Successfully appended report to monthly Google Doc: {file_name}")
+                
+            except Exception as merge_err:
+                logger.error(f"Failed to merge with existing monthly doc: {merge_err}", exc_info=True)
+            finally:
+                # Cleanup temp files
+                if os.path.exists(temp_existing_path):
+                    os.remove(temp_existing_path)
+                if os.path.exists(temp_combined_path):
+                    os.remove(temp_combined_path)
         
-        # Create/Upload the file
-        uploaded_file = service.files().create(
-            body=file_metadata, 
-            media_body=media, 
-            fields='id, webViewLink'
-        ).execute()
-        
-        doc_id = uploaded_file.get('id')
-        web_link = uploaded_file.get('webViewLink')
-        
-        logger.info(f"Successfully uploaded and converted report to Google Doc ID: {doc_id}")
-        
-        # Share document with recipient emails
+        if not doc_id:
+            # Monthly document does not exist yet -> Create new
+            logger.info(f"Creating new monthly Google Doc: {file_name}")
+            file_metadata = {
+                'name': file_name,
+                'mimeType': 'application/vnd.google-apps.document'
+            }
+            if folder_id:
+                file_metadata['parents'] = [folder_id]
+                
+            media = MediaFileUpload(
+                docx_path, 
+                mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
+                resumable=True
+            )
+            uploaded_file = service.files().create(
+                body=file_metadata, 
+                media_body=media, 
+                fields='id, webViewLink'
+            ).execute()
+            
+            doc_id = uploaded_file.get('id')
+            web_link = uploaded_file.get('webViewLink')
+            logger.info(f"Created monthly Google Doc ID: {doc_id}")
+            
+        # Share document with recipient emails (always run to ensure new recipients get access)
         for email in recipients:
             if not email:
                 continue
             try:
                 user_permission = {
                     'type': 'user',
-                    'role': 'writer',  # Grant Editor access to organization members
+                    'role': 'writer',
                     'emailAddress': email
                 }
                 service.permissions().create(
@@ -108,9 +257,9 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
                     body=user_permission, 
                     sendNotificationEmails=False
                 ).execute()
-                logger.info(f"Shared Google Doc {doc_id} with {email}")
             except Exception as share_err:
-                logger.error(f"Failed to share Google Doc with {email}: {share_err}")
+                # Ignore duplicate sharing errors or domain restriction warnings
+                pass
                 
         return web_link
         
