@@ -153,6 +153,50 @@ def summarize_with_groq_sync(text: str) -> Optional[str]:
     # Optional fallback: Grok (xAI) - only runs if XAI_API_KEY is configured
     return summarize_with_grok_sync(text)
 
+def check_relevance_with_groq(title: str, body: str, keywords: List[str], client_name: str) -> bool:
+    """
+    Evaluates if the article is genuinely relevant to the client and their keywords.
+    """
+    is_placeholder = any("your_groq_api_key" in k.lower() for k in GROQ_API_KEYS)
+    if not GROQ_API_KEYS or is_placeholder or not body:
+        return True # Default to True if Groq is not configured
+        
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    prompt = (
+        f"You are an editor filtering news for the client '{client_name}'.\n"
+        f"Target Keywords/Topics: {', '.join(keywords)}\n\n"
+        f"Article Title: {title}\n"
+        f"Article Content: {body[:3000]}\n\n"
+        f"Determine if this article is genuinely relevant to '{client_name}' or the target topics/keywords.\n"
+        f"Respond with EXACTLY one word: 'YES' if it is relevant, or 'NO' if it is spam, off-topic, or not relevant."
+    )
+    
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 5,
+        "temperature": 0
+    }
+    
+    with httpx.Client(timeout=15) as client:
+        for attempt in range(2):
+            api_key = random.choice(GROQ_API_KEYS)
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            try:
+                resp = client.post(url, headers=headers, json=payload, timeout=10)
+                if resp.status_code == 200:
+                    ans = resp.json()["choices"][0]["message"]["content"].strip().upper()
+                    if "YES" in ans:
+                        return True
+                    if "NO" in ans:
+                        return False
+            except Exception as e:
+                log(f"Relevance Groq check exception: {e}")
+                
+    return True
+
 # --- Ollama Client ---
 from urllib.parse import urlparse
 

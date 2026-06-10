@@ -386,6 +386,12 @@ def run_client_report_task(client_id: int):
                 if not is_relevant:
                     logger.info(f"Article '{title}' is not relevant to keywords. Skipping.")
                     continue
+                
+                # Check semantic relevance with Groq to filter out off-topic / noise articles
+                from scraper.llm import check_relevance_with_groq
+                if not check_relevance_with_groq(title, body_text, keywords, client_name):
+                    logger.info(f"Article '{title}' judged IRRELEVANT by Groq. Skipping.")
+                    continue
                     
                 # 5. Summarize / Enrich using LLM
                 logger.info(f"Enriching and summarizing article: {title}")
