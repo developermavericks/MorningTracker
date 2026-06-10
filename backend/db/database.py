@@ -12,6 +12,23 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 def get_database_url():
     url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///news_scraper.db")
+    if url:
+        # Strip whitespace and trailing newlines
+        url = url.strip()
+        # If the user copy-pasted a comment after the URL, extract only the URL part
+        if " " in url:
+            url = url.split()[0]
+            
+    # Check for empty or unresolved template string
+    if not url or url.startswith("${{"):
+        print(f"NEXUS DB WARNING: DATABASE_URL is empty or unresolved template: '{url}'. Falling back to local SQLite.")
+        url = "sqlite+aiosqlite:///news_scraper.db"
+        
+    # Check for valid schemes
+    if not (url.startswith("postgresql") or url.startswith("sqlite")):
+        print(f"NEXUS DB WARNING: DATABASE_URL has invalid scheme: '{url[:30]}...'. Falling back to local SQLite.")
+        url = "sqlite+aiosqlite:///news_scraper.db"
+        
     # SQLAlchemy requires +asyncpg for postgres
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://")
