@@ -102,19 +102,32 @@ def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: s
     combined.save(output_path)
 
 def get_drive_service():
-    """Initializes the Google Drive API service using local credentials JSON."""
+    """Initializes the Google Drive API service using environment variable or local credentials JSON."""
+    import json
+    
+    # 1. Try to load credentials from environment variable first (best for Railway/production)
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        try:
+            creds_data = json.loads(creds_json)
+            creds = service_account.Credentials.from_service_account_info(creds_data, scopes=SCOPES)
+            return build('drive', 'v3', credentials=creds)
+        except Exception as e:
+            logger.error(f"Failed to load Google credentials from environment variable: {e}")
+            
+    # 2. Fallback to local file (development)
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     creds_path = os.path.join(base_dir, "google_credentials.json")
     
     if not os.path.exists(creds_path):
-        logger.warning(f"Google credentials file not found at {creds_path}. Skipping Google Docs integration.")
+        logger.warning(f"Google credentials file not found at {creds_path} and no environment variable set. Skipping Google Docs integration.")
         return None
         
     try:
         creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
         return build('drive', 'v3', credentials=creds)
     except Exception as e:
-        logger.error(f"Failed to initialize Google Drive service: {e}")
+        logger.error(f"Failed to initialize Google Drive service from file: {e}")
         return None
 
 def get_or_create_reports_folder(service, client_name: str) -> str:
