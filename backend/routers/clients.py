@@ -15,6 +15,11 @@ from celery_app import app as celery_app
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
+async def get_admin_user(current_user: TokenData = Depends(get_auth_user)):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
 # --- Pydantic Schemas ---
 class SectionCreate(BaseModel):
     name: str
@@ -58,7 +63,7 @@ class RunLogResponse(BaseModel):
 @router.get("/", response_model=List[ClientResponse])
 async def list_clients(
     db: AsyncSession = Depends(get_db_yield),
-    current_user: TokenData = Depends(get_auth_user)
+    current_user: TokenData = Depends(get_admin_user)
 ):
     stmt = select(Client).order_by(Client.name)
     res = await db.execute(stmt)
@@ -107,7 +112,7 @@ async def list_clients(
 async def create_client(
     payload: ClientCreate,
     db: AsyncSession = Depends(get_db_yield),
-    current_user: TokenData = Depends(get_auth_user)
+    current_user: TokenData = Depends(get_admin_user)
 ):
     exist_stmt = select(Client).where(Client.name == payload.name)
     exist_res = await db.execute(exist_stmt)
@@ -169,7 +174,7 @@ async def update_client(
     client_id: int,
     payload: ClientCreate,
     db: AsyncSession = Depends(get_db_yield),
-    current_user: TokenData = Depends(get_auth_user)
+    current_user: TokenData = Depends(get_admin_user)
 ):
     stmt = select(Client).where(Client.id == client_id)
     res = await db.execute(stmt)
@@ -235,7 +240,7 @@ async def update_client(
 async def delete_client(
     client_id: int,
     db: AsyncSession = Depends(get_db_yield),
-    current_user: TokenData = Depends(get_auth_user)
+    current_user: TokenData = Depends(get_admin_user)
 ):
     stmt = select(Client).where(Client.id == client_id)
     res = await db.execute(stmt)
@@ -258,7 +263,7 @@ async def upload_template(
     client_id: int,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db_yield),
-    current_user: TokenData = Depends(get_auth_user)
+    current_user: TokenData = Depends(get_admin_user)
 ):
     stmt = select(Client).where(Client.id == client_id)
     res = await db.execute(stmt)
@@ -285,7 +290,7 @@ async def upload_template(
 async def get_client_run_logs(
     client_id: int,
     db: AsyncSession = Depends(get_db_yield),
-    current_user: TokenData = Depends(get_auth_user)
+    current_user: TokenData = Depends(get_admin_user)
 ):
     stmt = select(ClientRunLog).where(ClientRunLog.client_id == client_id).order_by(desc(ClientRunLog.started_at))
     res = await db.execute(stmt)
@@ -308,7 +313,7 @@ async def get_client_run_logs(
 async def trigger_client_run(
     client_id: int,
     db: AsyncSession = Depends(get_db_yield),
-    current_user: TokenData = Depends(get_auth_user)
+    current_user: TokenData = Depends(get_admin_user)
 ):
     stmt = select(Client).where(Client.id == client_id)
     res = await db.execute(stmt)
@@ -328,7 +333,7 @@ from fastapi.responses import FileResponse
 @router.get("/reports/{filename}")
 async def download_report(
     filename: str,
-    current_user: TokenData = Depends(get_auth_user)
+    current_user: TokenData = Depends(get_admin_user)
 ):
     reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
     file_path = os.path.join(reports_dir, filename)
