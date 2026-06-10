@@ -15,9 +15,12 @@ def get_database_url():
     if url:
         # Strip whitespace and trailing newlines
         url = url.strip()
+        # Strip leading/trailing quotes if present
+        url = url.strip("\"'")
         # If the user copy-pasted a comment after the URL, extract only the URL part
         if " " in url:
             url = url.split()[0]
+            url = url.strip("\"'")
             
     # Check for empty or unresolved template string
     if not url or url.startswith("${{"):
