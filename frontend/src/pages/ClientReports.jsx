@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import apiClient, { api } from "../services/api";
 
 export default function ClientReports() {
   const [clients, setClients] = useState([]);
@@ -27,14 +28,8 @@ export default function ClientReports() {
   const fetchClients = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("/api/clients/", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setClients(data);
-      }
+      const data = await api.get("clients/");
+      setClients(data);
     } catch (err) {
       console.error("Failed to fetch clients", err);
     } finally {
@@ -105,75 +100,46 @@ export default function ClientReports() {
     };
 
     try {
-      const url = selectedClient ? `/api/clients/${selectedClient.id}` : "/api/clients/";
-      const method = selectedClient ? "PUT" : "POST";
-      
-      const res = await fetch(url, {
-        method: method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (res.ok) {
-        setIsModalOpen(false);
-        fetchClients();
+      const url = selectedClient ? `clients/${selectedClient.id}` : "clients/";
+      if (selectedClient) {
+        await api.put(url, payload);
       } else {
-        const data = await res.json();
-        alert(data.detail || "Something went wrong");
+        await api.post(url, payload);
       }
+      setIsModalOpen(false);
+      fetchClients();
     } catch (err) {
       console.error("Failed to save client", err);
+      alert(err.message || "Something went wrong");
     }
   };
 
   const handleDeleteClient = async (id) => {
     if (!confirm("Are you sure you want to delete this client? This will delete all its sections, keywords, templates, and history logs.")) return;
-    const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`/api/clients/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        fetchClients();
-      }
+      await api.delete(`clients/${id}`);
+      fetchClients();
     } catch (err) {
       console.error("Failed to delete client", err);
     }
   };
 
   const handleRunNow = async (id) => {
-    const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`/api/clients/${id}/run`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        alert("Client report generation task triggered successfully! You can monitor progress in the run logs.");
-      } else {
-        alert("Failed to trigger report task.");
-      }
+      await api.post(`clients/${id}/run`);
+      alert("Client report generation task triggered successfully! You can monitor progress in the run logs.");
     } catch (err) {
       console.error("Failed to trigger client run", err);
+      alert("Failed to trigger report task.");
     }
   };
 
   const handleViewLogs = async (client) => {
     setLogsClient(client);
     setLogsLoading(true);
-    const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`/api/clients/${client.id}/logs`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data);
-      }
+      const data = await api.get(`clients/${client.id}/logs`);
+      setLogs(data);
     } catch (err) {
       console.error("Failed to fetch logs", err);
     } finally {
@@ -189,49 +155,38 @@ export default function ClientReports() {
     }
 
     setUploadingTemplateId(clientId);
-    const token = localStorage.getItem("token");
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch(`/api/clients/${clientId}/template`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData
+      await api.post(`clients/${clientId}/template`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
       });
-      if (res.ok) {
-        alert("Template document uploaded successfully!");
-        fetchClients();
-      } else {
-        alert("Failed to upload template.");
-      }
+      alert("Template document uploaded successfully!");
+      fetchClients();
     } catch (err) {
       console.error("Failed to upload template", err);
+      alert("Failed to upload template.");
     } finally {
       setUploadingTemplateId(null);
     }
   };
 
   const handleDownloadReport = async (filename) => {
-    const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`/api/clients/reports/${filename}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const blob = await apiClient.get(`clients/reports/${filename}`, {
+        responseType: "blob"
       });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      } else {
-        alert("Failed to download file. It may have been cleared or expired.");
-      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     } catch (err) {
       console.error("Failed to download file", err);
+      alert("Failed to download file. It may have been cleared or expired.");
     }
   };
 
