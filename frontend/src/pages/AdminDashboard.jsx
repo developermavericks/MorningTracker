@@ -13,6 +13,8 @@ export default function AdminDashboard({ onNavigate }) {
         brand: "",
         status: ""
     });
+    const [settingsEmails, setSettingsEmails] = useState("");
+    const [savingSettings, setSavingSettings] = useState(false);
 
     const fetchAdminData = async () => {
         setLoading(true);
@@ -29,9 +31,38 @@ export default function AdminDashboard({ onNavigate }) {
         }
     };
 
+    const fetchSettings = async () => {
+        try {
+            const res = await api.get("admin/settings");
+            if (res && res.fail_safe_recipients) {
+                setSettingsEmails(res.fail_safe_recipients.join(", "));
+            }
+        } catch (err) {
+            console.error("Failed to fetch settings", err);
+        }
+    };
+
     useEffect(() => {
         fetchAdminData();
     }, [page, filters]);
+
+    useEffect(() => {
+        fetchSettings();
+    }, []);
+
+    const handleSaveSettings = async () => {
+        setSavingSettings(true);
+        try {
+            const emailsArr = settingsEmails.split(",").map(e => e.trim()).filter(e => e);
+            await api.post("admin/settings", { fail_safe_recipients: emailsArr });
+            alert("Fail-safe recipients updated successfully!");
+        } catch (err) {
+            console.error("Failed to save settings", err);
+            alert(`Failed to save settings: ${err.message}`);
+        } finally {
+            setSavingSettings(false);
+        }
+    };
 
     const handleFilterChange = (e) => {
         setFilters({ ...filters, [e.target.name]: e.target.value });
@@ -59,6 +90,31 @@ export default function AdminDashboard({ onNavigate }) {
                 <div className="card" style={{ background: 'var(--surface2)', border: 'none' }}>
                     <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>ACTIVE USERS</div>
                     <div style={{ fontSize: '32px', fontWeight: '800', color: 'var(--warning)' }}>{summary.active_users}</div>
+                </div>
+            </div>
+
+            <div className="card" style={{ marginBottom: '32px', border: 'none' }}>
+                <div className="card-title">Fail-Safe Notification Settings</div>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '16px' }}>
+                    Configure the target email addresses that should be notified immediately if any automated pipeline job fails.
+                </p>
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                    <input
+                        type="text"
+                        placeholder="Emails (comma separated)"
+                        value={settingsEmails}
+                        onChange={(e) => setSettingsEmails(e.target.value)}
+                        className="form-control"
+                        style={{ flex: 1 }}
+                    />
+                    <button
+                        className="btn btn-primary"
+                        onClick={handleSaveSettings}
+                        disabled={savingSettings}
+                        style={{ whiteSpace: 'nowrap' }}
+                    >
+                        {savingSettings ? "Saving..." : "Save Settings"}
+                    </button>
                 </div>
             </div>
 

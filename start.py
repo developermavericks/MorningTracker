@@ -41,9 +41,9 @@ def main():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        print("      ➜ Queues cleared.")
+        print("      -> Queues cleared.")
     except Exception as e:
-        print(f"      ➜ Warning: Could not purge queues: {e}")
+        print(f"      -> Warning: Could not purge queues: {e}")
 
     print("[1/3] Starting Backend (port 8000)...")
     backend_log = open(os.path.join(backend_dir, "api.log"), "a", encoding="utf-8")
@@ -65,12 +65,18 @@ def main():
         shell=False
     )
 
-    print("[3/3] Starting Celery Worker (prefork)...")
+    print("[3/3] Starting Celery Worker (solo on Windows)...")
     worker_env = env.copy()
     worker_log = open(os.path.join(backend_dir, "worker.log"), "a", encoding="utf-8")
     
+    celery_cmd = [python_exe, "-m", "celery", "-A", "celery_app", "worker", "--loglevel=info", "-Q", "orchestrator,scraper_nodes,celery"]
+    if os.name == 'nt':
+        celery_cmd.extend(["-P", "solo"])
+    else:
+        celery_cmd.extend(["--concurrency=8"])
+
     worker_proc = subprocess.Popen(
-        [python_exe, "-m", "celery", "-A", "celery_app", "worker", "--loglevel=info", "--concurrency=8", "-Q", "orchestrator,scraper_nodes,celery"],
+        celery_cmd,
         cwd=backend_dir,
         env=worker_env,
         stdout=worker_log,
@@ -80,9 +86,9 @@ def main():
     print("\n" + "="*40)
     print(" NEXUS is now running!")
     print("="*40)
-    print(" ➜ API:      http://localhost:8000")
-    print(" ➜ Frontend: http://localhost:5173")
-    print(" ➜ Logs:     backend/api.log, worker.log")
+    print(" -> API:      http://localhost:8000")
+    print(" -> Frontend: http://localhost:5173")
+    print(" -> Logs:     backend/api.log, worker.log")
     print("\n Press Ctrl+C to stop all services.")
     print("="*40 + "\n")
 

@@ -25,7 +25,7 @@ from scraper.parser import extract_body, extract_author, extract_author_v2, extr
 
 from db.database import get_db_sync, Article, ScrapeJob
 from scraper.config import SECTOR_KEYWORDS, REGION_MAP, SEARCH_MODIFIERS, USER_AGENTS
-from scraper.search_utils import verify_boolean_relevance
+from scraper.search_utils import verify_boolean_relevance, match_keyword
 
 # --- Logging ---
 import logging
@@ -78,10 +78,22 @@ class ProxyGuard:
     @classmethod
     def get_healthy_proxy(cls, pool: List[str]) -> Optional[str]:
         healthy = [p for p in pool if cls.is_healthy(p)]
-        return random.choice(healthy) if healthy else (random.choice(pool) if pool else None)
+        return random.choice(healthy) if healthy else None
 
 def load_proxies():
+    # 1. Try DataImpulse proxy credentials from environment variables first
+    di_proxy_url = os.getenv("DATAIMPULSE_PROXY_URL")
+    if di_proxy_url:
+        return [di_proxy_url]
+    di_user = os.getenv("DATAIMPULSE_USER")
+    di_pass = os.getenv("DATAIMPULSE_PASS")
+    di_host = os.getenv("DATAIMPULSE_HOST")
+    di_port = os.getenv("DATAIMPULSE_PORT")
+    if di_user and di_pass and di_host and di_port:
+        return [f"http://{di_user}:{di_pass}@{di_host}:{di_port}"]
+        
     proxies = []
+    # 2. Fallback to local Webshare proxy list files
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for fname in ["Webshare 10 proxies.txt", "webshare_proxies.txt"]:
         fpath = os.path.join(base_dir, fname)
@@ -91,6 +103,7 @@ def load_proxies():
                     parts = line.strip().split(":")
                     if len(parts) == 4: proxies.append(f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}")
     
+    # 3. Fallback to legacy Webshare user credentials
     user_base = os.getenv("WEBSHARE_PROXY_USER", "jxgqvosn")
     pw = os.getenv("WEBSHARE_PROXY_PASS", "symou02ck2bw")
     if user_base and pw:
@@ -156,9 +169,8 @@ def verify_brand_relevance(text: str, keywords: List[str]) -> bool:
     if not text or not keywords: return True
     return verify_boolean_relevance(text, keywords)
 
-# ─── Discovery Phase ───
-
-def discover_articles(keywords: List[str], day: date, geo: str, region_name: str, job_id: str, cumulative: set = None, is_brand_track: bool = False) -> List[dict]:
+# ─── Discovery Phase
+def discover_articles(keywords: List[str], day: Optional[date], geo: str, region_name: str, job_id: str, cumulative: set = None, is_brand_track: bool = False) -> List[dict]:
     articles = []
     seen_urls = set()
     proxy_pool = load_proxies() or []
@@ -166,9 +178,10 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
     def fetch_rss(q, start_time, end_time, hl="en-IN", ceid="IN:en"):
         if is_job_cancelled(job_id): return
         
-        is_today = day >= date.today()
         domain = "google.com" # standard for news
-        if is_today:
+        if day is None:
+            rss_url = f"https://news.{domain}/rss/search?q={quote(q)}&hl={hl}&gl=IN&ceid={ceid}"
+        elif day >= date.today():
             # Format requested by user: q={query} when:1d
             # Note: Using quote() instead of quote_plus() to ensure space is %20 (strictly correct standard)
             full_q = f"{q} when:1d"
@@ -186,7 +199,7 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
                 if proxy:
                     ProxyGuard.mark_unhealthy(proxy)
                 return
-
+            
             feed = feedparser.parse(xml_content)
             for entry in feed.entries:
                 link = entry.link
@@ -195,17 +208,18 @@ def discover_articles(keywords: List[str], day: date, geo: str, region_name: str
                     if hasattr(entry, 'published_parsed'):
                         parsed_date = datetime.fromtimestamp(time.mktime(entry.published_parsed)).date()
                     
-                    if is_today:
-                        if parsed_date and (day - parsed_date).days > 1:
+                    if day is not None:
+                        if day >= date.today():
+                            if parsed_date and (day - parsed_date).days > 1:
+                                continue
+                        elif parsed_date and parsed_date != day:
                             continue
-                    elif parsed_date and parsed_date != day:
-                        continue
                         
-                    pub_date_str = day.isoformat()
+                    pub_date_str = (day or date.today()).isoformat()
                     if hasattr(entry, 'published_parsed'):
                         try: pub_date_str = datetime(*entry.published_parsed[:6]).isoformat()
                         except: pass
-
+                    
                     articles.append({"title": entry.title, "url": link, "published_at": pub_date_str, "agency": entry.source.title if hasattr(entry, 'source') else "Google News"})
                     seen_urls.add(link)
         except Exception as exc:
@@ -310,7 +324,7 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
             
             # Fallback: if no keywords match but the sector name is mentioned, consider it relevant
             # This handles cases where modifiers might be too strict
-            if not is_relevant and sector.lower() in title_body.lower():
+            if not is_relevant and match_keyword(title_body, sector):
                 is_relevant = True
             
             if not is_relevant:
@@ -471,3 +485,19 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
             scrape_article_node.delay(a, job_id, final_sector, region, user_id)
         
         return {"job_id": job_id, "found": len(all_discovered)}
+
+
+async def test_browser_launch():
+    """Verify Playwright can launch chromium successfully."""
+    from playwright.async_api import async_playwright
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+            )
+            await browser.close()
+            return {"status": "ok", "message": "Playwright launched browser successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+

@@ -168,6 +168,7 @@ class Client(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     template_path: Mapped[Optional[str]] = mapped_column(String)
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    context: Mapped[Optional[str]] = mapped_column(Text)
 
 class ClientSection(Base):
     __tablename__ = "client_sections"
@@ -193,9 +194,15 @@ class ClientRunLog(Base):
     client_id: Mapped[int] = mapped_column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending")  # running, completed, failed
     error_message: Mapped[Optional[str]] = mapped_column(Text)
+    progress_message: Mapped[Optional[str]] = mapped_column(Text)
     generated_file_path: Mapped[Optional[str]] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
 
 # ─── Initialization ───────────────────────────────────────────────────────────
 
@@ -224,6 +231,22 @@ async def init_db():
                 await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
             else:
                 await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
+        except: pass
+
+        # Automated Migration: Add progress_message if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS progress_message TEXT"))
+            else:
+                await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN progress_message TEXT"))
+        except: pass
+
+        # Automated Migration: Add client context if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS context TEXT"))
+            else:
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN context TEXT"))
         except: pass
 
         # Automated Cleanup: Duplicate Brands
@@ -292,6 +315,14 @@ def get_db_sync():
 
 def init_db_sync():
     Base.metadata.create_all(bind=engine_sync)
+    # Automated migration: Add client context if missing
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS context TEXT"))
+            else:
+                conn.execute(text("ALTER TABLE clients ADD COLUMN context TEXT"))
+    except: pass
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 
 # Connection Lifecycle is handled via get_db and SessionMiddleware

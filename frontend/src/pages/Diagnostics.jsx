@@ -86,13 +86,13 @@ export default function Diagnostics() {
         <div className="page-container">
             <header className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: '1px solid var(--border)', paddingBottom: '32px', marginBottom: '40px' }}>
                 <div>
-                    {/* <h1 className="page-title">System Telemetry</h1>
-                    <p className="page-subtitle">Real-time health monitoring & component verification</p> */}
+                    <h1 className="page-title">System Telemetry</h1>
+                    <p className="page-subtitle">Real-time health monitoring & component verification</p>
                 </div>
                 <div style={{ display: "flex", gap: "12px" }}>
-                    {/* <button className="btn btn-secondary" onClick={fetchDiagnostics} disabled={loading} style={{ background: 'var(--surface)' }}>
+                    <button className="btn btn-secondary" onClick={fetchDiagnostics} disabled={loading} style={{ background: 'var(--surface)' }}>
                         {loading ? "Refreshing..." : "↻ Forced Sync"}
-                    </button> */}
+                    </button>
                     <button className="btn btn-danger" onClick={handleEmergencyStop} disabled={loading} style={{ 
                         background: 'var(--danger)', 
                         color: 'white',
@@ -104,7 +104,7 @@ export default function Diagnostics() {
                 </div>
             </header>
 
-            {/* <div style={{
+            <div style={{
                 padding: "24px",
                 marginBottom: 40,
                 borderRadius: 'var(--radius)',
@@ -121,6 +121,35 @@ export default function Diagnostics() {
                 </div>
             </div>
 
+            {/* System Alerts */}
+            {Object.entries(c).some(([name, comp]) => comp?.status === 'offline' || comp?.status === 'error' || comp?.status === 'warning') && (
+                <div style={{
+                    padding: "16px 24px",
+                    marginBottom: 40,
+                    borderRadius: 'var(--radius)',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid var(--danger)',
+                    color: '#f87171',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                }}>
+                    <strong style={{ fontSize: '15px' }}>⚠️ System Warning: Component issues detected!</strong>
+                    {Object.entries(c).map(([name, comp]) => {
+                        if (comp?.status === 'offline' || comp?.status === 'error' || comp?.status === 'warning') {
+                            return (
+                                <div key={name} style={{ fontSize: '13px', marginLeft: '12px' }}>
+                                    • <strong style={{ textTransform: 'capitalize' }}>{name.replace('_', ' ')}</strong> is {comp?.status} {comp?.message ? `(${comp.message})` : ''}
+                                </div>
+                            );
+                        }
+                        return null;
+                    })}
+                </div>
+            )}
+
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 24, marginBottom: 40 }}>
                 <div className="card">
                     <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -128,28 +157,38 @@ export default function Diagnostics() {
                         <span className="badge" style={{ background: getStatusColor(c.database?.status) }}>{c.database?.status}</span>
                     </div>
                     <div style={{ fontSize: '13px', color: "var(--muted)", marginTop: '12px' }}>
-                        Primary storage cluster status and connection health.
+                        Primary storage database status and connection health.
                     </div>
                 </div>
 
                 <div className="card">
                     <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        NLP Intelligence
+                        NLP Intelligence (Grok/Groq)
                         <span className="badge" style={{ background: getStatusColor(c.groq_api?.status) }}>{c.groq_api?.status}</span>
                     </div>
                     <div style={{ fontSize: '13px', color: "var(--muted)", marginTop: '12px', marginBottom: '20px' }}>
-                        Groq API rate limits and token availability.
+                        Groq API connection and Llama 3 model availability.
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, background: "var(--bg)", padding: 16, borderRadius: '8px' }}>
-                        <div>
-                            <div style={{ fontSize: 9, textTransform: "uppercase", opacity: 0.6 }}>Remaining</div>
-                            <div style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{c.groq_api?.remaining_reqs ?? "—"} reqs</div>
+                    {c.groq_api?.message && (
+                        <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '8px', fontFamily: 'var(--font-mono)' }}>
+                            {c.groq_api.message}
                         </div>
-                        <div>
-                            <div style={{ fontSize: 9, textTransform: "uppercase", opacity: 0.6 }}>Tokens</div>
-                            <div style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{c.groq_api?.remaining_tokens ?? "—"}</div>
-                        </div>
+                    )}
+                </div>
+
+                <div className="card">
+                    <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        Groq Relevance API
+                        <span className="badge" style={{ background: getStatusColor(c.groq_relevance_api?.status) }}>{c.groq_relevance_api?.status || "unknown"}</span>
                     </div>
+                    <div style={{ fontSize: '13px', color: "var(--muted)", marginTop: '12px' }}>
+                        Groq gpt-oss-120b relevance filtering check.
+                    </div>
+                    {c.groq_relevance_api?.message && (
+                        <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '8px', fontFamily: 'var(--font-mono)' }}>
+                            {c.groq_relevance_api.message}
+                        </div>
+                    )}
                 </div>
 
                 <div className="card">
@@ -161,8 +200,8 @@ export default function Diagnostics() {
                         Active scraping workers and queuing latency.
                     </div>
                     <div style={{ marginTop: '16px', display: 'flex', gap: '20px' }}>
-                        <div style={{ fontSize: '12px' }}>Active: <strong style={{ color: 'var(--accent)' }}>{c.jobs?.running_count || 0}</strong></div>
-                        <div style={{ fontSize: '12px' }}>Yield: <strong style={{ color: 'var(--success)' }}>{data?.total_articles_collected || 0}</strong></div>
+                        <div style={{ fontSize: '12px' }}>Active: <strong style={{ color: 'var(--accent)' }}>{c.jobs?.running || 0}</strong></div>
+                        <div style={{ fontSize: '12px' }}>Failed: <strong style={{ color: 'var(--danger)' }}>{c.jobs?.failed || 0}</strong></div>
                     </div>
                 </div>
 
@@ -172,7 +211,7 @@ export default function Diagnostics() {
                         <span className="badge" style={{ background: getStatusColor(c.playwright?.status) }}>{c.playwright?.status}</span>
                     </div>
                     <div style={{ fontSize: '13px', color: "var(--muted)", marginTop: '12px' }}>
-                        Playwright headless services for high-fidelity extraction.
+                        Playwright services for high-fidelity browser extraction.
                     </div>
                 </div>
             </div>
@@ -202,7 +241,7 @@ export default function Diagnostics() {
                         <div style={{ color: 'var(--success)', opacity: 0.8 }}>✓ All intelligence streams performing within parameters.</div>
                     )}
                 </div>
-            </div> */}
+            </div>
         </div>
     );
 

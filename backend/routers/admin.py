@@ -4,8 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import datetime as dt
 from datetime import date, datetime, time
+import json
+from pydantic import BaseModel
 
-from db.database import get_db_yield, ScrapeJob, User, Article, WatchedBrand
+from db.database import get_db_yield, ScrapeJob, User, Article, WatchedBrand, SystemSetting
 from .auth_utils import get_auth_user, TokenData
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -261,3 +263,49 @@ async def get_user_jobs(
             "most_searched_brand": most_searched_brand
         }
     }
+
+class SettingsUpdatePayload(BaseModel):
+    fail_safe_recipients: List[str]
+
+@router.get("/settings")
+async def get_admin_settings(
+    db: AsyncSession = Depends(get_db_yield),
+    _admin: TokenData = Depends(get_admin_user)
+):
+    stmt = select(SystemSetting).where(SystemSetting.key == "fail_safe_recipients")
+    res = await db.execute(stmt)
+    setting = res.scalar_one_or_none()
+    
+    recipients = [
+        "divyanshsharma@themavericksindia.com",
+        "pooja@themavericksindia.com",
+        "satyam.singh@themavericksindia.com",
+        "arunkumar@themavericksindia.com"
+    ]
+    if setting:
+        try:
+            recipients = json.loads(setting.value)
+        except Exception:
+            pass
+            
+    return {"fail_safe_recipients": recipients}
+
+@router.post("/settings")
+async def update_admin_settings(
+    payload: SettingsUpdatePayload,
+    db: AsyncSession = Depends(get_db_yield),
+    _admin: TokenData = Depends(get_admin_user)
+):
+    exist_stmt = select(SystemSetting).where(SystemSetting.key == "fail_safe_recipients")
+    exist_res = await db.execute(exist_stmt)
+    exist_obj = exist_res.scalar_one_or_none()
+    
+    val_str = json.dumps(payload.fail_safe_recipients)
+    if exist_obj:
+        exist_obj.value = val_str
+    else:
+        new_setting = SystemSetting(key="fail_safe_recipients", value=val_str)
+        db.add(new_setting)
+        
+    await db.commit()
+    return {"detail": "Settings updated successfully", "fail_safe_recipients": payload.fail_safe_recipients}

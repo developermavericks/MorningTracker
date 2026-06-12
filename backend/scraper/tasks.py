@@ -1,5 +1,6 @@
 import logging
 import json
+import os
 import httpx
 import trafilatura
 from datetime import datetime
@@ -9,6 +10,7 @@ from scraper.browser import scrape_url
 from sqlalchemy import select, update, insert
 from scraper.engine import normalize_url
 from scraper.llm import get_redis_sync
+from scraper.search_utils import verify_boolean_relevance
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +204,7 @@ def complete_stale_jobs():
     Runs every 5 minutes via Celery Beat schedule.
     """
     from datetime import datetime, timedelta
+    from db.database import ClientRunLog
     try:
         with get_db_sync() as db:
             stale_cutoff = datetime.now() - timedelta(minutes=10)
@@ -226,6 +229,25 @@ def complete_stale_jobs():
                     )
                     logger.info(f"Watchdog force-completed stale job {job.id} ({job.total_scraped}/{job.total_found})")
             
+            # Clean up stuck client run logs (older than 15 minutes)
+            client_stale_cutoff = datetime.now() - timedelta(minutes=15)
+            stale_client_logs = db.execute(
+                select(ClientRunLog).where(
+                    ClientRunLog.status == 'running',
+                    ClientRunLog.started_at < client_stale_cutoff
+                )
+            ).scalars().all()
+            
+            for log_entry in stale_client_logs:
+                db.execute(
+                    update(ClientRunLog).where(ClientRunLog.id == log_entry.id).values(
+                        status='failed',
+                        error_message='Task timed out or was interrupted (Watchdog recovery)',
+                        completed_at=datetime.now()
+                    )
+                )
+                logger.info(f"Watchdog force-failed stale client run log {log_entry.id}")
+            
             db.commit()
     except Exception as e:
         logger.error(f"Stale job watchdog error: {e}")
@@ -241,11 +263,13 @@ def run_client_report_task(client_id: int):
     from scraper.google_news import resolve_google_news_url_sync
     from scraper.report_generator import generate_docx_report
     from utils.google_docs import upload_docx_to_google_doc
-    from utils.email import send_report_email
+    from utils.email import send_report_email, send_error_alert_email
     from scraper.llm import perform_full_enrichment_sync
     from datetime import date, datetime, timedelta
     import pytz
+    import traceback
     
+    client_name = f"Client ID {client_id}"
     logger.info(f"Starting client report task for client_id {client_id}")
     
     # Create a running log entry
@@ -267,8 +291,29 @@ def run_client_report_task(client_id: int):
         run_log_id = run_log.id
         client_name = client.name
         template_path = client.template_path
+        client_context = client.context
         
     try:
+        def _update_progress(msg: str):
+            try:
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                log_line = f"[{timestamp}] {msg}"
+                with get_db_sync() as db:
+                    run_log = db.execute(select(ClientRunLog).where(ClientRunLog.id == run_log_id)).scalar_one_or_none()
+                    if run_log:
+                        current_log = run_log.progress_message or ""
+                        updated_log = f"{current_log}\n{log_line}" if current_log else log_line
+                        db.execute(
+                            update(ClientRunLog)
+                            .where(ClientRunLog.id == run_log_id)
+                            .values(progress_message=updated_log)
+                        )
+                        db.commit()
+            except Exception as dberr:
+                logger.error(f"Failed to update progress log in DB: {dberr}")
+
+        _update_progress("Initializing client report profile...")
+        
         # Load sections and keywords
         sections_data = {}
         all_emails = []
@@ -286,7 +331,8 @@ def run_client_report_task(client_id: int):
             raise ValueError("No sections or keywords configured for this client.")
             
         # Discover, scrape, verify and enrich articles for each section
-        report_data = {} # {section_name: [list of article dicts]}
+        report_data_filtered = {} # {section_name: [list of article dicts]}
+        report_data_master = {} # {section_name: [list of article dicts]}
         
         # We scrape for the past 24 hours/today
         # In case it's early in the day, we search yesterday and today to be safe
@@ -296,6 +342,7 @@ def run_client_report_task(client_id: int):
             if not keywords:
                 continue
                 
+            _update_progress(f"Discovering articles for section '{section_name}'...")
             logger.info(f"Discovering articles for section '{section_name}' with keywords: {keywords}")
             # Discover articles
             discovered = discover_articles(
@@ -326,159 +373,319 @@ def run_client_report_task(client_id: int):
                     unique_discovered.append(art)
                     seen_urls.add(art["url"])
                     
-            section_articles = []
+            filtered_section_articles = []
+            master_section_articles = []
             
-            # Resolve and scrape each article
-            for art in unique_discovered[:10]: # Limit to top 10 articles per section to prevent API/time bloat
+            # Resolve and scrape each article concurrently
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            def _process_single_article(art_idx_tuple):
+                art, idx = art_idx_tuple
                 raw_url = art["url"]
                 title = art["title"]
                 agency = art.get("agency") or "News"
                 
-                # 1. Resolve URL
-                logger.info(f"Resolving Google News URL: {raw_url}")
-                resolved_url = resolve_google_news_url_sync(raw_url) or raw_url
-                
-                # 2. Scrape raw html
-                logger.info(f"Scraping content from resolved URL: {resolved_url}")
-                html_content = ""
-                
-                # Try fast extraction with httpx first
                 try:
-                    headers = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-                    }
-                    with httpx.Client(follow_redirects=True, timeout=10) as client_http:
-                        resp = client_http.get(resolved_url, headers=headers)
-                        if resp.status_code == 200:
-                            html_content = resp.text
-                except Exception as e:
-                    logger.warning(f"Fast HTTP scrape failed for {resolved_url}: {e}")
+                    # 1. Resolve URL
+                    logger.info(f"Resolving Google News URL: {raw_url}")
+                    resolved_url = resolve_google_news_url_sync(raw_url) or raw_url
+                    normalized_url = normalize_url(resolved_url)
                     
-                # Fallback to browser scraping if httpx failed or returned small content
-                if not html_content or len(html_content) < 1000:
-                    try:
-                        html_content = scrape_url(resolved_url)
-                    except Exception as e:
-                        logger.error(f"Browser scrape failed for {resolved_url}: {e}")
+                    # 2. Check if already exists in DB (Global cache check)
+                    existing_article = None
+                    with get_db_sync() as db:
+                        existing_article = db.execute(
+                            select(Article)
+                            .where(Article.url == normalized_url)
+                        ).scalars().first()
                         
-                if not html_content:
-                    logger.warning(f"Could not fetch HTML content for {resolved_url}. Skipping.")
-                    continue
+                    if existing_article and existing_article.full_body and existing_article.summary:
+                        logger.info(f"DB Cache HIT for {normalized_url}. Reusing existing scraped article.")
+                        body_text = existing_article.full_body
+                        summary_text = existing_article.summary
+                        agency = existing_article.agency or agency
+                        is_relevant_kw = verify_boolean_relevance(title + " " + body_text, keywords)
+                    else:
+                        # 3. Not in DB / needs scraping: Scrape HTML content
+                        logger.info(f"Scraping content from resolved URL: {resolved_url}")
+                        html_content = ""
+                        
+                        # Try fast extraction with httpx first
+                        try:
+                            headers = {
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+                            }
+                            with httpx.Client(follow_redirects=True, timeout=10) as client_http:
+                                resp = client_http.get(resolved_url, headers=headers)
+                                if resp.status_code == 200:
+                                    html_content = resp.text
+                        except Exception as e:
+                            logger.warning(f"Fast HTTP scrape failed for {resolved_url}: {e}")
+                            
+                        # Fallback to browser scraping if httpx failed or returned small content
+                        if not html_content or len(html_content) < 1000:
+                            try:
+                                html_content = scrape_url(resolved_url)
+                            except Exception as e:
+                                logger.error(f"Browser scrape failed for {resolved_url}: {e}")
+                                
+                        if not html_content:
+                            logger.warning(f"Could not fetch HTML content for {resolved_url}. Skipping.")
+                            return None
+                            
+                        # 4. Extract text
+                        body_text = trafilatura.extract(html_content)
+                        if not body_text or len(body_text) < 200:
+                            from bs4 import BeautifulSoup
+                            soup = BeautifulSoup(html_content, "lxml")
+                            for s in soup(["script", "style", "nav", "header", "footer"]):
+                                s.decompose()
+                            body_text = soup.get_text(separator="\n", strip=True)
+                            
+                        if not body_text or len(body_text) < 100:
+                            logger.warning(f"No meaningful text extracted for {resolved_url}. Skipping.")
+                            return None
+                            
+                        # 5. Relevance verification
+                        is_relevant_kw = verify_boolean_relevance(title + " " + body_text, keywords)
+                        
+                        if not is_relevant_kw:
+                            logger.info(f"Article '{title}' does not match keyword criteria. Skipping.")
+                            return None
+                            
+                        # 6. Summarize / Enrich using LLM
+                        logger.info(f"Enriching and summarizing article: {title}")
+                        summary_text = ""
+                        try:
+                            # Call LLM helper (uses Grok/Groq)
+                            enrichment = perform_full_enrichment_sync(
+                                body=body_text,
+                                title=title,
+                                url=resolved_url,
+                                sector=client_name
+                            )
+                            if enrichment and enrichment.get("summary"):
+                                summary_text = enrichment["summary"]
+                                agency = enrichment.get("agency") or agency
+                        except Exception as e:
+                            logger.error(f"LLM Enrichment failed for '{title}': {e}")
+                            
+                        # If LLM failed or returned empty summary, use a simple default truncation
+                        if not summary_text:
+                            summary_text = body_text[:300] + "..."
+                            
+                        # 7. Write/Upsert to DB so we cache it for future runs/searches
+                        try:
+                            val_dict = {
+                                "title": title,
+                                "url": normalized_url,
+                                "resolved_url": resolved_url,
+                                "full_body": body_text,
+                                "summary": summary_text,
+                                "agency": agency,
+                                "published_at": datetime.now(),
+                                "sector": f"{client_name} - {section_name}",
+                                "region": "india",
+                                "user_id": f"client_{client_id}",
+                                "scraped_at": datetime.now()
+                            }
+                            with get_db_sync() as db:
+                                existing = db.execute(
+                                    select(Article)
+                                    .where(Article.url == normalized_url)
+                                    .where(Article.user_id == f"client_{client_id}")
+                                ).scalars().first()
+                                if existing:
+                                    for k, v in val_dict.items():
+                                        setattr(existing, k, v)
+                                else:
+                                    db.add(Article(**val_dict))
+                                db.commit()
+                        except Exception as dberr:
+                            logger.error(f"Failed to cache scraped article to database: {dberr}")
                     
-                # 3. Extract text
-                body_text = trafilatura.extract(html_content)
-                if not body_text or len(body_text) < 200:
-                    from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(html_content, "lxml")
-                    for s in soup(["script", "style", "nav", "header", "footer"]):
-                        s.decompose()
-                    body_text = soup.get_text(separator="\n", strip=True)
+                    if not is_relevant_kw:
+                        return None
+                        
+                    # Check semantic relevance with Groq Custom Relevance key
+                    is_semantic_relevant = False
+                    from scraper.llm import check_relevance_with_groq
+                    try:
+                        is_semantic_relevant = check_relevance_with_groq(title, body_text, keywords, client_name, client_context=client_context)
+                    except Exception as rel_err:
+                        logger.error(f"Relevance verification error for '{title}': {rel_err}")
+                        is_semantic_relevant = True # Fallback to true to be safe
+                        
+                    art_data = {
+                        "title": title,
+                        "url": resolved_url,
+                        "agency": agency,
+                        "summary": summary_text
+                    }
                     
-                if not body_text or len(body_text) < 100:
-                    logger.warning(f"No meaningful text extracted for {resolved_url}. Skipping.")
-                    continue
-                    
-                # 4. Relevance verification
-                # Check if at least one keyword is in title or body (case-insensitive)
-                lower_title_body = (title + " " + body_text).lower()
-                is_relevant = any(kw.lower() in lower_title_body for kw in keywords)
-                
-                if not is_relevant:
-                    logger.info(f"Article '{title}' is not relevant to keywords. Skipping.")
-                    continue
-                
-                # Check semantic relevance with Groq to filter out off-topic / noise articles
-                from scraper.llm import check_relevance_with_groq
-                if not check_relevance_with_groq(title, body_text, keywords, client_name):
-                    logger.info(f"Article '{title}' judged IRRELEVANT by Groq. Skipping.")
-                    continue
-                    
-                # 5. Summarize / Enrich using LLM
-                logger.info(f"Enriching and summarizing article: {title}")
-                summary_text = ""
-                try:
-                    # Call LLM helper
-                    enrichment = perform_full_enrichment_sync(
-                        body=body_text,
-                        title=title,
-                        url=resolved_url,
-                        sector=client_name
-                    )
-                    if enrichment and enrichment.get("summary"):
-                        summary_text = enrichment["summary"]
-                        agency = enrichment.get("agency") or agency
-                except Exception as e:
-                    logger.error(f"LLM Enrichment failed for '{title}': {e}")
-                    
-                # If LLM failed or returned empty summary, use a simple default truncation
-                if not summary_text:
-                    summary_text = body_text[:300] + "..."
-                    
-                section_articles.append({
-                    "title": title,
-                    "url": resolved_url,
-                    "agency": agency,
-                    "summary": summary_text
-                })
-                
-            report_data[section_name] = section_articles
+                    return {
+                        "art_data": art_data,
+                        "is_relevant_kw": is_relevant_kw,
+                        "is_semantic_relevant": is_semantic_relevant
+                    }
+                except Exception as art_err:
+                    logger.error(f"Error processing article '{title}': {art_err}", exc_info=True)
+                    return None
+
+            total_to_process = len(unique_discovered)
+            _update_progress(f"Processing and filtering {total_to_process} discovered articles in '{section_name}'...")
+            logger.info(f"Starting concurrent processing of {total_to_process} articles for section '{section_name}'")
+            
+            art_tuples = [(art, idx) for idx, art in enumerate(unique_discovered)]
+            processed_count = 0
+            
+            # Run up to 8 threads to resolve and scrape concurrently
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = {executor.submit(_process_single_article, t): t for t in art_tuples}
+                for future in as_completed(futures):
+                    processed_count += 1
+                    _update_progress(f"Processed article {processed_count}/{total_to_process} in '{section_name}'...")
+                    try:
+                        res = future.result()
+                        if res:
+                            art_data = res["art_data"]
+                            is_relevant_kw = res["is_relevant_kw"]
+                            is_semantic_relevant = res["is_semantic_relevant"]
+                            
+                            if is_relevant_kw:
+                                master_section_articles.append(art_data)
+                                if is_semantic_relevant:
+                                    filtered_section_articles.append(art_data)
+                    except Exception as future_err:
+                        logger.error(f"Thread task exception: {future_err}")
+            
+            report_data_filtered[section_name] = filtered_section_articles
+            report_data_master[section_name] = master_section_articles
             
         # Check if we got any articles at all
-        total_articles_count = sum(len(articles) for articles in report_data.values())
-        if total_articles_count == 0:
-            raise ValueError("No relevant articles found for any section. Report cannot be generated.")
+        total_filtered_count = sum(len(articles) for articles in report_data_filtered.values())
+        has_articles = total_filtered_count > 0
+        if not has_articles:
+            logger.info("No relevant articles found for any section. A briefing report indicating this will still be generated.")
             
-        # 6. Generate DOCX file
+        # 6. Generate DOCX files
+        _update_progress("Compiling Word briefing documents (Master and Filtered)...")
         date_str = datetime.now().strftime("%d-%m-%Y")
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
         os.makedirs(reports_dir, exist_ok=True)
         
-        docx_filename = f"{client_name.replace(' ', '_')}_Briefing_{date_str}_{int(datetime.now().timestamp())}.docx"
-        docx_path = os.path.join(reports_dir, docx_filename)
+        timestamp_suffix = f"{date_str}_{int(datetime.now().timestamp())}"
         
-        logger.info(f"Generating Word report: {docx_path}")
+        docx_filename_filtered = f"{client_name.replace(' ', '_')}_Filtered_{timestamp_suffix}.docx"
+        docx_path_filtered = os.path.join(reports_dir, docx_filename_filtered)
+        
+        docx_filename_master = f"{client_name.replace(' ', '_')}_Master_{timestamp_suffix}.docx"
+        docx_path_master = os.path.join(reports_dir, docx_filename_master)
+        
+        logger.info(f"Generating Filtered Word report: {docx_path_filtered}")
         generate_docx_report(
             client_name=client_name,
             date_str=datetime.now().strftime("%B %d, %Y"),
-            data=report_data,
-            output_path=docx_path,
+            data=report_data_filtered,
+            output_path=docx_path_filtered,
+            template_path=template_path
+        )
+        
+        logger.info(f"Generating Master Word report: {docx_path_master}")
+        generate_docx_report(
+            client_name=f"{client_name} (Master)",
+            date_str=datetime.now().strftime("%B %d, %Y"),
+            data=report_data_master,
+            output_path=docx_path_master,
             template_path=template_path
         )
         
         # 7. Upload to Google Drive/Docs & Share
-        google_doc_url = None
-        if os.path.exists(docx_path):
-            logger.info("Uploading report to Google Drive...")
+        google_doc_url_filtered = None
+        google_doc_url_master = None
+        
+        if os.path.exists(docx_path_filtered):
+            _update_progress("Uploading Filtered report to Google Drive...")
+            logger.info("Uploading Filtered report to Google Drive...")
             try:
-                google_doc_url = upload_docx_to_google_doc(
-                    docx_path=docx_path,
+                google_doc_url_filtered = upload_docx_to_google_doc(
+                    docx_path=docx_path_filtered,
                     client_name=client_name,
                     date_str=datetime.now().strftime("%B %d, %Y"),
-                    recipients=all_emails
+                    recipients=all_emails,
+                    doc_suffix=""
                 )
             except Exception as e:
-                logger.error(f"Failed to upload report to Google Docs: {e}")
+                logger.error(f"Failed to upload Filtered report to Google Docs: {e}")
+                
+        if os.path.exists(docx_path_master):
+            _update_progress("Uploading Master report to Google Drive...")
+            logger.info("Uploading Master report to Google Drive...")
+            try:
+                google_doc_url_master = upload_docx_to_google_doc(
+                    docx_path=docx_path_master,
+                    client_name=client_name,
+                    date_str=datetime.now().strftime("%B %d, %Y"),
+                    recipients=all_emails,
+                    doc_suffix=" (Master)"
+                )
+            except Exception as e:
+                logger.error(f"Failed to upload Master report to Google Docs: {e}")
                 
         # 8. Send Email notification
+        _update_progress("Sending daily briefing email...")
         logger.info(f"Sending report email to: {all_emails}")
         email_sent = send_report_email(
             recipient_emails=all_emails,
             client_name=client_name,
-            docx_path=docx_path,
-            google_doc_url=google_doc_url
+            docx_path_filtered=docx_path_filtered,
+            docx_path_master=docx_path_master,
+            google_doc_url_filtered=google_doc_url_filtered,
+            google_doc_url_master=google_doc_url_master,
+            has_articles=has_articles
         )
         
         if not email_sent:
-            raise ValueError("Report generated but email notification failed to send.")
+            logger.warning("Report generated but email notification failed to send (SMTP connection error).")
+            with get_db_sync() as db:
+                run_log = db.execute(select(ClientRunLog).where(ClientRunLog.id == run_log_id)).scalar_one_or_none()
+                current_log = run_log.progress_message or ""
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                final_msg = f"[{timestamp}] Completed with warning: Email failed to send."
+                updated_log = f"{current_log}\n{final_msg}" if current_log else final_msg
+                db.execute(
+                    update(ClientRunLog)
+                    .where(ClientRunLog.id == run_log_id)
+                    .values(
+                        status="completed",
+                        generated_file_path=docx_path_filtered,
+                        progress_message=updated_log,
+                        error_message="Email notification failed to send (SMTP connection timeout).",
+                        completed_at=datetime.now()
+                    )
+                )
+                db.execute(
+                    update(Client)
+                    .where(Client.id == client_id)
+                    .values(last_run_at=datetime.now())
+                )
+                db.commit()
+            return True
             
         # Update run log status to completed
         with get_db_sync() as db:
+            run_log = db.execute(select(ClientRunLog).where(ClientRunLog.id == run_log_id)).scalar_one_or_none()
+            current_log = run_log.progress_message or ""
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            final_msg = f"[{timestamp}] Completed successfully."
+            updated_log = f"{current_log}\n{final_msg}" if current_log else final_msg
             db.execute(
                 update(ClientRunLog)
                 .where(ClientRunLog.id == run_log_id)
                 .values(
                     status="completed",
-                    generated_file_path=docx_path,
+                    generated_file_path=docx_path_filtered,
+                    progress_message=updated_log,
                     completed_at=datetime.now()
                 )
             )
@@ -494,18 +701,34 @@ def run_client_report_task(client_id: int):
         
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Client report task failed for client {client_id}: {error_msg}", exc_info=True)
+        full_tb = traceback.format_exc()
+        logger.error(f"Client report task failed for client {client_id}: {error_msg}\n{full_tb}", exc_info=True)
         
+        # Trigger fail-safe email alert immediately
+        try:
+            send_error_alert_email(
+                client_name=client_name,
+                error_details=f"Exception: {error_msg}\n\nTraceback:\n{full_tb}"
+            )
+        except Exception as alert_err:
+            logger.error(f"Failed to send fail-safe email alert for client {client_id}: {alert_err}")
+            
         # Update run log status to failed
         if run_log_id:
             try:
                 with get_db_sync() as db:
+                    run_log = db.execute(select(ClientRunLog).where(ClientRunLog.id == run_log_id)).scalar_one_or_none()
+                    current_log = run_log.progress_message or ""
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    final_msg = f"[{timestamp}] Failed: {error_msg}"
+                    updated_log = f"{current_log}\n{final_msg}" if current_log else final_msg
                     db.execute(
                         update(ClientRunLog)
                         .where(ClientRunLog.id == run_log_id)
                         .values(
                             status="failed",
                             error_message=error_msg,
+                            progress_message=updated_log,
                             completed_at=datetime.now()
                         )
                     )

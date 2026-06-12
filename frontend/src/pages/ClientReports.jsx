@@ -17,6 +17,7 @@ export default function ClientReports() {
   const [isActive, setIsActive] = useState(true);
   const [recipients, setRecipients] = useState("");
   const [sections, setSections] = useState([{ name: "Brand Mentions", keywords: "" }]);
+  const [context, setContext] = useState("");
   
   // File Upload states
   const [uploadingTemplateId, setUploadingTemplateId] = useState(null);
@@ -46,6 +47,7 @@ export default function ClientReports() {
       setIsActive(client.is_active);
       setRecipients(client.recipients.join(", "));
       setSections(client.sections.map(s => ({ name: s.name, keywords: s.keywords.join(", ") })));
+      setContext(client.context || "");
     } else {
       setSelectedClient(null);
       setClientName("");
@@ -54,6 +56,7 @@ export default function ClientReports() {
       setIsActive(true);
       setRecipients("");
       setSections([{ name: "Brand Mentions", keywords: "" }]);
+      setContext("");
     }
     setIsModalOpen(true);
   };
@@ -96,7 +99,8 @@ export default function ClientReports() {
       timezone: timezone,
       is_active: isActive,
       recipients: recipientsList,
-      sections: sectionsList
+      sections: sectionsList,
+      context: context.trim()
     };
 
     try {
@@ -204,7 +208,7 @@ export default function ClientReports() {
         </div>
         <button
           onClick={() => handleOpenModal()}
-          className="button"
+          className="btn btn-primary"
           style={{
             background: "linear-gradient(135deg, var(--accent) 0%, #9333ea 100%)",
             color: "#fff",
@@ -263,7 +267,7 @@ export default function ClientReports() {
           <p style={{ color: "var(--text-muted)", maxWidth: "400px", margin: "8px auto 16px auto" }}>
             Get started by adding a client, setting up keywords, and specifying scheduled daily briefing times.
           </p>
-          <button className="button" onClick={() => handleOpenModal()}>
+          <button className="btn btn-primary" onClick={() => handleOpenModal()}>
             Create First Client
           </button>
         </div>
@@ -375,7 +379,7 @@ export default function ClientReports() {
                     <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                       <button
                         onClick={() => handleRunNow(client.id)}
-                        className="button secondary"
+                        className="btn btn-secondary"
                         style={{ padding: "6px 12px", fontSize: "12px", background: "rgba(168, 85, 247, 0.1)", border: "1px solid rgba(168, 85, 247, 0.3)" }}
                         title="Run automated briefing now"
                       >
@@ -383,22 +387,22 @@ export default function ClientReports() {
                       </button>
                       <button
                         onClick={() => handleViewLogs(client)}
-                        className="button secondary"
+                        className="btn btn-secondary"
                         style={{ padding: "6px 12px", fontSize: "12px" }}
                       >
                         📋 Logs
                       </button>
                       <button
                         onClick={() => handleOpenModal(client)}
-                        className="button secondary"
+                        className="btn btn-secondary"
                         style={{ padding: "6px 12px", fontSize: "12px" }}
                       >
                         ✎ Edit
                       </button>
                       <button
                         onClick={() => handleDeleteClient(client.id)}
-                        className="button"
-                        style={{ padding: "6px 12px", fontSize: "12px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", color: "#ef4444" }}
+                        className="btn btn-danger"
+                        style={{ padding: "6px 12px", fontSize: "12px" }}
                       >
                         ✕ Delete
                       </button>
@@ -474,17 +478,94 @@ export default function ClientReports() {
                     </span>
                   </div>
 
+                  {log.progress_message && (
+                    <div style={{
+                      background: "#0b0c10",
+                      border: "1px solid rgba(147, 51, 234, 0.2)",
+                      borderRadius: "8px",
+                      overflow: "hidden",
+                      marginBottom: "8px",
+                      boxShadow: "inset 0 0 12px rgba(0,0,0,0.85)"
+                    }}>
+                      {/* Terminal window title bar */}
+                      <div style={{
+                        background: "rgba(255,255,255,0.02)",
+                        borderBottom: "1px solid rgba(255,255,255,0.05)",
+                        padding: "6px 12px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between"
+                      }}>
+                        <div style={{ display: "flex", gap: "6px" }}>
+                          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444", display: "inline-block" }}></span>
+                          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#eab308", display: "inline-block" }}></span>
+                          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e", display: "inline-block" }}></span>
+                        </div>
+                        <span style={{ fontSize: "9px", fontFamily: "monospace", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px", fontWeight: "700" }}>
+                          Console Trace
+                        </span>
+                      </div>
+                      
+                      {/* Terminal Content */}
+                      <div style={{ 
+                        fontSize: "11px", 
+                        color: "#34d399", 
+                        padding: "12px", 
+                        fontFamily: "Fira Code, Consolas, Monaco, Courier New, monospace",
+                        whiteSpace: "pre-wrap",
+                        maxHeight: "185px",
+                        overflowY: "auto",
+                        lineHeight: "1.6",
+                        textAlign: "left"
+                      }}>
+                        {log.progress_message}
+                      </div>
+                    </div>
+                  )}
+
                   {log.error_message && (
-                    <div style={{ fontSize: "12px", color: "var(--danger)", background: "rgba(239,68,68,0.05)", padding: "8px", borderRadius: "8px", fontFamily: "monospace", overflowX: "auto", marginBottom: "8px" }}>
-                      Error: {log.error_message}
+                    <div style={{
+                      fontSize: "11px", 
+                      color: "#f87171", 
+                      background: "rgba(239, 68, 68, 0.05)", 
+                      border: "1px solid rgba(239, 68, 68, 0.2)",
+                      padding: "10px", 
+                      borderRadius: "8px", 
+                      fontFamily: "Fira Code, Consolas, Monaco, Courier New, monospace", 
+                      overflowX: "auto", 
+                      marginBottom: "8px",
+                      textAlign: "left"
+                    }}>
+                      <span style={{ fontWeight: "700" }}>⚠️ Error:</span> {log.error_message}
                     </div>
                   )}
 
                   {log.generated_file_path && (
                     <button
                       onClick={() => handleDownloadReport(log.generated_file_path)}
-                      className="button secondary"
-                      style={{ width: "100%", padding: "6px", fontSize: "12px", textAlign: "center" }}
+                      className="btn btn-secondary"
+                      style={{ 
+                        width: "100%", 
+                        padding: "8px", 
+                        fontSize: "12px", 
+                        textAlign: "center",
+                        background: "rgba(147, 51, 234, 0.15)",
+                        border: "1px solid rgba(147, 51, 234, 0.35)",
+                        color: "#fff",
+                        fontWeight: "600",
+                        borderRadius: "8px",
+                        cursor: "pointer",
+                        transition: "all 0.25s",
+                        marginTop: "4px"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(147, 51, 234, 0.25)";
+                        e.currentTarget.style.borderColor = "var(--accent)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(147, 51, 234, 0.15)";
+                        e.currentTarget.style.borderColor = "rgba(147, 51, 234, 0.35)";
+                      }}
                     >
                       💾 Download DOCX Briefing
                     </button>
@@ -528,38 +609,36 @@ export default function ClientReports() {
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {/* Client Name */}
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label style={{ fontSize: "12px", fontWeight: "700" }}>Client Name</label>
+                <label className="form-label">Client Name</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Scapia"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  className="input"
-                  style={{ width: "100%" }}
+                  className="form-control"
                 />
               </div>
 
               {/* Schedule Configuration */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <label style={{ fontSize: "12px", fontWeight: "700" }}>Scheduled Run Time (Daily)</label>
+                  <label className="form-label">Scheduled Run Time (Daily)</label>
                   <input
                     type="time"
                     required
                     value={scheduledTime}
                     onChange={(e) => setScheduledTime(e.target.value)}
-                    className="input"
-                    style={{ width: "100%" }}
+                    className="form-control"
                   />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <label style={{ fontSize: "12px", fontWeight: "700" }}>Target Timezone</label>
+                  <label className="form-label">Target Timezone</label>
                   <select
                     value={timezone}
                     onChange={(e) => setTimezone(e.target.value)}
-                    className="input"
-                    style={{ width: "100%", height: "38px" }}
+                    className="form-control"
+                    style={{ height: "38px" }}
                   >
                     <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
                     <option value="Europe/London">Europe/London (GMT)</option>
@@ -571,17 +650,30 @@ export default function ClientReports() {
 
               {/* Recipients List */}
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label style={{ fontSize: "12px", fontWeight: "700" }}>Email Recipients</label>
+                <label className="form-label">Email Recipients</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. hello@mavericks.com, tech@mavericks.com"
                   value={recipients}
                   onChange={(e) => setRecipients(e.target.value)}
-                  className="input"
-                  style={{ width: "100%" }}
+                  className="form-control"
                 />
                 <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>Separate multiple email addresses with commas.</span>
+              </div>
+
+              {/* AI Relevance Context */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label className="form-label">AI Relevance Context / Brand Guidelines</label>
+                <textarea
+                  rows="4"
+                  placeholder="e.g. Scapia is a travel fintech credit card company. Focus on travel cards, forex fees, RBI credit guidelines, and competitor products like Niyo or OneCard. Filter out generic lifestyle travel news."
+                  value={context}
+                  onChange={(e) => setContext(e.target.value)}
+                  className="form-control"
+                  style={{ resize: "vertical", fontFamily: "inherit", padding: "8px" }}
+                />
+                <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>This detailed context is used by the AI to filter out noise and only keep relevant articles.</span>
               </div>
 
               {/* Active Toggle */}
@@ -601,11 +693,11 @@ export default function ClientReports() {
               {/* Sections & Keywords Configuration */}
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: "16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                  <label style={{ fontSize: "13px", fontWeight: "800" }}>Briefing Sections</label>
+                  <label className="form-label" style={{ fontSize: "13px" }}>Briefing Sections</label>
                   <button
                     type="button"
                     onClick={handleAddSection}
-                    className="button secondary"
+                    className="btn btn-secondary"
                     style={{ padding: "4px 10px", fontSize: "11px" }}
                   >
                     + Add Section
@@ -645,27 +737,25 @@ export default function ClientReports() {
 
                       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                          <label style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-muted)" }}>Section Heading</label>
+                          <label className="form-label">Section Heading</label>
                           <input
                             type="text"
                             required
                             placeholder="e.g. Scapia in News"
                             value={section.name}
                             onChange={(e) => handleSectionChange(index, "name", e.target.value)}
-                            className="input"
-                            style={{ width: "90%" }}
+                            className="form-control"
                           />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                          <label style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-muted)" }}>Search Keywords (comma-separated)</label>
+                          <label className="form-label">Search Keywords (comma-separated)</label>
                           <input
                             type="text"
                             required
                             placeholder="e.g. Scapia, Scapia Card, Federal Bank Scapia"
                             value={section.keywords}
                             onChange={(e) => handleSectionChange(index, "keywords", e.target.value)}
-                            className="input"
-                            style={{ width: "100%" }}
+                            className="form-control"
                           />
                         </div>
                       </div>
@@ -679,13 +769,13 @@ export default function ClientReports() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="button secondary"
+                  className="btn btn-secondary"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="button"
+                  className="btn btn-primary"
                   style={{ background: "linear-gradient(135deg, var(--accent) 0%, #9333ea 100%)", color: "#fff" }}
                 >
                   Save Profile

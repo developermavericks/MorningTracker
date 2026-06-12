@@ -24,7 +24,7 @@ const NAV = [
   { id: "brands", label: "Keyword Setup", icon: "🏢" },
   { id: "jobs", label: "Tracker", icon: "◎" },
   { id: "admin", label: "Admin Portal", icon: "⚙", adminOnly: true },
-  { id: "diagnostics", label: "", icon: "" },
+  { id: "diagnostics", label: "Telemetry", icon: "🩺", adminOnly: true },
 ];
 
 function ThemeToggle() {

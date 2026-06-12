@@ -6,12 +6,16 @@ import json
 import time
 from typing import Optional, List, Dict, Any
 import ollama
+from dotenv import load_dotenv
+
+# Initialize environment variables
+load_dotenv()
 
 # --- Configuration ---
 # Support GROQ_API_KEY or XAI_API_KEY (legacy name) for Groq credentials
 _groq_raw = os.getenv("GROQ_API_KEY") or os.getenv("XAI_API_KEY") or ""
 GROQ_API_KEYS = [k.strip() for k in _groq_raw.split(",") if k.strip()]
-XAI_API_KEYS = [k.strip() for k in os.getenv("XAI_API_KEY", "").split(",") if k.strip()]
+XAI_API_KEYS = [k.strip() for k in os.getenv("XAI_API_KEY", "").split(",") if k.strip() if k.strip().startswith("xai-")]
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "minimax-m2:cloud")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
@@ -27,12 +31,20 @@ class DummyRedis:
     async def ping(self): return True
     async def sismember(self, name, val): return False
     async def sadd(self, name, *values): return 0
-    # Sync methods
-    def get_sync(self, key): return self._data.get(key)
-    def set_sync(self, key, val, *args, **kwargs): self._data[key] = val; return True
-    def ping_sync(self): return True
-    def sismember_sync(self, name, val): return False
-    def sadd_sync(self, name, *values): return 0
+    # Fallback support
+    def __getattr__(self, name):
+        def _mock(*args, **kwargs):
+            return None
+        return _mock
+
+class DummyRedisSync:
+    def __init__(self):
+        self._data = {}
+    def get(self, key): return self._data.get(key)
+    def set(self, key, val, *args, **kwargs): self._data[key] = val; return True
+    def ping(self): return True
+    def sismember(self, name, val): return False
+    def sadd(self, name, *values): return 0
     # Fallback support
     def __getattr__(self, name):
         def _mock(*args, **kwargs):
@@ -70,7 +82,7 @@ def get_redis_sync():
                 _redis_sync_client = client
             except Exception:
                 print("Celery/LLM: Redis offline. Initializing Mock Sync Redis.")
-                _redis_sync_client = DummyRedis()
+                _redis_sync_client = DummyRedisSync()
         else:
             _redis_sync_client = redis_sync.from_url(url, decode_responses=True)
     return _redis_sync_client
@@ -88,19 +100,23 @@ def log(msg: str):
 
 # --- Grok (xAI) Client ---
 def summarize_with_grok_sync(text: str) -> Optional[str]:
-    """Summarizes article using xAI Grok API."""
+    """Summarizes article using xAI Grok API under 30 words in a single paragraph."""
     is_placeholder = any("your_xai_api_key" in k.lower() for k in XAI_API_KEYS)
     if not XAI_API_KEYS or is_placeholder or not text or len(text) < 100: 
         return None
     
     url = "https://api.x.ai/v1/chat/completions"
     payload = {
-        "model": "grok-3",
+        "model": "grok-beta",
         "messages": [
-            {"role": "system", "content": "You are a news analyst. Summarize this article into EXACTLY 3 bullet points. Output only the bullet points."},
-            {"role": "user", "content": text[:5000]},
+            {
+                "role": "system", 
+                "content": "You are a news analyst. Summarize this article. RULES: You MUST output strictly a single paragraph. You MUST NOT use bullet points, lists, or line breaks. The summary MUST be between 30 to 35 words in length."
+            },
+            {"role": "user", "content": text[:4000]},
         ],
-        "temperature": 0,
+        "temperature": 0.1,
+        "max_tokens": 100
     }
 
     with httpx.Client(timeout=30) as client:
@@ -110,7 +126,9 @@ def summarize_with_grok_sync(text: str) -> Optional[str]:
             try:
                 resp = client.post(url, headers=headers, json=payload, timeout=20)
                 if resp.status_code == 200: 
-                    return resp.json()["choices"][0]["message"]["content"]
+                    summary = resp.json()["choices"][0]["message"]["content"].strip()
+                    summary = summary.replace("\n", " ").replace("- ", "").replace("* ", "")
+                    return summary
                 else: 
                     log(f"Grok API Error ({resp.status_code}): {resp.text}")
                     if resp.status_code == 429: time.sleep(2)
@@ -122,6 +140,13 @@ def summarize_with_grok_sync(text: str) -> Optional[str]:
 
 # Compatibility wrapper for existing callers
 def summarize_with_groq_sync(text: str) -> Optional[str]:
+    # Try xAI / Grok first if configured
+    is_grok_placeholder = any("your_xai_api_key" in k.lower() for k in XAI_API_KEYS)
+    if XAI_API_KEYS and not is_grok_placeholder:
+        grok_summary = summarize_with_grok_sync(text)
+        if grok_summary:
+            return grok_summary
+
     # Primary: Groq (llama-3.3-70b-versatile) - fast and free tier friendly
     is_placeholder = any("your_groq_api_key" in k.lower() for k in GROQ_API_KEYS)
     if GROQ_API_KEYS and not is_placeholder and text and len(text) >= 100:
@@ -129,10 +154,14 @@ def summarize_with_groq_sync(text: str) -> Optional[str]:
         payload = {
             "model": "llama-3.3-70b-versatile",
             "messages": [
-                {"role": "system", "content": "You are a news analyst. Summarize this article into EXACTLY 3 bullet points. Output only the bullet points."},
+                {
+                    "role": "system", 
+                    "content": "You are a news analyst. Summarize this article. RULES: You MUST output strictly a single paragraph. You MUST NOT use bullet points, lists, or line breaks. The summary MUST be between 30 to 35 words in length."
+                },
                 {"role": "user", "content": text[:4000]},
             ],
-            "max_tokens": 150,
+            "max_tokens": 100,
+            "temperature": 0.1
         }
 
         with httpx.Client(timeout=30) as client:
@@ -142,7 +171,9 @@ def summarize_with_groq_sync(text: str) -> Optional[str]:
                 try:
                     resp = client.post(url, headers=headers, json=payload, timeout=15)
                     if resp.status_code == 200:
-                        return resp.json()["choices"][0]["message"]["content"]
+                        summary = resp.json()["choices"][0]["message"]["content"].strip()
+                        summary = summary.replace("\n", " ").replace("- ", "").replace("* ", "")
+                        return summary
                     elif resp.status_code == 429:
                         time.sleep(1)
                     else:
@@ -150,29 +181,121 @@ def summarize_with_groq_sync(text: str) -> Optional[str]:
                 except:
                     pass
 
-    # Optional fallback: Grok (xAI) - only runs if XAI_API_KEY is configured
-    return summarize_with_grok_sync(text)
+    return None
 
-def check_relevance_with_groq(title: str, body: str, keywords: List[str], client_name: str) -> bool:
+def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], client_name: str, client_context: Optional[str] = None) -> bool:
     """
-    Evaluates if the article is genuinely relevant to the client and their keywords.
+    Evaluates if the article is genuinely relevant using Groq API with openai/gpt-oss-120b.
     """
+    api_key = os.getenv("GROQ_RELEVANCE_API_KEY")
+    is_placeholder = not api_key or "ReplaceMe" in api_key or "your_groq" in api_key.lower()
+    if is_placeholder:
+        # Fall back to standard GROQ_API_KEY if the relevance key is missing/placeholder
+        api_key = GROQ_API_KEYS[0] if GROQ_API_KEYS else None
+        is_placeholder = not api_key
+        
+    if is_placeholder or not body or not api_key:
+        raise ValueError("No valid Groq API Key available for relevance check")
+        
+    context_str = ""
+    if client_context:
+        context_str = f"CLIENT CONTEXT & GUIDELINES:\n{client_context}\n\n"
+    elif client_name.lower() == "scapia":
+        context_str = (
+            "CLIENT CONTEXT (About Scapia):\n"
+            "Scapia is an Indian travel fintech company that offers a co-branded travel credit card designed for the modern Indian traveller. "
+            "Built around a zero forex markup proposition, Scapia's card allows users to spend internationally without incurring additional foreign exchange charges. "
+            "The card operates on the RuPay and Mastercard networks and is issued in partnership with multiple banking partners (Axis Bank, Bank of Baroda, Federal Bank). "
+            "The company is led by Founder and CEO Anil Goteti.\n\n"
+            "PURPOSE & OBJECTIVE:\n"
+            "This tracker supports PR and communications for Scapia (managed by The Mavericks). The objective is to monitor media coverage relevant to "
+            "Scapia's brand, business, competitive landscape, and operating environment. The tracker is read by most of the organization at Scapia, "
+            "so any news around travel, routes, payments, stays, stores becomes relevant to Scapia’s day to day functioning.\n\n"
+            "COVERAGE SCOPE:\n"
+            "- Brand coverage: All direct mentions of Scapia (campaigns, products, partnerships, funding).\n"
+            "- Spokesperson mentions: Quotes/references to Anil Goteti.\n"
+            "- Competitor intelligence: Travel fintech & co-branded cards like OneCard, Niyo, Fi Money.\n"
+            "- Industry & regulatory news: Sector developments in fintech/credit cards, policy updates by RBI, RuPay, Mastercard affecting Scapia's products.\n\n"
+        )
+        
+    prompt = (
+        f"You are an editor filtering news for the client '{client_name}'.\n\n"
+        f"{context_str}"
+        f"Target Keywords/Topics: {', '.join(keywords)}\n\n"
+        f"Article Title: {title}\n"
+        f"Article Content: {body[:3000]}\n\n"
+        f"Determine if this article is genuinely relevant to '{client_name}' based on the context, guidelines and target keywords/topics.\n"
+        f"Respond with EXACTLY one word: 'YES' if it is relevant, or 'NO' if it is spam, off-topic, or not relevant."
+    )
+    
+    from groq import Groq
+    client = Groq(api_key=api_key)
+    completion = client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        temperature=1.0,
+        max_completion_tokens=100,
+        top_p=1.0,
+        stop=None
+    )
+    ans = completion.choices[0].message.content.strip().upper()
+    if "YES" in ans:
+        return True
+    if "NO" in ans:
+        return False
+    return True
+
+def check_relevance_with_groq(title: str, body: str, keywords: List[str], client_name: str, client_context: Optional[str] = None) -> bool:
+    """
+    Evaluates relevance. Tries Custom Groq SDK first, then falls back to Groq API with gpt-oss-120b.
+    """
+    try:
+        return check_relevance_with_groq_oss(title, body, keywords, client_name, client_context)
+    except Exception as e:
+        log(f"Custom Groq relevance check bypassed or failed ({e}). Falling back to Groq 120b API...")
+
     is_placeholder = any("your_groq_api_key" in k.lower() for k in GROQ_API_KEYS)
     if not GROQ_API_KEYS or is_placeholder or not body:
         return True # Default to True if Groq is not configured
         
     url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    # Check if custom context is passed, else fallback to hardcoded Scapia context
+    context_str = ""
+    if client_context:
+        context_str = f"CLIENT CONTEXT & GUIDELINES:\n{client_context}\n\n"
+    elif client_name.lower() == "scapia":
+        context_str = (
+            "CLIENT CONTEXT (About Scapia):\n"
+            "Scapia is an Indian travel fintech company that offers a co-branded travel credit card designed for the modern Indian traveller. "
+            "Built around a zero forex markup proposition, Scapia's card allows users to spend internationally without incurring additional foreign exchange charges. "
+            "The card operates on the RuPay and Mastercard networks and is issued in partnership with multiple banking partners (Axis Bank, Bank of Baroda, Federal Bank). "
+            "The company is led by Founder and CEO Anil Goteti.\n\n"
+            "PURPOSE & OBJECTIVE:\n"
+            "This tracker supports PR and communications for Scapia (managed by The Mavericks). The objective is to monitor media coverage relevant to "
+            "Scapia's brand, business, competitive landscape, and operating environment. The tracker is read by most of the organization at Scapia, "
+            "so any news around travel, routes, payments, banks, stays, stores becomes relevant to Scapia’s day to day functioning.\n\n"
+            "COVERAGE SCOPE:\n"
+            "- Brand coverage: All direct mentions of Scapia (campaigns, products, partnerships, funding).\n"
+            "- Spokesperson mentions: Quotes/references to Anil Goteti.\n"
+            "- Competitor intelligence: Travel fintech & co-branded cards like OneCard, Niyo, Fi Money.\n"
+            "- Industry & regulatory news: Sector developments in fintech/credit cards, policy updates by RBI, RuPay, Mastercard affecting Scapia's products.\n\n"
+        )
+        
     prompt = (
-        f"You are an editor filtering news for the client '{client_name}'.\n"
+        f"You are an editor filtering news for the client '{client_name}'.\n\n"
+        f"{context_str}"
         f"Target Keywords/Topics: {', '.join(keywords)}\n\n"
         f"Article Title: {title}\n"
         f"Article Content: {body[:3000]}\n\n"
-        f"Determine if this article is genuinely relevant to '{client_name}' or the target topics/keywords.\n"
+        f"Determine if this article is genuinely relevant to '{client_name}' based on the context, guidelines and target keywords/topics.\n"
         f"Respond with EXACTLY one word: 'YES' if it is relevant, or 'NO' if it is spam, off-topic, or not relevant."
     )
     
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "messages": [
             {"role": "user", "content": prompt}
         ],

@@ -137,6 +137,19 @@ async def recover_stuck_jobs():
                 .values(status='interrupted', error='Server restarted')
             )
             await db.execute(stmt)
+            
+            # Mark interrupted client run logs as failed on startup
+            from db.database import ClientRunLog
+            stmt_logs = (
+                update(ClientRunLog)
+                .where(ClientRunLog.status.in_(['running', 'pending']))
+                .values(
+                    status='failed',
+                    error_message='Server restarted or task interrupted',
+                    completed_at=datetime.now()
+                )
+            )
+            await db.execute(stmt_logs)
             await db.commit()
     except Exception as e:
         print(f"Recovery Error: {e}")

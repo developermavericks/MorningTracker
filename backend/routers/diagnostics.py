@@ -97,15 +97,44 @@ async def get_system_health():
     else:
         status["groq_api"] = {"status": "offline", "message": "Key missing"}
 
+    # 2.5 Groq Custom Relevance API Check
+    GROQ_RELEVANCE_API_KEY = os.getenv("GROQ_RELEVANCE_API_KEY")
+    is_groq_relevance_placeholder = not GROQ_RELEVANCE_API_KEY or "ReplaceMe" in GROQ_RELEVANCE_API_KEY or "your_groq" in GROQ_RELEVANCE_API_KEY.lower()
+    if not is_groq_relevance_placeholder:
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            async with httpx.AsyncClient(timeout=10) as client:
+                res = await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {GROQ_RELEVANCE_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": "openai/gpt-oss-120b", "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
+                )
+                if res.status_code == 200:
+                    status["groq_relevance_api"] = {"status": "online", "message": "Authenticated"}
+                else:
+                    status["groq_relevance_api"] = {"status": "error", "message": f"HTTP {res.status_code}"}
+                    overall = "degraded"
+        except Exception as e:
+            status["groq_relevance_api"] = {"status": "offline", "message": str(e)}
+            overall = "degraded"
+    else:
+        status["groq_relevance_api"] = {"status": "offline", "message": "Key missing/placeholder"}
+
     # 3. Playwright Check
     try:
         import shutil
-        if shutil.which("playwright"):
+        venv_playwright_exe = os.path.join("venv", "Scripts", "playwright.exe")
+        venv_playwright_bin = os.path.join("venv", "bin", "playwright")
+        
+        has_cli = shutil.which("playwright") or os.path.exists(venv_playwright_exe) or os.path.exists(venv_playwright_bin)
+        
+        if has_cli:
             status["playwright"] = {"status": "online"}
         else:
-            status["playwright"] = {"status": "warning"}
-    except:
-        status["playwright"] = {"status": "offline"}
+            import playwright
+            status["playwright"] = {"status": "online", "message": "Module installed"}
+    except Exception as e:
+        status["playwright"] = {"status": "offline", "message": str(e)}
 
     # 4. Jobs Check
     try:

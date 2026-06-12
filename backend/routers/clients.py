@@ -32,6 +32,7 @@ class ClientCreate(BaseModel):
     is_active: bool = True
     recipients: List[EmailStr]
     sections: List[SectionCreate]
+    context: Optional[str] = None
 
 class SectionResponse(BaseModel):
     id: int
@@ -48,12 +49,14 @@ class ClientResponse(BaseModel):
     recipients: List[str]
     sections: List[SectionResponse]
     last_run_at: Optional[str] = None
+    context: Optional[str] = None
 
 class RunLogResponse(BaseModel):
     id: int
     client_id: int
     status: str
     error_message: Optional[str]
+    progress_message: Optional[str]
     generated_file_path: Optional[str]
     started_at: str
     completed_at: Optional[str]
@@ -103,7 +106,8 @@ async def list_clients(
                 template_path=client.template_path,
                 recipients=recipients,
                 sections=sections_data,
-                last_run_at=client.last_run_at.isoformat() if client.last_run_at else None
+                last_run_at=client.last_run_at.isoformat() if client.last_run_at else None,
+                context=client.context
             )
         )
     return response_data
@@ -123,7 +127,8 @@ async def create_client(
         name=payload.name,
         scheduled_time=payload.scheduled_time,
         timezone=payload.timezone,
-        is_active=payload.is_active
+        is_active=payload.is_active,
+        context=payload.context
     )
     db.add(new_client)
     await db.commit()
@@ -166,7 +171,8 @@ async def create_client(
         template_path=None,
         recipients=payload.recipients,
         sections=sections_response,
-        last_run_at=None
+        last_run_at=None,
+        context=new_client.context
     )
 
 @router.put("/{client_id}", response_model=ClientResponse)
@@ -186,6 +192,7 @@ async def update_client(
     client.scheduled_time = payload.scheduled_time
     client.timezone = payload.timezone
     client.is_active = payload.is_active
+    client.context = payload.context
     
     # Update recipients (clear old first)
     await db.execute(delete(ClientRecipient).where(ClientRecipient.client_id == client_id))
@@ -233,7 +240,8 @@ async def update_client(
         template_path=client.template_path,
         recipients=payload.recipients,
         sections=sections_response,
-        last_run_at=client.last_run_at.isoformat() if client.last_run_at else None
+        last_run_at=client.last_run_at.isoformat() if client.last_run_at else None,
+        context=client.context
     )
 
 @router.delete("/{client_id}")
@@ -302,6 +310,7 @@ async def get_client_run_logs(
             client_id=log.client_id,
             status=log.status,
             error_message=log.error_message,
+            progress_message=log.progress_message,
             generated_file_path=os.path.basename(log.generated_file_path) if log.generated_file_path else None,
             started_at=log.started_at.isoformat(),
             completed_at=log.completed_at.isoformat() if log.completed_at else None

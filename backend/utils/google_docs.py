@@ -109,9 +109,12 @@ def get_drive_service():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     if creds_json:
         try:
+            creds_json = creds_json.strip("'\"")
             creds_data = json.loads(creds_json)
+            if "private_key" in creds_data:
+                creds_data["private_key"] = creds_data["private_key"].replace("\\n", "\n")
             creds = service_account.Credentials.from_service_account_info(creds_data, scopes=SCOPES)
-            return build('drive', 'v3', credentials=creds)
+            return build('drive', 'v3', credentials=creds, cache_discovery=False)
         except Exception as e:
             logger.error(f"Failed to load Google credentials from environment variable: {e}")
             
@@ -125,7 +128,7 @@ def get_drive_service():
         
     try:
         creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
-        return build('drive', 'v3', credentials=creds)
+        return build('drive', 'v3', credentials=creds, cache_discovery=False)
     except Exception as e:
         logger.error(f"Failed to initialize Google Drive service from file: {e}")
         return None
@@ -133,8 +136,19 @@ def get_drive_service():
 def get_or_create_reports_folder(service, client_name: str) -> str:
     """Finds or creates a client-specific reports folder in Google Drive."""
     try:
-        query = f"name = 'Morning Tracker - {client_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-        results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+        parent_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
+        if parent_id:
+            query = f"name = 'Morning Tracker - {client_name}' and mimeType = 'application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed = false"
+        else:
+            query = f"name = 'Morning Tracker - {client_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            
+        results = service.files().list(
+            q=query, 
+            spaces='drive', 
+            fields='files(id, name)',
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
         files = results.get('files', [])
         
         if files:
@@ -144,14 +158,21 @@ def get_or_create_reports_folder(service, client_name: str) -> str:
             'name': f'Morning Tracker - {client_name}',
             'mimeType': 'application/vnd.google-apps.folder'
         }
-        folder = service.files().create(body=folder_metadata, fields='id').execute()
+        if parent_id:
+            folder_metadata['parents'] = [parent_id]
+            
+        folder = service.files().create(
+            body=folder_metadata, 
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
         logger.info(f"Created new Google Drive folder: Morning Tracker - {client_name} (ID: {folder['id']})")
         return folder['id']
     except Exception as e:
         logger.error(f"Error getting/creating Google Drive folder: {e}")
         return None
 
-def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, recipients: list) -> str:
+def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, recipients: list, doc_suffix: str = "") -> str:
     """
     Uploads a local DOCX file to Google Drive and converts it to a native Google Doc.
     Supports continuous daily appending into a single monthly document (e.g. Scapia - June 2026).
@@ -168,11 +189,17 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
         
         # Build Monthly Document Name (e.g., "Scapia - June 2026")
         month_year_str = datetime.now().strftime("%B %Y")
-        file_name = f"{client_name} - {month_year_str}"
+        file_name = f"{client_name}{doc_suffix} - {month_year_str}"
         
         # Search for an existing monthly Google Doc inside the client's folder
         query = f"name = '{file_name}' and mimeType = 'application/vnd.google-apps.document' and '{folder_id}' in parents and trashed = false"
-        results = service.files().list(q=query, spaces='drive', fields='files(id, webViewLink)').execute()
+        results = service.files().list(
+            q=query, 
+            spaces='drive', 
+            fields='files(id, webViewLink)',
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
         files = results.get('files', [])
         
         doc_id = None
@@ -187,6 +214,7 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
             temp_existing_path = docx_path + ".existing.docx"
             temp_combined_path = docx_path + ".combined.docx"
             
+            media = None
             try:
                 # 1. Export Google Doc as a local DOCX using downloader
                 from googleapiclient.http import MediaIoBaseDownload
@@ -216,7 +244,8 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
                 )
                 service.files().update(
                     fileId=doc_id,
-                    media_body=media
+                    media_body=media,
+                    supportsAllDrives=True
                 ).execute()
                 
                 logger.info(f"Successfully appended report to monthly Google Doc: {file_name}")
@@ -224,6 +253,10 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
             except Exception as merge_err:
                 logger.error(f"Failed to merge with existing monthly doc: {merge_err}", exc_info=True)
             finally:
+                # Safely release Windows file lock
+                if media and hasattr(media, '_fd') and media._fd:
+                    try: media._fd.close()
+                    except: pass
                 # Cleanup temp files
                 if os.path.exists(temp_existing_path):
                     os.remove(temp_existing_path)
@@ -240,20 +273,27 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
             if folder_id:
                 file_metadata['parents'] = [folder_id]
                 
-            media = MediaFileUpload(
-                docx_path, 
-                mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
-                resumable=True
-            )
-            uploaded_file = service.files().create(
-                body=file_metadata, 
-                media_body=media, 
-                fields='id, webViewLink'
-            ).execute()
-            
-            doc_id = uploaded_file.get('id')
-            web_link = uploaded_file.get('webViewLink')
-            logger.info(f"Created monthly Google Doc ID: {doc_id}")
+            media = None
+            try:
+                media = MediaFileUpload(
+                    docx_path, 
+                    mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
+                    resumable=True
+                )
+                uploaded_file = service.files().create(
+                    body=file_metadata, 
+                    media_body=media, 
+                    fields='id, webViewLink',
+                    supportsAllDrives=True
+                ).execute()
+                
+                doc_id = uploaded_file.get('id')
+                web_link = uploaded_file.get('webViewLink')
+                logger.info(f"Created monthly Google Doc ID: {doc_id}")
+            finally:
+                if media and hasattr(media, '_fd') and media._fd:
+                    try: media._fd.close()
+                    except: pass
             
         # Share document with recipient emails (always run to ensure new recipients get access)
         for email in recipients:
@@ -268,11 +308,27 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
                 service.permissions().create(
                     fileId=doc_id, 
                     body=user_permission, 
-                    sendNotificationEmails=False
+                    sendNotificationEmails=False,
+                    supportsAllDrives=True
                 ).execute()
             except Exception as share_err:
                 # Ignore duplicate sharing errors or domain restriction warnings
                 pass
+                
+        # Make document publicly readable via link (Anyone can view)
+        try:
+            public_permission = {
+                'type': 'anyone',
+                'role': 'reader'
+            }
+            service.permissions().create(
+                fileId=doc_id,
+                body=public_permission,
+                supportsAllDrives=True
+            ).execute()
+            logger.info(f"Configured public sharing permission for Google Doc: {doc_id}")
+        except Exception as public_err:
+            logger.error(f"Failed to set public sharing permission for Google Doc {doc_id}: {public_err}")
                 
         return web_link
         
