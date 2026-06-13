@@ -15,7 +15,7 @@ load_dotenv()
 # Support GROQ_API_KEY or XAI_API_KEY (legacy name) for Groq credentials
 _groq_raw = os.getenv("GROQ_API_KEY") or os.getenv("XAI_API_KEY") or ""
 GROQ_API_KEYS = [k.strip() for k in _groq_raw.split(",") if k.strip()]
-XAI_API_KEYS = [k.strip() for k in os.getenv("XAI_API_KEY", "").split(",") if k.strip() if k.strip().startswith("xai-")]
+XAI_API_KEYS = [k.strip() for k in os.getenv("XAI_API_KEY", "").split(",") if k.strip()]
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "minimax-m2:cloud")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
