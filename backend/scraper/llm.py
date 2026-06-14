@@ -276,7 +276,7 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
             {"role": "user", "content": prompt}
         ],
         temperature=0.0,
-        max_completion_tokens=150,
+        max_completion_tokens=400,
         response_format={"type": "json_object"},
         top_p=1.0,
         stop=None
@@ -352,7 +352,7 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
-        "max_tokens": 150,
+        "max_tokens": 400,
         "temperature": 0.0
     }
     
@@ -451,7 +451,7 @@ def extract_metadata_with_groq_sync(body: str, url: str = "", context_agency: st
     # State-of-the-Art "Judge" Prompt
     prompt = (
         f"Analyze this news article and extract metadata in JSON format.\n"
-        f"Target Fields: author (specific person), handle (social media), agency (news org), is_junk (bool), cleaned_body (text).\n\n"
+        f"Target Fields: author (specific person or null), handle (social media or null), agency (news org or null).\n\n"
         f"STAGED EVIDENCE:\n"
         f"1. HTML Metadata Extraction Suggestion: {author_metadata.get('name') if author_metadata else 'None'}\n"
         f"2. Suggested Handle: {author_metadata.get('handle') if author_metadata else 'None'}\n"
@@ -460,7 +460,9 @@ def extract_metadata_with_groq_sync(body: str, url: str = "", context_agency: st
         f"TASK: Use the snippets to verify or find the correct author. "
         f"If the metadata suggestion is generic (like 'Staff'), find the real name in the snippets. "
         f"If a specific handle is found, use it to confirm the author.\n\n"
-        f"Text Sample: {body[:4000]}"
+        f"Text Sample: {body[:4000]}\n\n"
+        f"You MUST output strictly in JSON format. Do not write any explanations outside the JSON structure. Response format:\n"
+        f'{{"author": "string or null", "handle": "string or null", "agency": "string or null"}}'
     )
     
     api_key = os.getenv("GROQ_RELEVANCE_API_KEY")
@@ -481,7 +483,7 @@ def extract_metadata_with_groq_sync(body: str, url: str = "", context_agency: st
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.0,
-                max_completion_tokens=250,
+                max_completion_tokens=400,
                 response_format={"type": "json_object"},
                 top_p=1.0,
                 stop=None
@@ -509,7 +511,7 @@ def extract_metadata_with_groq_sync(body: str, url: str = "", context_agency: st
                 {"role": "user", "content": prompt}
             ],
             "response_format": {"type": "json_object"},
-            "max_tokens": 250,
+            "max_tokens": 400,
             "temperature": 0.0
         }
         with httpx.Client(timeout=15) as client:

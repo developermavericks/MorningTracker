@@ -62,7 +62,7 @@ To save on Railway costs, you can run everything in a single process.
 - Output Directory: `dist`
 
 ---
-
+ 
 ## 3. Post-Deployment Verification
 1. Navigate to your Vercel URL.
 2. Log in via Google OAuth.
