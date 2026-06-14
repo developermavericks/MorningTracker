@@ -204,6 +204,37 @@ class SystemSetting(Base):
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
+class IrrelevantArticle(Base):
+    __tablename__ = "irrelevant_articles"
+    url: Mapped[str] = mapped_column(String, primary_key=True)
+    title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    relevance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+class JobFunnelLog(Base):
+    __tablename__ = "job_funnel_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String, index=True)
+    rss_discovered: Mapped[int] = mapped_column(Integer, default=0)
+    cache_skipped: Mapped[int] = mapped_column(Integer, default=0)
+    pre_filter_dropped: Mapped[int] = mapped_column(Integer, default=0)
+    scraped_count: Mapped[int] = mapped_column(Integer, default=0)
+    relevance_yes: Mapped[int] = mapped_column(Integer, default=0)
+    relevance_no: Mapped[int] = mapped_column(Integer, default=0)
+    summarized_count: Mapped[int] = mapped_column(Integer, default=0)
+    fallback_count: Mapped[int] = mapped_column(Integer, default=0)
+    logged_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+class ZeroResultQuery(Base):
+    __tablename__ = "zero_result_queries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    query_string: Mapped[str] = mapped_column(String, index=True)
+    sector: Mapped[str] = mapped_column(String, index=True)
+    count: Mapped[int] = mapped_column(Integer, default=1)
+    logged_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
 # ─── Initialization ───────────────────────────────────────────────────────────
 
 async def init_db():
@@ -232,6 +263,41 @@ async def init_db():
             else:
                 await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
         except: pass
+
+        # Automated Migration: Add audit columns to irrelevant_articles table
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN IF NOT EXISTS title VARCHAR"))
+                await conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN IF NOT EXISTS description TEXT"))
+                await conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN IF NOT EXISTS rejection_reason TEXT"))
+                await conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN IF NOT EXISTS relevance_score FLOAT"))
+            else:
+                # SQLite - we execute ADD COLUMN individually inside try/except to tolerate column presence
+                try:
+                    await conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN title VARCHAR"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN description TEXT"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN rejection_reason TEXT"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN relevance_score FLOAT"))
+                except Exception: pass
+        except Exception as e:
+            print(f"Migration Notice (IrrelevantArticle Columns): {e}")
+
+        # Automated Migration: Add logged_at to job_funnel_logs if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE job_funnel_logs ADD COLUMN IF NOT EXISTS logged_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"))
+            else:
+                try:
+                    await conn.execute(text("ALTER TABLE job_funnel_logs ADD COLUMN logged_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+                except Exception: pass
+        except Exception as e:
+            print(f"Migration Notice (JobFunnelLog logged_at): {e}")
 
         # Automated Migration: Add progress_message if missing
         try:
@@ -322,6 +388,40 @@ def init_db_sync():
                 conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS context TEXT"))
             else:
                 conn.execute(text("ALTER TABLE clients ADD COLUMN context TEXT"))
+    except: pass
+
+    # Automated migration: Add audit columns to irrelevant_articles table
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN IF NOT EXISTS title VARCHAR"))
+                conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN IF NOT EXISTS description TEXT"))
+                conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN IF NOT EXISTS rejection_reason TEXT"))
+                conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN IF NOT EXISTS relevance_score FLOAT"))
+            else:
+                try:
+                    conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN title VARCHAR"))
+                except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN description TEXT"))
+                except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN rejection_reason TEXT"))
+                except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE irrelevant_articles ADD COLUMN relevance_score FLOAT"))
+                except Exception: pass
+    except: pass
+
+    # Automated migration: Add logged_at to job_funnel_logs if missing
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE job_funnel_logs ADD COLUMN IF NOT EXISTS logged_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"))
+            else:
+                try:
+                    conn.execute(text("ALTER TABLE job_funnel_logs ADD COLUMN logged_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+                except Exception: pass
     except: pass
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 

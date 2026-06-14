@@ -667,3 +667,16 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   font-family: var(--font-mono);
 }
+
+/* ─── Premium Animated Horizontal Progress Bar ────────────────────────── */
+@keyframes progress-shimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.progress-bar-animated {
+  background-size: 200% 200%;
+  animation: progress-shimmer 2.5s ease infinite;
+}
+

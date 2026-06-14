@@ -74,31 +74,13 @@ async def audit_system():
 
     # 3. AI Engine Audit
     print("\n[3/4] Auditing AI Enrichment Engines...")
-    # Grok (xAI) Check
-    from scraper.llm import XAI_API_KEYS, GROQ_API_KEYS, OLLAMA_BASE_URL
-    is_placeholder = any("your_xai_api_key" in k.lower() for k in XAI_API_KEYS)
-    if not XAI_API_KEYS or is_placeholder:
-        print("  ⚠️ Grok (xAI): UNCONFIGURED")
-        # Fallback check for Groq
-        from scraper.llm import GROQ_API_KEYS
-        is_groq_placeholder = any("your_groq_api_key" in k.lower() for k in GROQ_API_KEYS)
-        if GROQ_API_KEYS and not is_groq_placeholder:
-            print(f"  ℹ️  Legacy Groq Found: CONFIGURED ({len(GROQ_API_KEYS)} keys)")
-        else:
-            print("  ⚠️ Summarization Engine: TOTALLY DISABLED (No xAI or Groq keys)")
+    # Groq API Check
+    from scraper.llm import GROQ_API_KEYS
+    is_groq_placeholder = any("your_groq_api_key" in k.lower() for k in GROQ_API_KEYS)
+    if GROQ_API_KEYS and not is_groq_placeholder:
+        print(f"  ✅ Groq API: CONFIGURED ({len(GROQ_API_KEYS)} keys) - Used for relevance, metadata extraction & summarization")
     else:
-        print(f"  ✅ Grok (xAI): CONFIGURED ({len(XAI_API_KEYS)} keys)")
-
-    # Ollama Check
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            res = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
-            if res.status_code == 200:
-                print(f"  ✅ Ollama Engine: ONLINE ({OLLAMA_BASE_URL})")
-            else:
-                print(f"  ⚠️ Ollama Engine: DEGRADED ({res.status_code})")
-    except Exception:
-        print(f"  ⚠️ Ollama Engine: OFFLINE (Extraction disabled)")
+        print("  ⚠️ Groq API: UNCONFIGURED (Relevance checking, metadata extraction & summarization are disabled)")
 
     # 4. API & Integration Audit
     await test_api_endpoints()

@@ -5,14 +5,26 @@ import httpx
 import trafilatura
 from datetime import datetime
 from celery_app import app as celery_app
-from db.database import get_db_sync, Article, ScrapeJob
+from db.database import get_db_sync, Article, ScrapeJob, IrrelevantArticle, JobFunnelLog, Client
 from scraper.browser import scrape_url
-from sqlalchemy import select, update, insert
+from sqlalchemy import select, update, insert, delete
 from scraper.engine import normalize_url
 from scraper.llm import get_redis_sync
 from scraper.search_utils import verify_boolean_relevance
 
 logger = logging.getLogger(__name__)
+
+PLAYWRIGHT_ONLY_DOMAINS = {"axios.com", "ndtv.com"}
+
+def should_use_playwright(url: str) -> bool:
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return any(domain == d or domain.endswith("." + d) for d in PLAYWRIGHT_ONLY_DOMAINS)
+    except Exception:
+        return False
 
 
 def _mark_article_processed(job_id: str):
@@ -40,6 +52,24 @@ def _mark_article_processed(job_id: str):
                 logger.info(f"Job {job_id} completed: {job.total_scraped}/{job.total_found}")
     except Exception as e:
         logger.error(f"Error marking article processed for job {job_id}: {e}")
+
+def _increment_funnel_metric(job_id: str, field_name: str, amount: int = 1):
+    if not job_id:
+        return
+    try:
+        with get_db_sync() as db:
+            log_entry = db.execute(select(JobFunnelLog).where(JobFunnelLog.job_id == job_id)).scalar_one_or_none()
+            if not log_entry:
+                log_entry = JobFunnelLog(job_id=job_id)
+                db.add(log_entry)
+                db.commit()
+                db.refresh(log_entry)
+            
+            val = getattr(log_entry, field_name, 0) or 0
+            setattr(log_entry, field_name, val + amount)
+            db.commit()
+    except Exception as e:
+        logger.error(f"Error logging funnel metric for job {job_id}: {e}")
 
 
 # ─── Orchestrator Task ────────────────────────────────────────────────────────
@@ -98,32 +128,105 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
             _mark_article_processed(job_id)
             return None
         
-        # ─── URL NORMALIZATION & LOCKING ───
+        # ─── URL NORMALIZATION ───
         normalized_url = normalize_url(resolved_url)
+        
+        # ─── DB CACHE CHECK ───
+        with get_db_sync() as db:
+            # Check existing
+            existing_article = db.execute(
+                select(Article.id)
+                .where(Article.url == normalized_url)
+                .where(Article.user_id == user_id)
+            ).first()
+            if existing_article:
+                logger.info(f"Celery DB Cache HIT (already exists): {normalized_url}. Skipping.")
+                _mark_article_processed(job_id)
+                _increment_funnel_metric(job_id, "cache_skipped")
+                return None
+                
+            # Check irrelevant
+            cached_irrelevant = db.execute(
+                select(IrrelevantArticle)
+                .where(IrrelevantArticle.url == normalized_url)
+            ).scalar_one_or_none()
+            if cached_irrelevant:
+                age = datetime.now() - cached_irrelevant.last_seen_at
+                if age.days < 30:
+                    logger.info(f"Celery Irrelevant Cache HIT: {normalized_url}. Skipping.")
+                    _mark_article_processed(job_id)
+                    _increment_funnel_metric(job_id, "cache_skipped")
+                    return None
+                else:
+                    db.delete(cached_irrelevant)
+                    db.commit()
+
+        # ─── LOCKING ───
         lock_key = f"lock:scrape:{normalized_url}"
         r = get_redis_sync()
-        
-        # Try to acquire lock for 10 minutes to prevent overlaps
-        #nx=True means only set if it doesn't exist
         if not r.set(lock_key, job_id, nx=True, ex=600):
             logger.info(f"Task overlap detected for {normalized_url}. Skipping redundant node.")
             _mark_article_processed(job_id)
             return None
 
+        # ─── FAST-REJECT PRE-FILTER ───
+        keywords = []
+        with get_db_sync() as db:
+            from db.database import WatchedBrand
+            brand_obj = db.execute(
+                select(WatchedBrand)
+                .where(WatchedBrand.name == sector)
+                .where(WatchedBrand.user_id == user_id)
+            ).first()
+            if brand_obj:
+                brand_obj = brand_obj[0]
+                if brand_obj.keywords:
+                    keywords = [k.strip() for k in brand_obj.keywords.split(",") if k.strip()]
+        
+        if not keywords:
+            from scraper.config import SECTOR_KEYWORDS
+            keywords.extend(SECTOR_KEYWORDS.get(sector.lower(), []))
+            
+        title = article_data.get("title", "")
+        description = article_data.get("description", "")
+        text_to_check = f"{title} {description}"
+        
+        is_pre_filtered_relevant = True
+        if keywords:
+            is_pre_filtered_relevant = verify_boolean_relevance(text_to_check, keywords)
+            if not is_pre_filtered_relevant and sector.lower() in text_to_check.lower():
+                is_pre_filtered_relevant = True
+                
+        if not is_pre_filtered_relevant:
+            logger.info(f"Fast-reject (Celery): article '{title}' failed keyword pre-filter. Skipping.")
+            with get_db_sync() as db:
+                db.merge(IrrelevantArticle(url=normalized_url, last_seen_at=datetime.now()))
+                db.commit()
+            _mark_article_processed(job_id)
+            _increment_funnel_metric(job_id, "pre_filter_dropped")
+            return None
+
         # --- FAST-TRACK SCRAPING (httpx + trafilatura) ---
         html = None
-        try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"}
-            with httpx.Client(timeout=15, follow_redirects=True) as client:
-                resp = client.get(resolved_url, headers=headers)
-                if resp.status_code == 200:
-                    text_content = trafilatura.extract(resp.text)
-                    # If we got a decent amount of text, we can skip Playwright!
-                    if text_content and len(text_content) > 400:
-                        logger.info(f"Fast-track success for {resolved_url} ({len(text_content)} chars)")
-                        html = resp.text
-        except Exception as e:
-            logger.debug(f"Fast-track failed for {resolved_url}: {e}")
+        if not should_use_playwright(resolved_url):
+            try:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Referer": "https://news.google.com/"
+                }
+                with httpx.Client(timeout=15, follow_redirects=True) as client:
+                    resp = client.get(resolved_url, headers=headers)
+                    if resp.status_code == 200:
+                        text_content = trafilatura.extract(resp.text)
+                        if text_content and len(text_content) > 400:
+                            logger.info(f"Fast-track success for {resolved_url} ({len(text_content)} chars)")
+                            html = resp.text
+            except Exception as e:
+                logger.debug(f"Fast-track failed for {resolved_url}: {e}")
+        else:
+            logger.info(f"Skipping fast-track HTTP client for known hostile domain: {resolved_url}")
 
         # --- FALLBACK: SUBPROCESS BROWSER (fully isolated from Gevent) ---
         if not html:
@@ -132,9 +235,10 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
             
         if not html:
             logger.warning(f"Scrape failed (both fast-track and browser) for {resolved_url}")
-            # CRITICAL: Must still increment counter so job can complete!
             _mark_article_processed(job_id)
             return None
+            
+        _increment_funnel_metric(job_id, "scraped_count")
 
         # Move processed data back to article_data for Engine
         article_data["resolved_url"] = resolved_url
@@ -159,7 +263,7 @@ def enrich_article_node(self, article_id):
     Task Node 2: Performs AI analysis (Grok/Groq).
     Runs server-side, completely independent of user session.
     """
-    from scraper.llm import perform_full_enrichment_sync
+    from scraper.llm import perform_full_enrichment_sync, check_relevance_with_groq
     from scraper.engine import is_job_cancelled
     
     with get_db_sync() as db:
@@ -171,6 +275,86 @@ def enrich_article_node(self, article_id):
             logger.info(f"Enrichment cancelled for job {article.scrape_job_id}. Skipping article {article_id}")
             return
 
+        # ─── RELEVANCE CHECK (120B Model) ───
+        try:
+            keywords = []
+            from db.database import WatchedBrand
+            brand_obj = db.execute(
+                select(WatchedBrand)
+                .where(WatchedBrand.name == article.sector)
+                .where(WatchedBrand.user_id == article.user_id)
+            ).first()
+            if brand_obj:
+                brand_obj = brand_obj[0]
+                if brand_obj.keywords:
+                    keywords = [k.strip() for k in brand_obj.keywords.split(",") if k.strip()]
+            
+            if not keywords:
+                from scraper.config import SECTOR_KEYWORDS
+                keywords.extend(SECTOR_KEYWORDS.get(article.sector.lower(), []))
+            
+            # Retrieve client context guidelines if applicable
+            client_context = ""
+            client_name = article.sector
+            if " - " in client_name:
+                client_name = client_name.split(" - ")[0]
+            client_obj = db.execute(
+                select(Client).where(Client.name == client_name)
+            ).scalars().first()
+            if client_obj:
+                client_context = client_obj.context or ""
+            
+            # --- Similarity Pre-Filter ---
+            from scraper.similarity import evaluate_similarity_pre_filter, SIM_DROP_THRESHOLD
+            sim_score = evaluate_similarity_pre_filter(
+                article.title, article.full_body, keywords, client_context
+            )
+            if sim_score < SIM_DROP_THRESHOLD:
+                logger.info(f"Cosine similarity pre-filter drop for article {article_id}: '{article.title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}). Skipping LLM.")
+                from db.database import IrrelevantArticle
+                db.merge(IrrelevantArticle(
+                    url=article.url,
+                    title=article.title,
+                    description=article.summary or (article.full_body[:200] if article.full_body else ""),
+                    rejection_reason=f"Similarity pre-filter drop (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD})",
+                    relevance_score=sim_score,
+                    last_seen_at=datetime.now()
+                ))
+                db.delete(article)
+                db.commit()
+                _increment_funnel_metric(article.scrape_job_id, "pre_filter_dropped")
+                return
+
+            # --- LLM Relevance Check ---
+            is_semantic_relevant, verdict, reason, score = check_relevance_with_groq(
+                article.title, article.full_body, keywords, client_name, client_context=client_context
+            )
+        except Exception as rel_err:
+            logger.error(f"Relevance check exception in Celery task: {rel_err}")
+            is_semantic_relevant = True # Fallback
+            verdict = "uncertain"
+            reason = f"Exception: {rel_err}"
+            score = 0.5
+            
+        if not is_semantic_relevant:
+            logger.info(f"Article {article_id} rejected by relevance check (verdict: {verdict}, score: {score}). Deleting and caching.")
+            from db.database import IrrelevantArticle
+            db.merge(IrrelevantArticle(
+                url=article.url,
+                title=article.title,
+                description=article.summary or (article.full_body[:200] if article.full_body else ""),
+                rejection_reason=reason,
+                relevance_score=score,
+                last_seen_at=datetime.now()
+            ))
+            db.delete(article)
+            db.commit()
+            _increment_funnel_metric(article.scrape_job_id, "relevance_no")
+            return
+            
+        _increment_funnel_metric(article.scrape_job_id, "relevance_yes")
+
+        # ─── SUMMARIZATION & ENRICHMENT ───
         try:
             enriched_data = perform_full_enrichment_sync(
                 article.full_body, 
@@ -188,6 +372,7 @@ def enrich_article_node(self, article_id):
             if enriched_data.get("author"): article.author = enriched_data.get("author")
             
             db.commit()
+            _increment_funnel_metric(article.scrape_job_id, "summarized_count")
             logger.info(f"Successfully enriched article {article_id}")
         except Exception as e:
             logger.error(f"AI Enrichment failed for article {article_id}: {e}")
@@ -344,14 +529,37 @@ def run_client_report_task(client_id: int):
                 
             _update_progress(f"Discovering articles for section '{section_name}'...")
             logger.info(f"Discovering articles for section '{section_name}' with keywords: {keywords}")
+            
+            job_id = f"client_{client_id}_sec_{section_name}"
+            # Initialize Funnel Log
+            try:
+                with get_db_sync() as db:
+                    db.execute(delete(JobFunnelLog).where(JobFunnelLog.job_id == job_id))
+                    db.execute(insert(JobFunnelLog).values(job_id=job_id, rss_discovered=0))
+                    db.commit()
+            except Exception as e:
+                logger.error(f"Failed to initialize funnel log for client: {e}")
+                
             # Discover articles
             discovered = discover_articles(
                 keywords=keywords,
                 day=search_date,
                 geo="IN",
                 region_name="india",
-                job_id=f"client_{client_id}_sec_{section_name}"
+                job_id=job_id,
+                sector=f"{client_name} - {section_name}"
             )
+            
+            try:
+                with get_db_sync() as db:
+                    db.execute(
+                        update(JobFunnelLog)
+                        .where(JobFunnelLog.job_id == job_id)
+                        .values(rss_discovered=len(discovered))
+                    )
+                    db.commit()
+            except Exception as e:
+                pass
             
             # If not enough articles, fallback/extend search to yesterday
             if len(discovered) < 3:
@@ -361,7 +569,8 @@ def run_client_report_task(client_id: int):
                     day=yesterday,
                     geo="IN",
                     region_name="india",
-                    job_id=f"client_{client_id}_sec_{section_name}_yesterday"
+                    job_id=f"client_{client_id}_sec_{section_name}_yesterday",
+                    sector=f"{client_name} - {section_name}"
                 )
                 discovered.extend(discovered_yesterday)
                 
@@ -383,37 +592,118 @@ def run_client_report_task(client_id: int):
                 art, idx = art_idx_tuple
                 raw_url = art["url"]
                 title = art["title"]
+                desc = art.get("description") or ""
                 agency = art.get("agency") or "News"
                 
+                job_id = f"client_{client_id}_sec_{section_name}"
+                
                 try:
-                    # 1. Resolve URL
+                    # 1. Normalize raw URL for early checks
+                    normalized_raw_url = normalize_url(raw_url)
+                    
+                    # 2. Check early cache for existing/irrelevant using raw URL
+                    with get_db_sync() as db:
+                        from db.database import IrrelevantArticle
+                        # Check existing
+                        existing_article = db.execute(
+                            select(Article)
+                            .where(Article.url == normalized_raw_url)
+                        ).scalars().first()
+                        if existing_article and existing_article.full_body and existing_article.summary:
+                            logger.info(f"Early DB Cache HIT for {normalized_raw_url}")
+                            _increment_funnel_metric(job_id, "cache_skipped")
+                            return {
+                                "art_data": {
+                                    "title": existing_article.title,
+                                    "url": existing_article.resolved_url or existing_article.url,
+                                    "agency": existing_article.agency or agency,
+                                    "summary": existing_article.summary
+                                },
+                                "is_relevant_kw": True,
+                                "is_semantic_relevant": True
+                            }
+                        
+                        # Check irrelevant
+                        cached_ir = db.execute(
+                            select(IrrelevantArticle)
+                            .where(IrrelevantArticle.url == normalized_raw_url)
+                        ).scalar_one_or_none()
+                        if cached_ir:
+                            age = datetime.now() - cached_ir.last_seen_at
+                            if age.days < 30:
+                                logger.info(f"Early Irrelevant Cache HIT for {normalized_raw_url}")
+                                _increment_funnel_metric(job_id, "cache_skipped")
+                                return None
+                            else:
+                                db.delete(cached_ir)
+                                db.commit()
+                                
+                    # 3. Triage pre-filter (fast reject)
+                    text_to_check = f"{title} {desc}"
+                    is_relevant_kw = verify_boolean_relevance(text_to_check, keywords)
+                    if not is_relevant_kw and section_name.lower() in text_to_check.lower():
+                        is_relevant_kw = True
+                        
+                    if not is_relevant_kw:
+                        logger.info(f"Fast-reject: article '{title}' failed pre-filter.")
+                        # Cache as irrelevant in DB
+                        with get_db_sync() as db:
+                            db.merge(IrrelevantArticle(url=normalized_raw_url, last_seen_at=datetime.now()))
+                            db.commit()
+                        _increment_funnel_metric(job_id, "pre_filter_dropped")
+                        return None
+                        
+                    # 4. Resolve URL
                     logger.info(f"Resolving Google News URL: {raw_url}")
                     resolved_url = resolve_google_news_url_sync(raw_url) or raw_url
                     normalized_url = normalize_url(resolved_url)
                     
-                    # 2. Check if already exists in DB (Global cache check)
-                    existing_article = None
+                    # 5. Check cache for canonical URL
                     with get_db_sync() as db:
+                        # Check existing
                         existing_article = db.execute(
                             select(Article)
                             .where(Article.url == normalized_url)
                         ).scalars().first()
-                        
-                    if existing_article and existing_article.full_body and existing_article.summary:
-                        logger.info(f"DB Cache HIT for {normalized_url}. Reusing existing scraped article.")
-                        body_text = existing_article.full_body
-                        summary_text = existing_article.summary
-                        agency = existing_article.agency or agency
-                        is_relevant_kw = verify_boolean_relevance(title + " " + body_text, keywords)
-                    else:
-                        # 3. Not in DB / needs scraping: Scrape HTML content
-                        logger.info(f"Scraping content from resolved URL: {resolved_url}")
-                        html_content = ""
-                        
-                        # Try fast extraction with httpx first
+                        if existing_article and existing_article.full_body and existing_article.summary:
+                            logger.info(f"Canonical DB Cache HIT for {normalized_url}")
+                            _increment_funnel_metric(job_id, "cache_skipped")
+                            return {
+                                "art_data": {
+                                    "title": existing_article.title,
+                                    "url": existing_article.resolved_url or existing_article.url,
+                                    "agency": existing_article.agency or agency,
+                                    "summary": existing_article.summary
+                                },
+                                "is_relevant_kw": True,
+                                "is_semantic_relevant": True
+                            }
+                            
+                        # Check irrelevant
+                        cached_ir = db.execute(
+                            select(IrrelevantArticle)
+                            .where(IrrelevantArticle.url == normalized_url)
+                        ).scalar_one_or_none()
+                        if cached_ir:
+                            age = datetime.now() - cached_ir.last_seen_at
+                            if age.days < 30:
+                                logger.info(f"Canonical Irrelevant Cache HIT for {normalized_url}")
+                                _increment_funnel_metric(job_id, "cache_skipped")
+                                return None
+                            else:
+                                db.delete(cached_ir)
+                                db.commit()
+
+                    # 6. Scrape HTML content
+                    logger.info(f"Scraping content from resolved URL: {resolved_url}")
+                    html_content = ""
+                    if not should_use_playwright(resolved_url):
                         try:
                             headers = {
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                                "Accept-Language": "en-US,en;q=0.9",
+                                "Referer": "https://news.google.com/"
                             }
                             with httpx.Client(follow_redirects=True, timeout=10) as client_http:
                                 resp = client_http.get(resolved_url, headers=headers)
@@ -421,100 +711,138 @@ def run_client_report_task(client_id: int):
                                     html_content = resp.text
                         except Exception as e:
                             logger.warning(f"Fast HTTP scrape failed for {resolved_url}: {e}")
-                            
-                        # Fallback to browser scraping if httpx failed or returned small content
-                        if not html_content or len(html_content) < 1000:
-                            try:
-                                html_content = scrape_url(resolved_url)
-                            except Exception as e:
-                                logger.error(f"Browser scrape failed for {resolved_url}: {e}")
-                                
-                        if not html_content:
-                            logger.warning(f"Could not fetch HTML content for {resolved_url}. Skipping.")
-                            return None
-                            
-                        # 4. Extract text
-                        body_text = trafilatura.extract(html_content)
-                        if not body_text or len(body_text) < 200:
-                            from bs4 import BeautifulSoup
-                            soup = BeautifulSoup(html_content, "lxml")
-                            for s in soup(["script", "style", "nav", "header", "footer"]):
-                                s.decompose()
-                            body_text = soup.get_text(separator="\n", strip=True)
-                            
-                        if not body_text or len(body_text) < 100:
-                            logger.warning(f"No meaningful text extracted for {resolved_url}. Skipping.")
-                            return None
-                            
-                        # 5. Relevance verification
-                        is_relevant_kw = verify_boolean_relevance(title + " " + body_text, keywords)
+                    else:
+                        logger.info(f"Skipping fast HTTP scrape for known hostile domain: {resolved_url}")
                         
-                        if not is_relevant_kw:
-                            logger.info(f"Article '{title}' does not match keyword criteria. Skipping.")
-                            return None
-                            
-                        # 6. Summarize / Enrich using LLM
-                        logger.info(f"Enriching and summarizing article: {title}")
-                        summary_text = ""
+                    if not html_content or len(html_content) < 1000:
                         try:
-                            # Call LLM helper (uses Grok/Groq)
-                            enrichment = perform_full_enrichment_sync(
-                                body=body_text,
-                                title=title,
-                                url=resolved_url,
-                                sector=client_name
-                            )
-                            if enrichment and enrichment.get("summary"):
-                                summary_text = enrichment["summary"]
-                                agency = enrichment.get("agency") or agency
+                            html_content = scrape_url(resolved_url)
                         except Exception as e:
-                            logger.error(f"LLM Enrichment failed for '{title}': {e}")
+                            logger.error(f"Browser scrape failed for {resolved_url}: {e}")
                             
-                        # If LLM failed or returned empty summary, use a simple default truncation
-                        if not summary_text:
-                            summary_text = body_text[:300] + "..."
-                            
-                        # 7. Write/Upsert to DB so we cache it for future runs/searches
-                        try:
-                            val_dict = {
-                                "title": title,
-                                "url": normalized_url,
-                                "resolved_url": resolved_url,
-                                "full_body": body_text,
-                                "summary": summary_text,
-                                "agency": agency,
-                                "published_at": datetime.now(),
-                                "sector": f"{client_name} - {section_name}",
-                                "region": "india",
-                                "user_id": f"client_{client_id}",
-                                "scraped_at": datetime.now()
-                            }
-                            with get_db_sync() as db:
-                                existing = db.execute(
-                                    select(Article)
-                                    .where(Article.url == normalized_url)
-                                    .where(Article.user_id == f"client_{client_id}")
-                                ).scalars().first()
-                                if existing:
-                                    for k, v in val_dict.items():
-                                        setattr(existing, k, v)
-                                else:
-                                    db.add(Article(**val_dict))
-                                db.commit()
-                        except Exception as dberr:
-                            logger.error(f"Failed to cache scraped article to database: {dberr}")
-                    
-                    if not is_relevant_kw:
+                    if not html_content:
+                        logger.warning(f"Could not fetch HTML content for {resolved_url}. Skipping.")
                         return None
                         
-                    # Check semantic relevance with Groq Custom Relevance key
+                    _increment_funnel_metric(job_id, "scraped_count")
+                        
+                    # 7. Extract body text
+                    body_text = trafilatura.extract(html_content)
+                    if not body_text or len(body_text) < 200:
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(html_content, "lxml")
+                        for s in soup(["script", "style", "nav", "header", "footer"]):
+                            s.decompose()
+                        body_text = soup.get_text(separator="\n", strip=True)
+                        
+                    if not body_text or len(body_text) < 100:
+                        logger.warning(f"No meaningful text extracted for {resolved_url}. Skipping.")
+                        return None
+                        
+                    # 8. Cosine Similarity Pre-Filter
+                    from scraper.similarity import evaluate_similarity_pre_filter, SIM_DROP_THRESHOLD
+                    sim_score = evaluate_similarity_pre_filter(
+                        title, body_text, keywords, client_context or ""
+                    )
+                    if sim_score < SIM_DROP_THRESHOLD:
+                        logger.info(f"Cosine similarity pre-filter drop for '{title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}). Skipping LLM.")
+                        with get_db_sync() as db:
+                            db.merge(IrrelevantArticle(
+                                url=normalized_url, 
+                                title=title, 
+                                description=desc or body_text[:200],
+                                rejection_reason=f"Similarity pre-filter drop (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD})",
+                                relevance_score=sim_score,
+                                last_seen_at=datetime.now()
+                            ))
+                            db.commit()
+                        _increment_funnel_metric(job_id, "pre_filter_dropped")
+                        return None
+
+                    # 9. Relevance Check (Asymmetric & Ensembling)
                     is_semantic_relevant = False
+                    verdict = "uncertain"
+                    reason = ""
+                    score = 0.5
                     from scraper.llm import check_relevance_with_groq
                     try:
-                        is_semantic_relevant = check_relevance_with_groq(title, body_text, keywords, client_name, client_context=client_context)
+                        is_semantic_relevant, verdict, reason, score = check_relevance_with_groq(
+                            title, body_text, keywords, client_name, client_context=client_context
+                        )
                     except Exception as rel_err:
                         logger.error(f"Relevance verification error for '{title}': {rel_err}")
-                        is_semantic_relevant = True # Fallback to true to be safe
+                        is_semantic_relevant = True # Fallback to True if API fails
+                        verdict = "uncertain"
+                        reason = f"Exception: {rel_err}"
+                        score = 0.5
+                        
+                    if not is_semantic_relevant:
+                        logger.info(f"Relevance check: article '{title}' is not relevant (verdict: {verdict}, score: {score}). Skipping.")
+                        with get_db_sync() as db:
+                            db.merge(IrrelevantArticle(
+                                url=normalized_url,
+                                title=title,
+                                description=desc or body_text[:200],
+                                rejection_reason=reason,
+                                relevance_score=score,
+                                last_seen_at=datetime.now()
+                            ))
+                            db.commit()
+                        _increment_funnel_metric(job_id, "relevance_no")
+                        return None
+                        
+                    _increment_funnel_metric(job_id, "relevance_yes")
+                        
+                    # 9. Summarize & Enrich
+                    logger.info(f"Enriching and summarizing article: {title}")
+                    summary_text = ""
+                    try:
+                        enrichment = perform_full_enrichment_sync(
+                            body=body_text,
+                            title=title,
+                            url=resolved_url,
+                            sector=client_name
+                        )
+                        if enrichment and enrichment.get("summary"):
+                            summary_text = enrichment["summary"]
+                            agency = enrichment.get("agency") or agency
+                    except Exception as e:
+                        logger.error(f"LLM Enrichment failed for '{title}': {e}")
+                        
+                    if not summary_text:
+                        summary_text = body_text[:300] + "..."
+                        
+                    _increment_funnel_metric(job_id, "summarized_count")
+                        
+                    # 10. Cache to DB
+                    try:
+                        val_dict = {
+                            "title": title,
+                            "url": normalized_url,
+                            "resolved_url": resolved_url,
+                            "full_body": body_text,
+                            "summary": summary_text,
+                            "agency": agency,
+                            "published_at": datetime.now(),
+                            "sector": f"{client_name} - {section_name}",
+                            "region": "india",
+                            "user_id": f"client_{client_id}",
+                            "scraped_at": datetime.now()
+                        }
+                        with get_db_sync() as db:
+                            existing = db.execute(
+                                select(Article)
+                                .where(Article.url == normalized_url)
+                                .where(Article.user_id == f"client_{client_id}")
+                            ).scalars().first()
+                            if existing:
+                                for k, v in val_dict.items():
+                                    setattr(existing, k, v)
+                            else:
+                                db.add(Article(**val_dict))
+                            db.commit()
+                    except Exception as dberr:
+                        logger.error(f"Failed to cache scraped article to database: {dberr}")
                         
                     art_data = {
                         "title": title,
@@ -525,8 +853,8 @@ def run_client_report_task(client_id: int):
                     
                     return {
                         "art_data": art_data,
-                        "is_relevant_kw": is_relevant_kw,
-                        "is_semantic_relevant": is_semantic_relevant
+                        "is_relevant_kw": True,
+                        "is_semantic_relevant": True
                     }
                 except Exception as art_err:
                     logger.error(f"Error processing article '{title}': {art_err}", exc_info=True)
@@ -561,6 +889,8 @@ def run_client_report_task(client_id: int):
             
             report_data_filtered[section_name] = filtered_section_articles
             report_data_master[section_name] = master_section_articles
+            
+            _update_progress(f"Section '{section_name}' completed. Discovered: {total_to_process}, Relevant: {len(filtered_section_articles)}.")
             
         # Check if we got any articles at all
         total_filtered_count = sum(len(articles) for articles in report_data_filtered.values())

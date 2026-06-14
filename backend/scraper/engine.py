@@ -150,9 +150,14 @@ def normalize_url(url: str) -> str:
     # 1. Strip common tracking params
     u = urlparse(url)
     query = dict(parse_qsl(u.query))
-    tracking_params = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "oc", "hl", "gl", "ceid"]
-    for p in tracking_params:
-        if p in query: del query[p]
+    tracking_params = [
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", 
+        "utm_id", "utm_source_platform", "utm_marketing_tactic", "utm_creative_format",
+        "ved", "usg", "oc", "hl", "gl", "ceid", "gclid", "fbclid", "msclkid", "dclid"
+    ]
+    keys_to_del = [k for k in query.keys() if k.lower().startswith("utm_") or k.lower() in tracking_params]
+    for k in keys_to_del:
+        del query[k]
     
     # Rebuild URL without tracking
     u = u._replace(query=urlencode(query))
@@ -169,13 +174,42 @@ def verify_brand_relevance(text: str, keywords: List[str]) -> bool:
     if not text or not keywords: return True
     return verify_boolean_relevance(text, keywords)
 
+GENERIC_TERMS = {
+    "india", "ai", "artificial intelligence", "fintech", "fintechs", "banking", 
+    "bank", "banks", "kyc", "upi", "credit", "card", "cards", "startups", "startup",
+    "payments", "payment", "forex", "regulation", "regulations", "policy", "policies",
+    "partnership", "partnerships", "growth", "ecosystem", "digital", "tools", "news", 
+    "latest", "saas", "platform", "fraud", "prevention", "committee"
+}
+
+def is_generic_keyword(kw: str) -> bool:
+    kw_clean = kw.lower().strip().replace('"', '').replace("'", "")
+    if kw_clean in GENERIC_TERMS:
+        return True
+    words = re.findall(r'\b\w+\b', kw_clean)
+    if words and all(w in GENERIC_TERMS for w in words):
+        return True
+    return False
+
+def quote_keyword(kw: str) -> str:
+    kw = kw.strip()
+    if kw.startswith('"') and kw.endswith('"'):
+        return kw
+    return f'"{kw}"'
+
 # ─── Discovery Phase
-def discover_articles(keywords: List[str], day: Optional[date], geo: str, region_name: str, job_id: str, cumulative: set = None, is_brand_track: bool = False) -> List[dict]:
+def discover_articles(keywords: List[str], day: Optional[date], geo: str, region_name: str, job_id: str, cumulative: set = None, is_brand_track: bool = False, sector: str = "Unknown") -> List[dict]:
     articles = []
     seen_urls = set()
     proxy_pool = load_proxies() or []
     
-    def fetch_rss(q, start_time, end_time, hl="en-IN", ceid="IN:en"):
+    BRAND_TERMS = ["Scapia", "OneCard", "Niyo", "Fi Money", "Anil Goteti", "Uni Card", "Slice Card"]
+    TOPIC_TERMS = [
+        "credit card", "fintech", "banking", "AI", "travel rewards", 
+        "co-branded", "payments", "forex", "RBI", "policy", "partnership"
+    ]
+    
+    def fetch_rss(q, hl="en-IN", ceid="IN:en"):
         if is_job_cancelled(job_id): return
         
         domain = "google.com" # standard for news
@@ -201,6 +235,27 @@ def discover_articles(keywords: List[str], day: Optional[date], geo: str, region
                 return
             
             feed = feedparser.parse(xml_content)
+            result_count = len(feed.entries)
+            logger.info(f"QUERY RUN: q='{q}', count={result_count}, url='{rss_url}'")
+            if result_count == 0:
+                logger.warning(f"QUERY WARNING: Query '{q}' returned 0 results. RSS URL: {rss_url}")
+                try:
+                    from db.database import ZeroResultQuery
+                    with get_db_sync() as db:
+                        existing_q = db.execute(
+                            select(ZeroResultQuery)
+                            .where(ZeroResultQuery.query_string == q)
+                            .where(ZeroResultQuery.sector == sector)
+                        ).scalar_one_or_none()
+                        if existing_q:
+                            existing_q.count += 1
+                            existing_q.logged_at = datetime.now()
+                        else:
+                            db.add(ZeroResultQuery(query_string=q, sector=sector))
+                        db.commit()
+                except Exception as db_err:
+                    logger.error(f"Failed to log zero-result query to DB: {db_err}")
+                
             for entry in feed.entries:
                 link = entry.link
                 if link not in seen_urls and (cumulative is None or link not in cumulative):
@@ -220,30 +275,108 @@ def discover_articles(keywords: List[str], day: Optional[date], geo: str, region
                         try: pub_date_str = datetime(*entry.published_parsed[:6]).isoformat()
                         except: pass
                     
-                    articles.append({"title": entry.title, "url": link, "published_at": pub_date_str, "agency": entry.source.title if hasattr(entry, 'source') else "Google News"})
+                    desc = entry.summary if hasattr(entry, 'summary') else (entry.description if hasattr(entry, 'description') else "")
+                    articles.append({
+                        "title": entry.title, 
+                        "url": link, 
+                        "published_at": pub_date_str, 
+                        "agency": entry.source.title if hasattr(entry, 'source') else "Google News",
+                        "description": desc
+                    })
                     seen_urls.add(link)
         except Exception as exc:
-            log(f"Discovery fail for '{q}': {exc}")
+            logger.error(f"Discovery fail for '{q}': {exc}")
 
-    search_languages = [{"code": "en-IN", "ceid": "IN:en"}]
+    # Build queries programmatically as smaller, validated chunks
+    window_queries = []
+    cleaned_kws = list(dict.fromkeys([kw.strip() for kw in keywords if kw.strip()]))
     
-    # Base queries: Start with exact keywords provided
-    window_queries = [kw for kw in keywords]
-    
-    if not is_brand_track:
-        for kw in keywords:
-            for mod in random.sample(SEARCH_MODIFIERS, min(len(SEARCH_MODIFIERS), 5)): 
-                window_queries.append(f"{kw} {mod}")
-    
+    if is_brand_track:
+        # Core Tier: Direct brand keywords (never drop or AND them with anything)
+        for kw in cleaned_kws:
+            q = quote_keyword(kw)
+            if len(q) <= 256:
+                window_queries.append(q)
+        
+        # Trend Tier: Brand terms ORed and then ANDed with topic terms
+        brand_or_terms = " OR ".join([quote_keyword(b) for b in cleaned_kws])
+        comp_terms = [b for b in BRAND_TERMS if b.lower() not in [k.lower() for k in cleaned_kws]]
+        
+        if comp_terms:
+            brand_or_terms = f"({brand_or_terms}) OR " + " OR ".join([quote_keyword(c) for c in comp_terms])
+            
+        for topic in TOPIC_TERMS:
+            q = f"({brand_or_terms}) AND \"{topic}\""
+            if len(q) <= 256:
+                window_queries.append(q)
+            else:
+                # Truncate to core brand terms if too long
+                truncated_brand_or = " OR ".join([quote_keyword(b) for b in cleaned_kws])
+                q_alt = f"({truncated_brand_or}) AND \"{topic}\""
+                if len(q_alt) <= 256:
+                    window_queries.append(q_alt)
+    else:
+        # Sector tracking (non-brand)
+        tier1_kws = []
+        tier2_kws = []
+        for kw in cleaned_kws:
+            if is_generic_keyword(kw):
+                tier2_kws.append(kw)
+            else:
+                tier1_kws.append(kw)
+        
+        # Core Tier: Specific Tier 1 keywords searched directly
+        for kw in tier1_kws:
+            q = quote_keyword(kw)
+            if len(q) <= 256:
+                window_queries.append(q)
+                
+        # Intersect Tier 1 chunk OR-groups with Tier 2 chunk OR-groups
+        chunk_size_t1 = 5
+        chunk_size_t2 = 5
+        
+        if tier1_kws:
+            for i in range(0, len(tier1_kws), chunk_size_t1):
+                chunk_t1 = tier1_kws[i:i+chunk_size_t1]
+                chunk_t1_str = " OR ".join([quote_keyword(k) for k in chunk_t1])
+                
+                # 1. Intersect with Tier 2 (generic terms)
+                if tier2_kws:
+                    for j in range(0, len(tier2_kws), chunk_size_t2):
+                        chunk_t2 = tier2_kws[j:j+chunk_size_t2]
+                        chunk_t2_str = " OR ".join([quote_keyword(k) for k in chunk_t2])
+                        q = f"({chunk_t1_str}) AND ({chunk_t2_str})"
+                        if len(q) <= 256:
+                            window_queries.append(q)
+                
+                # 2. Intersect with generic modifiers
+                for mod in ["news", "latest", "regulation", "partnership"]:
+                    q = f"({chunk_t1_str}) AND {mod}"
+                    if len(q) <= 256:
+                        window_queries.append(q)
+        else:
+            # If no Tier 1 keywords exist, fallback to searching generic terms with modifiers
+            for i in range(0, len(tier2_kws), chunk_size_t2):
+                chunk_t2 = tier2_kws[i:i+chunk_size_t2]
+                chunk_t2_str = " OR ".join([quote_keyword(k) for k in chunk_t2])
+                for mod in ["news", "latest", "regulation", "partnership"]:
+                    q = f"({chunk_t2_str}) AND {mod}"
+                    if len(q) <= 256:
+                        window_queries.append(q)
+
+    # Deduplicate queries to avoid double fetches
+    window_queries = list(dict.fromkeys(window_queries))
     random.shuffle(window_queries)
     
-    # Discovery Acceleration: Parallelize with a larger pool (now that we have a semaphore on network requests)
+    search_languages = [{"code": "en-IN", "ceid": "IN:en"}]
+    
+    # Discovery Acceleration: Parallelize with a larger pool
     discovery_pool = Pool(10)
     for lang in search_languages:
         if is_job_cancelled(job_id): break
         for q in window_queries:
             if is_job_cancelled(job_id): break
-            discovery_pool.spawn(fetch_rss, q, "00:00:00", "23:59:59", hl=lang['code'], ceid=lang['ceid'])
+            discovery_pool.spawn(fetch_rss, q, hl=lang['code'], ceid=lang['ceid'])
     
     discovery_pool.join()
 
@@ -445,7 +578,7 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
                 curr = date_from
                 while curr <= date_to:
                     if is_job_cancelled(job_id): break
-                    found = discover_articles(keywords, curr, geo, region, job_id, cumulative, is_brand_track=True)
+                    found = discover_articles(keywords, curr, geo, region, job_id, cumulative, is_brand_track=True, sector=brand_obj.name)
                     for f in found:
                         f["brand_name"] = brand_obj.name # Tag for later phases
                     all_discovered.extend(found)
@@ -463,7 +596,7 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
             curr = date_from
             while curr <= date_to:
                 if is_job_cancelled(job_id): break
-                all_discovered.extend(discover_articles(keywords, curr, geo, region, job_id, cumulative, is_brand_track=is_bt))
+                all_discovered.extend(discover_articles(keywords, curr, geo, region, job_id, cumulative, is_brand_track=is_bt, sector=sector))
                 curr += timedelta(days=1)
         
         db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(cumulative_found=len(cumulative)))
@@ -474,6 +607,8 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
             return {"job_id": job_id, "found": 0}
 
         bulk_insert_placeholders(db, job_id, all_discovered, sector, region, user_id)
+        from db.database import JobFunnelLog
+        db.execute(insert(JobFunnelLog).values(job_id=job_id, rss_discovered=len(all_discovered)))
         db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(total_found=len(all_discovered), current_phase="Scraping"))
         db.commit()
 

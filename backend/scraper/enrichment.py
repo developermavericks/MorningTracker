@@ -16,9 +16,9 @@ from playwright_stealth import Stealth
 from playwright.sync_api import sync_playwright
 from sqlalchemy import text, delete, update
 from db.database import get_db_sync, Article, ScrapeJob
-from scraper.llm import summarize_with_groq_sync, extract_metadata_with_ollama_sync
+from scraper.llm import summarize_with_groq_sync, extract_metadata_with_groq_sync
 from scraper.engine import ProxyGuard, load_proxies, logger, random_ua
-from scraper.parser import is_junk_body, extract_author as extract_author_from_html, extract_body as extract_body_from_html
+from scraper.parser import is_junk_body, extract_author_v2, extract_body as extract_body_from_html
 from scraper.google_news import resolve_google_news_url_sync
 
 def log(msg: str):
@@ -75,12 +75,31 @@ def run_enrichment_sync(job_id: Optional[str] = None, batch_size: int = 1000):
                         log(f"Enrichment: Article {art_id} flagged as junk.")
 
                     # 3. Analyze
-                    ollama_meta = extract_metadata_with_ollama_sync(data["text"], url=real_url, context_agency=item.get("agency", ""))
-                    author = extract_author_from_html(data["html"]) or ollama_meta.get("author")
-                    agency = ollama_meta.get("agency") or item.get("agency")
+                    author_data = extract_author_v2(data["html"])
+                    html_top, html_bottom = "", ""
+                    try:
+                        body_start_match = re.search(r"<body.*?>", data["html"][:15000], re.I)
+                        body_start_idx = body_start_match.end() if body_start_match else 0
+                        html_top = data["html"][body_start_idx:body_start_idx + 3000]
+                        html_bottom = data["html"][-3000:]
+                    except:
+                        pass
+
+                    groq_meta = extract_metadata_with_groq_sync(
+                        data["text"], 
+                        url=real_url, 
+                        context_agency=item.get("agency", ""),
+                        author_metadata=author_data,
+                        html_snippets={"top": html_top, "bottom": html_bottom}
+                    )
+                    author = groq_meta.get("author")
+                    if groq_meta.get("handle"):
+                        author = f"{author} (@{groq_meta['handle']})" if author else f"@{groq_meta['handle']}"
+                    
+                    agency = groq_meta.get("agency") or item.get("agency")
                     
                     # 4. Summarize
-                    final_body = ollama_meta.get("cleaned_body", data["text"])
+                    final_body = groq_meta.get("cleaned_body", data["text"])
                     summary = summarize_with_groq_sync(final_body)
                     
                     db.execute(text("""

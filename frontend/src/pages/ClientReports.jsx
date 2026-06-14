@@ -1,6 +1,175 @@
 import { useState, useEffect } from "react";
 import apiClient, { api } from "../services/api";
 
+function parseProgressLog(progressMessage, startedAt, completedAt, status, clientSections = []) {
+  if (!progressMessage) {
+    return { filteredLog: "", progress: 0, sections: [], estimatedSeconds: 0 };
+  }
+
+  const lines = progressMessage.split("\n");
+  const filteredLines = [];
+  
+  // Initialize section progress dictionary
+  const sectionsProgress = {};
+  
+  // Normalize the clientSections list
+  const sectionNames = clientSections.map(s => typeof s === "string" ? s : s.name);
+  for (const name of sectionNames) {
+    sectionsProgress[name] = {
+      name,
+      status: "pending", // pending, discovering, processing, completed
+      discovered: 0,
+      processed: 0,
+      relevant: 0,
+      progress: 0
+    };
+  }
+
+  // Regex patterns
+  const discoveringRegex = /Discovering articles for section '(.+?)'/;
+  const processingRegex = /Processing and filtering (\d+) discovered articles in '(.+?)'/;
+  const progressRegex = /Processed article (\d+)\/(\d+) in '(.+?)'/;
+  const completedRegex = /Section '(.+?)' completed\. Discovered: (\d+), Relevant: (\d+)/;
+
+  for (const line of lines) {
+    const discoveringMatch = line.match(discoveringRegex);
+    const processingMatch = line.match(processingRegex);
+    const progressMatch = line.match(progressRegex);
+    const completedMatch = line.match(completedRegex);
+
+    if (completedMatch) {
+      const name = completedMatch[1];
+      const discovered = parseInt(completedMatch[2], 10);
+      const relevant = parseInt(completedMatch[3], 10);
+      if (!sectionsProgress[name]) {
+        sectionsProgress[name] = { name, status: "completed", discovered, processed: discovered, relevant, progress: 100 };
+      } else {
+        sectionsProgress[name].status = "completed";
+        sectionsProgress[name].discovered = discovered;
+        sectionsProgress[name].processed = discovered;
+        sectionsProgress[name].relevant = relevant;
+        sectionsProgress[name].progress = 100;
+      }
+      filteredLines.push(line);
+    } else if (progressMatch) {
+      const current = parseInt(progressMatch[1], 10);
+      const total = parseInt(progressMatch[2], 10);
+      const name = progressMatch[3];
+      if (!sectionsProgress[name]) {
+        sectionsProgress[name] = { name, status: "processing", discovered: total, processed: current, relevant: 0, progress: 0 };
+      } else if (sectionsProgress[name].status !== "completed") {
+        sectionsProgress[name].status = "processing";
+        sectionsProgress[name].discovered = total;
+        sectionsProgress[name].processed = current;
+      }
+      // Do not push progress dots to console to keep it clean
+    } else if (processingMatch) {
+      const total = parseInt(processingMatch[1], 10);
+      const name = processingMatch[2];
+      if (!sectionsProgress[name]) {
+        sectionsProgress[name] = { name, status: "processing", discovered: total, processed: 0, relevant: 0, progress: 0 };
+      } else if (sectionsProgress[name].status !== "completed") {
+        sectionsProgress[name].status = "processing";
+        sectionsProgress[name].discovered = total;
+      }
+      filteredLines.push(line);
+    } else if (discoveringMatch) {
+      const name = discoveringMatch[1];
+      if (!sectionsProgress[name]) {
+        sectionsProgress[name] = { name, status: "discovering", discovered: 0, processed: 0, relevant: 0, progress: 0 };
+      } else if (sectionsProgress[name].status !== "completed" && sectionsProgress[name].status !== "processing") {
+        sectionsProgress[name].status = "discovering";
+      }
+      filteredLines.push(line);
+    } else {
+      filteredLines.push(line);
+    }
+  }
+
+  // Calculate progress for each section
+  const sectionList = Object.values(sectionsProgress);
+  for (const sec of sectionList) {
+    if (sec.status === "completed") {
+      sec.progress = 100;
+    } else if (sec.status === "processing") {
+      if (sec.discovered > 0) {
+        sec.progress = Math.min(Math.round((sec.processed / sec.discovered) * 100), 99);
+      } else {
+        sec.progress = 15;
+      }
+    } else if (sec.status === "discovering") {
+      sec.progress = 5;
+    } else {
+      sec.progress = 0;
+    }
+  }
+
+  // Force completed status for sections if overall log says finished
+  if (status === "completed") {
+    for (const sec of sectionList) {
+      sec.status = "completed";
+      sec.progress = 100;
+      if (sec.discovered > 0) {
+        sec.processed = sec.discovered;
+      }
+    }
+  }
+
+  // Calculate overall progress percent
+  let overallProgress = 0;
+  if (status === "completed") {
+    overallProgress = 100;
+  } else if (status === "failed") {
+    overallProgress = 100;
+  } else if (sectionList.length > 0) {
+    const totalSecProgress = sectionList.reduce((sum, s) => sum + s.progress, 0);
+    const avgSecProgress = totalSecProgress / sectionList.length;
+    overallProgress = Math.min(Math.round(10 + (avgSecProgress / 100) * 80), 90);
+    
+    const lastLine = lines.length > 0 ? lines[lines.length - 1] : "";
+    if (lastLine.includes("Compiling Word briefing")) {
+      overallProgress = 92;
+    } else if (lastLine.includes("Uploading report") || lastLine.includes("Uploading Filtered") || lastLine.includes("Uploading Master")) {
+      overallProgress = 95;
+    } else if (lastLine.includes("Sending daily briefing") || lastLine.includes("Sending report email")) {
+      overallProgress = 98;
+    }
+  } else {
+    if (progressMessage.includes("Compiling Word briefing")) {
+      overallProgress = 92;
+    } else if (progressMessage.includes("Uploading report")) {
+      overallProgress = 95;
+    } else if (progressMessage.includes("Sending daily briefing")) {
+      overallProgress = 98;
+    } else if (progressMessage.includes("Discovering articles")) {
+      overallProgress = 10;
+    } else {
+      overallProgress = 5;
+    }
+  }
+
+  // Estimate remaining seconds (based on total progress across all sections)
+  let estimatedSecondsRemaining = 0;
+  if (status === "running") {
+    const totalProcessed = sectionList.reduce((sum, s) => sum + s.processed, 0);
+    const totalDiscovered = sectionList.reduce((sum, s) => sum + s.discovered, 0);
+    if (totalProcessed > 0 && totalDiscovered > totalProcessed) {
+      const elapsedMs = Math.max(1000, new Date().getTime() - new Date(startedAt).getTime());
+      const msPerArticle = elapsedMs / totalProcessed;
+      const remaining = totalDiscovered - totalProcessed;
+      estimatedSecondsRemaining = Math.max(1, Math.round((remaining * msPerArticle) / 1000));
+    }
+  }
+
+  const filteredLog = filteredLines.join("\n");
+  return {
+    filteredLog,
+    progress: overallProgress,
+    sections: sectionList,
+    estimatedSeconds: estimatedSecondsRemaining
+  };
+}
+
 export default function ClientReports() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +194,23 @@ export default function ClientReports() {
   useEffect(() => {
     fetchClients();
   }, []);
+
+  useEffect(() => {
+    if (!logsClient) return;
+
+    const fetchLogs = async () => {
+      try {
+        const data = await api.get(`clients/${logsClient.id}/logs`);
+        setLogs(data);
+      } catch (err) {
+        console.error("Failed to poll logs", err);
+      }
+    };
+
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 3000);
+    return () => clearInterval(interval);
+  }, [logsClient]);
 
   const fetchClients = async () => {
     setLoading(true);
@@ -128,10 +314,11 @@ export default function ClientReports() {
     }
   };
 
-  const handleRunNow = async (id) => {
+  const handleRunNow = async (client) => {
     try {
-      await api.post(`clients/${id}/run`);
-      alert("Client report generation task triggered successfully! You can monitor progress in the run logs.");
+      await api.post(`clients/${client.id}/run`);
+      // Automatically show run logs side overlay in real-time
+      handleViewLogs(client);
     } catch (err) {
       console.error("Failed to trigger client run", err);
       alert("Failed to trigger report task.");
@@ -378,7 +565,7 @@ export default function ClientReports() {
                   <td style={{ padding: "16px", textAlign: "right" }}>
                     <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                       <button
-                        onClick={() => handleRunNow(client.id)}
+                        onClick={() => handleRunNow(client)}
                         className="btn btn-secondary"
                         style={{ padding: "6px 12px", fontSize: "12px", background: "rgba(168, 85, 247, 0.1)", border: "1px solid rgba(168, 85, 247, 0.3)" }}
                         title="Run automated briefing now"
@@ -475,53 +662,230 @@ export default function ClientReports() {
                     </span>
                     <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                       {new Date(log.started_at).toLocaleString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      {log.completed_at && (
+                        <> | Duration: <strong>{((new Date(log.completed_at).getTime() - new Date(log.started_at).getTime()) / 60000).toFixed(1)} min</strong></>
+                      )}
                     </span>
                   </div>
 
-                  {log.progress_message && (
-                    <div style={{
-                      background: "#0b0c10",
-                      border: "1px solid rgba(147, 51, 234, 0.2)",
-                      borderRadius: "8px",
-                      overflow: "hidden",
-                      marginBottom: "8px",
-                      boxShadow: "inset 0 0 12px rgba(0,0,0,0.85)"
-                    }}>
-                      {/* Terminal window title bar */}
-                      <div style={{
-                        background: "rgba(255,255,255,0.02)",
-                        borderBottom: "1px solid rgba(255,255,255,0.05)",
-                        padding: "6px 12px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between"
-                      }}>
-                        <div style={{ display: "flex", gap: "6px" }}>
-                          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444", display: "inline-block" }}></span>
-                          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#eab308", display: "inline-block" }}></span>
-                          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e", display: "inline-block" }}></span>
-                        </div>
-                        <span style={{ fontSize: "9px", fontFamily: "monospace", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px", fontWeight: "700" }}>
-                          Console Trace
-                        </span>
-                      </div>
-                      
-                      {/* Terminal Content */}
-                      <div style={{ 
-                        fontSize: "11px", 
-                        color: "#34d399", 
-                        padding: "12px", 
-                        fontFamily: "Fira Code, Consolas, Monaco, Courier New, monospace",
-                        whiteSpace: "pre-wrap",
-                        maxHeight: "185px",
-                        overflowY: "auto",
-                        lineHeight: "1.6",
-                        textAlign: "left"
-                      }}>
-                        {log.progress_message}
-                      </div>
-                    </div>
-                  )}
+                  {(() => {
+                    const progressInfo = parseProgressLog(log.progress_message, log.started_at, log.completed_at, log.status, logsClient?.sections || []);
+                    return (
+                      <>
+                        {/* Beautiful horizontal progress loader */}
+                        {log.progress_message && (
+                          <div style={{ marginBottom: "14px", marginTop: "4px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", marginBottom: "4px" }}>
+                              <span style={{ fontWeight: "700", color: "var(--text)", display: "flex", alignItems: "center", gap: "6px" }}>
+                                {log.status === "running" ? (
+                                  <>
+                                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--accent)", display: "inline-block", animation: "pulse 1.5s infinite" }}></span>
+                                    <span>Processing Client Report Run...</span>
+                                  </>
+                                ) : log.status === "completed" ? (
+                                  <span>✅ Report Generated Successfully</span>
+                                ) : (
+                                  <span>⚠️ Job Failed / Interrupted</span>
+                                )}
+                              </span>
+                              <span style={{ fontFamily: "monospace", fontWeight: "700", color: log.status === "completed" ? "var(--success)" : log.status === "failed" ? "var(--danger)" : "var(--accent)" }}>
+                                {progressInfo.progress}%
+                              </span>
+                            </div>
+                            
+                            {/* Bar Track */}
+                            <div style={{
+                              width: "100%",
+                              height: "6px",
+                              background: "rgba(255, 255, 255, 0.05)",
+                              border: "1px solid var(--border)",
+                              borderRadius: "100px",
+                              overflow: "hidden",
+                              position: "relative"
+                            }}>
+                              <div style={{
+                                width: `${progressInfo.progress}%`,
+                                height: "100%",
+                                background: log.status === "completed" 
+                                  ? "linear-gradient(90deg, #22c55e 0%, #4ade80 100%)" 
+                                  : log.status === "failed" 
+                                    ? "linear-gradient(90deg, #ef4444 0%, #f87171 100%)" 
+                                    : "linear-gradient(90deg, var(--accent) 0%, #a855f7 100%)",
+                                borderRadius: "100px",
+                                transition: "width 0.4s ease-out",
+                                boxShadow: log.status === "running" ? "0 0 6px rgba(168, 85, 247, 0.4)" : "none"
+                              }} className={log.status === "running" ? "progress-bar-animated" : ""} />
+                            </div>
+
+                            {/* Detailed stats & estimates */}
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "var(--text-muted)", marginTop: "6px" }}>
+                              <span>
+                                {progressInfo.total > 0 ? (
+                                  <>Discovered articles: <strong>{progressInfo.total}</strong></>
+                                ) : (
+                                  <span>Initializing database/discovery...</span>
+                                )}
+                              </span>
+                              {log.status === "running" && progressInfo.total > 0 && (
+                                <span>
+                                  Scraped: <strong>{progressInfo.current} / {progressInfo.total}</strong>
+                                  {progressInfo.estimatedSeconds > 0 && (
+                                    <> | Est. remaining: <strong>~{(progressInfo.estimatedSeconds / 60).toFixed(1)} min</strong></>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Sections Progress Panel */}
+                            {progressInfo.sections && progressInfo.sections.length > 0 && (
+                              <div style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "8px",
+                                marginTop: "12px",
+                                borderTop: "1px dashed rgba(255,255,255,0.08)",
+                                paddingTop: "12px"
+                              }}>
+                                <div style={{ fontSize: "10px", fontWeight: "800", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>
+                                  Sections Progress
+                                </div>
+                                {progressInfo.sections.map((sec, sIdx) => {
+                                  const isCompleted = sec.status === "completed";
+                                  const isProcessing = sec.status === "processing";
+                                  const isDiscovering = sec.status === "discovering";
+                                  const isPending = sec.status === "pending";
+
+                                  const badgeBg = isCompleted 
+                                    ? "rgba(34, 197, 94, 0.12)" 
+                                    : (isProcessing || isDiscovering) 
+                                      ? "rgba(168, 85, 247, 0.12)" 
+                                      : "rgba(255, 255, 255, 0.04)";
+                                  const badgeColor = isCompleted 
+                                    ? "var(--success)" 
+                                    : (isProcessing || isDiscovering) 
+                                      ? "var(--accent)" 
+                                      : "var(--text-muted)";
+
+                                  return (
+                                    <div
+                                      key={sIdx}
+                                      style={{
+                                        background: "rgba(255,255,255,0.01)",
+                                        border: "1px solid rgba(255,255,255,0.03)",
+                                        borderRadius: "8px",
+                                        padding: "8px 10px"
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                        <span style={{ fontSize: "11px", fontWeight: "600", color: isPending ? "var(--text-muted)" : "var(--text)" }}>
+                                          {sec.name}
+                                        </span>
+                                        <span style={{
+                                          padding: "2px 6px",
+                                          borderRadius: "4px",
+                                          fontSize: "9px",
+                                          fontWeight: "700",
+                                          textTransform: "uppercase",
+                                          background: badgeBg,
+                                          color: badgeColor
+                                        }}>
+                                          {sec.status}
+                                        </span>
+                                      </div>
+
+                                      {/* Small compact progress bar */}
+                                      <div style={{
+                                        width: "100%",
+                                        height: "4px",
+                                        background: "rgba(255, 255, 255, 0.03)",
+                                        borderRadius: "4px",
+                                        overflow: "hidden",
+                                        position: "relative",
+                                        marginBottom: "6px"
+                                      }}>
+                                        <div style={{
+                                          width: `${sec.progress}%`,
+                                          height: "100%",
+                                          background: isCompleted 
+                                            ? "linear-gradient(90deg, #22c55e 0%, #4ade80 100%)" 
+                                            : isPending 
+                                              ? "rgba(255, 255, 255, 0.05)" 
+                                              : "linear-gradient(90deg, var(--accent) 0%, #a855f7 100%)",
+                                          borderRadius: "4px",
+                                          transition: "width 0.4s ease-out"
+                                        }} />
+                                      </div>
+
+                                      {/* Counts and Relevance stats */}
+                                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "var(--text-muted)" }}>
+                                        <span>
+                                          Discovered: <strong>{sec.discovered}</strong>
+                                        </span>
+                                        {isCompleted ? (
+                                          <span style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                                            Relevant (Added to brief): <strong style={{ color: "var(--success)" }}>{sec.relevant}</strong>
+                                          </span>
+                                        ) : isProcessing ? (
+                                          <span>
+                                            Scraped: <strong>{sec.processed} / {sec.discovered}</strong>
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {progressInfo.filteredLog && (
+                          <div style={{
+                            background: "#0b0c10",
+                            border: "1px solid rgba(147, 51, 234, 0.2)",
+                            borderRadius: "8px",
+                            overflow: "hidden",
+                            marginBottom: "8px",
+                            boxShadow: "inset 0 0 12px rgba(0,0,0,0.85)"
+                          }}>
+                            {/* Terminal window title bar */}
+                            <div style={{
+                              background: "rgba(255,255,255,0.02)",
+                              borderBottom: "1px solid rgba(255,255,255,0.05)",
+                              padding: "6px 12px",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between"
+                            }}>
+                              <div style={{ display: "flex", gap: "6px" }}>
+                                <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444", display: "inline-block" }}></span>
+                                <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#eab308", display: "inline-block" }}></span>
+                                <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e", display: "inline-block" }}></span>
+                              </div>
+                              <span style={{ fontSize: "9px", fontFamily: "monospace", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px", fontWeight: "700" }}>
+                                Console Trace
+                              </span>
+                            </div>
+                            
+                            {/* Terminal Content */}
+                            <div style={{ 
+                              fontSize: "11px", 
+                              color: "#34d399", 
+                              padding: "12px", 
+                              fontFamily: "Fira Code, Consolas, Monaco, Courier New, monospace",
+                              whiteSpace: "pre-wrap",
+                              maxHeight: "185px",
+                              overflowY: "auto",
+                              lineHeight: "1.6",
+                              textAlign: "left"
+                            }}>
+                              {progressInfo.filteredLog}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   {log.error_message && (
                     <div style={{

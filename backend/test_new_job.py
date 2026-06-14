@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from datetime import date, datetime
 from db.database import get_db, ScrapeJob
-from celery_app import celery_app
+from celery_app import app as celery_app
 
 async def test_high_priority_job():
     job_id = str(uuid.uuid4())
