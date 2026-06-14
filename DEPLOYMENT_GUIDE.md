@@ -54,7 +54,7 @@ To save on Railway costs, you can run everything in a single process.
 2. Set the Root Directory to `frontend`.
 
 ### Step 2.2: Environment Variables
-1. Add `VITE_API_BASE_URL`: Your Railway Backend URL (e.g., `https://backend-production.up.railway.app`).
+1. Add `VITE_API_URL`: Your Railway Backend API URL with protocol prefix and `/api/` suffix (e.g., `https://morningtracker-production.up.railway.app/api/`).
 
 ### Step 2.3: Build Settings
 - Framework: `Vite`
