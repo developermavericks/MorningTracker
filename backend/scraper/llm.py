@@ -273,6 +273,10 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
     completion = client.chat.completions.create(
         model=model_name,
         messages=[
+            {
+                "role": "system",
+                "content": "You are a strict JSON classifier. You must return a raw JSON object and absolutely nothing else. Do not wrap the JSON in markdown code blocks (such as ```json ... ```), do not write any introductory or concluding text, and do not explain your choice. Output valid JSON matching the schema."
+            },
             {"role": "user", "content": prompt}
         ],
         temperature=0.0,
@@ -349,6 +353,10 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
     payload = {
         "model": model_name,
         "messages": [
+            {
+                "role": "system",
+                "content": "You are a strict JSON classifier. You must return a raw JSON object and absolutely nothing else. Do not wrap the JSON in markdown code blocks (such as ```json ... ```), do not write any introductory or concluding text, and do not explain your choice. Output valid JSON matching the schema."
+            },
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
@@ -480,6 +488,10 @@ def extract_metadata_with_groq_sync(body: str, url: str = "", context_agency: st
             completion = client.chat.completions.create(
                 model=model_name,
                 messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a strict JSON extractor. You must return a raw JSON object and absolutely nothing else. Do not wrap the JSON in markdown code blocks (such as ```json ... ```), do not write any introductory or concluding text, and do not explain your choice. Output valid JSON matching the schema."
+                    },
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.0,
@@ -508,6 +520,10 @@ def extract_metadata_with_groq_sync(body: str, url: str = "", context_agency: st
         payload = {
             "model": model_name,
             "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a strict JSON extractor. You must return a raw JSON object and absolutely nothing else. Do not wrap the JSON in markdown code blocks (such as ```json ... ```), do not write any introductory or concluding text, and do not explain your choice. Output valid JSON matching the schema."
+                },
                 {"role": "user", "content": prompt}
             ],
             "response_format": {"type": "json_object"},

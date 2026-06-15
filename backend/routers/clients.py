@@ -106,7 +106,7 @@ async def list_clients(
                 template_path=client.template_path,
                 recipients=recipients,
                 sections=sections_data,
-                last_run_at=client.last_run_at.isoformat() if client.last_run_at else None,
+                last_run_at=client.last_run_at.isoformat() + ("Z" if client.last_run_at.tzinfo is None else "") if client.last_run_at else None,
                 context=client.context
             )
         )
@@ -240,7 +240,7 @@ async def update_client(
         template_path=client.template_path,
         recipients=payload.recipients,
         sections=sections_response,
-        last_run_at=client.last_run_at.isoformat() if client.last_run_at else None,
+        last_run_at=client.last_run_at.isoformat() + ("Z" if client.last_run_at.tzinfo is None else "") if client.last_run_at else None,
         context=client.context
     )
 
@@ -312,8 +312,8 @@ async def get_client_run_logs(
             error_message=log.error_message,
             progress_message=log.progress_message,
             generated_file_path=os.path.basename(log.generated_file_path) if log.generated_file_path else None,
-            started_at=log.started_at.isoformat(),
-            completed_at=log.completed_at.isoformat() if log.completed_at else None
+            started_at=log.started_at.isoformat() + ("Z" if log.started_at.tzinfo is None else ""),
+            completed_at=log.completed_at.isoformat() + ("Z" if log.completed_at.tzinfo is None else "") if log.completed_at else None
         )
         for log in logs
     ]
