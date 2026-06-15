@@ -72,7 +72,7 @@ def extract_author_v2(html: str) -> Dict[str, Any]:
                 
                 for item in items:
                     if not isinstance(item, dict): continue
-                    if item.get("@type") in ["Article", "NewsArticle", "BlogPosting", "Person"]:
+                    if item.get("@type") in ["Article", "NewsArticle", "BlogPosting", "Person", "WebPage"]:
                         auth_data = item.get("author")
                         if isinstance(auth_data, dict):
                             name = clean_author_text(auth_data.get("name"))
@@ -99,7 +99,7 @@ def extract_author_v2(html: str) -> Dict[str, Any]:
 
         # 3. Regex Patterns (Physical Byline)
         text_snippet = soup.get_text(separator=" ", strip=True)[:3000]
-        byline_match = re.search(r"(?:By|Written\s+by|Reported\s+by)\s+([A-Z][a-z]+(?:\s+[A-Z][\w-]+){1,3})", text_snippet)
+        byline_match = re.search(r"(?:By|Written\s+by|Reported\s+by)\s+([A-Z][A-Za-z.-]*(?:\s+[A-Z][A-Za-z.-]*){1,3})", text_snippet)
         if byline_match:
             name = clean_author_text(byline_match.group(1))
             if name: candidates.append({"name": name, "method": "regex-byline", "confidence": 0.7})

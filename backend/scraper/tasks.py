@@ -796,16 +796,42 @@ def run_client_report_task(client_id: int):
                     # 9. Summarize & Enrich
                     logger.info(f"Enriching and summarizing article: {title}")
                     summary_text = ""
+                    author_name = None
+                    extra_meta = {}
                     try:
+                        from scraper.parser import extract_author_v2
+                        author_metadata = extract_author_v2(html_content)
+                        html_top, html_bottom = "", ""
+                        try:
+                            import re
+                            body_start_match = re.search(r"<body.*?>", html_content[:15000], re.I)
+                            body_start_idx = body_start_match.end() if body_start_match else 0
+                            html_top = html_content[body_start_idx:body_start_idx + 3000]
+                            html_bottom = html_content[-3000:]
+                        except Exception as e_snip:
+                            logger.warning(f"Snippeting failed inside client report process for {resolved_url}: {e_snip}")
+                        
+                        extra_meta = {
+                            "author_metadata": author_metadata,
+                            "html_snippets": {
+                                "top": html_top,
+                                "bottom": html_bottom
+                            }
+                        }
+                        
                         enrichment = perform_full_enrichment_sync(
                             body=body_text,
                             title=title,
                             url=resolved_url,
-                            sector=client_name
+                            sector=client_name,
+                            context_agency=agency,
+                            extra_metadata=extra_meta
                         )
-                        if enrichment and enrichment.get("summary"):
-                            summary_text = enrichment["summary"]
+                        if enrichment:
+                            if enrichment.get("summary"):
+                                summary_text = enrichment["summary"]
                             agency = enrichment.get("agency") or agency
+                            author_name = enrichment.get("author")
                     except Exception as e:
                         logger.error(f"LLM Enrichment failed for '{title}': {e}")
                         
@@ -822,12 +848,14 @@ def run_client_report_task(client_id: int):
                             "resolved_url": resolved_url,
                             "full_body": body_text,
                             "summary": summary_text,
+                            "author": author_name,
                             "agency": agency,
                             "published_at": datetime.now(),
                             "sector": f"{client_name} - {section_name}",
                             "region": "india",
                             "user_id": f"client_{client_id}",
-                            "scraped_at": datetime.now()
+                            "scraped_at": datetime.now(),
+                            "extra_metadata": extra_meta
                         }
                         with get_db_sync() as db:
                             existing = db.execute(
