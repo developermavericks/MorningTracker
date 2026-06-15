@@ -468,7 +468,7 @@ def run_client_report_task(client_id: int):
         run_log = ClientRunLog(
             client_id=client_id,
             status="running",
-            started_at=datetime.now()
+            started_at=datetime.utcnow()
         )
         db.add(run_log)
         db.commit()
@@ -1019,13 +1019,13 @@ def run_client_report_task(client_id: int):
                         generated_file_path=docx_path_filtered,
                         progress_message=updated_log,
                         error_message="Email notification failed to send (SMTP connection timeout).",
-                        completed_at=datetime.now()
+                        completed_at=datetime.utcnow()
                     )
                 )
                 db.execute(
                     update(Client)
                     .where(Client.id == client_id)
-                    .values(last_run_at=datetime.now())
+                    .values(last_run_at=datetime.utcnow())
                 )
                 db.commit()
             return True
@@ -1044,13 +1044,13 @@ def run_client_report_task(client_id: int):
                     status="completed",
                     generated_file_path=docx_path_filtered,
                     progress_message=updated_log,
-                    completed_at=datetime.now()
+                    completed_at=datetime.utcnow()
                 )
             )
             db.execute(
                 update(Client)
                 .where(Client.id == client_id)
-                .values(last_run_at=datetime.now())
+                .values(last_run_at=datetime.utcnow())
             )
             db.commit()
             
@@ -1087,7 +1087,7 @@ def run_client_report_task(client_id: int):
                             status="failed",
                             error_message=error_msg,
                             progress_message=updated_log,
-                            completed_at=datetime.now()
+                            completed_at=datetime.utcnow()
                         )
                     )
                     db.commit()

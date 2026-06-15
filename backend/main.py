@@ -147,7 +147,7 @@ async def recover_stuck_jobs():
                 .values(
                     status='failed',
                     error_message='Server restarted or task interrupted',
-                    completed_at=datetime.now()
+                    completed_at=datetime.utcnow()
                 )
             )
             await db.execute(stmt_logs)
