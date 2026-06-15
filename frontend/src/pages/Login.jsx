@@ -56,7 +56,9 @@ const Login = () => {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = "/api/auth/google";
+    const apiBase = import.meta.env.VITE_API_URL || "/api/";
+    const base = apiBase.endsWith('/') ? apiBase : `${apiBase}/`;
+    window.location.href = `${base}auth/google`;
   };
 
   return (

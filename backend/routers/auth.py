@@ -118,6 +118,9 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db_yi
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as e:
+        import logging
+        logger = logging.getLogger("AUTH")
+        logger.error(f"Google OAuth callback exception: {e}", exc_info=True)
         from fastapi.responses import RedirectResponse
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
         return RedirectResponse(url=f"{frontend_url}/login#error=auth_failed")
