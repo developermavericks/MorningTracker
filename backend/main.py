@@ -89,18 +89,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_middleware(
-    ProxyHeadersMiddleware, trusted_hosts=["*"]
-)
-
 # Session Middleware (Crucial for Google OAuth state)
-# We set same_site="none" and https_only=True to allow cross-site cookies between Vercel and Railway.
+# We set same_site="lax" and https_only=True to allow secure cookies that bypass browser third-party control blocks.
 IS_PROD = os.getenv("DATABASE_URL", "").startswith("postgres") or "railway" in os.getenv("DATABASE_URL", "")
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SECRET_KEY", "fallback_secret_key_nexus_6000"),
-    same_site="none" if IS_PROD else "lax",
+    same_site="lax",
     https_only=IS_PROD,
+)
+
+# Proxy Headers (Outermost, so it runs first on requests to rewrite scheme/IPs)
+app.add_middleware(
+    ProxyHeadersMiddleware, trusted_hosts=["*"]
 )
 
 def handle_loop_exception(loop, context):

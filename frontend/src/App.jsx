@@ -97,8 +97,17 @@ function ProtectedApp() {
       if (!token) return;
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // WebSocket MUST connect directly to Railway (Vercel proxy doesn't support WS)
-      const target = 'morningtracker-production.up.railway.app';
+      let target = 'morningtracker-production.up.railway.app';
+      const apiEnvUrl = import.meta.env.VITE_API_URL;
+      if (apiEnvUrl) {
+        try {
+          target = new URL(apiEnvUrl).host;
+        } catch (e) {
+          console.error("Failed to parse VITE_API_URL for WebSocket target", e);
+        }
+      } else {
+        target = window.location.host; // fallback
+      }
       ws = new WebSocket(`${protocol}//${target}/api/articles/ws/stats?token=${token}`);
       ws.onopen = () => {
         setApiStatus("online");
