@@ -107,7 +107,7 @@ async def get_system_health():
                 res = await client.post(
                     url,
                     headers={"Authorization": f"Bearer {GROQ_RELEVANCE_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": "openai/gpt-oss-120b", "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
+                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
                 )
                 if res.status_code == 200:
                     status["groq_relevance_api"] = {"status": "online", "message": "Authenticated"}
