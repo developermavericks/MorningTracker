@@ -15,6 +15,7 @@ import ClientReports from "./pages/ClientReports";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { Analytics } from "@vercel/analytics/react";
 import "./index.css";
 
 const NAV = [
@@ -200,6 +201,7 @@ export default function App() {
       <Router>
         <ThemeProvider>
           <ThemeToggle />
+          <Analytics />
           <AuthProvider>
             <Routes>
               <Route path="/login" element={<Login />} />
