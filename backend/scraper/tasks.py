@@ -489,6 +489,7 @@ def run_client_report_task(client_id: int):
         client_name = client.name
         template_path = client.template_path
         client_context = client.context
+        client_timezone = client.timezone or "Asia/Kolkata"
         
     try:
         def _update_progress(msg: str):
@@ -531,10 +532,22 @@ def run_client_report_task(client_id: int):
         report_data_filtered = {} # {section_name: [list of article dicts]}
         report_data_master = {} # {section_name: [list of article dicts]}
         
-        # We scrape for the past 24 hours/today
-        # In case it's early in the day, we search yesterday and today to be safe
-        search_date = date.today()
+        # Determine the search window based on the day of the week in client's timezone
+        client_tz = pytz.timezone(client_timezone)
+        run_date = datetime.now(client_tz).date()
         
+        search_dates = [run_date]
+        if run_date.weekday() == 0:  # 0 is Monday
+            # On Monday, consolidate Friday, Saturday, Sunday, and Monday
+            search_dates.extend([
+                run_date - timedelta(days=1),  # Sunday
+                run_date - timedelta(days=2),  # Saturday
+                run_date - timedelta(days=3)   # Friday
+            ])
+        else:
+            # On other weekdays, search today and yesterday
+            search_dates.append(run_date - timedelta(days=1))
+            
         for section_name, keywords in sections_data.items():
             if not keywords:
                 continue
@@ -552,16 +565,23 @@ def run_client_report_task(client_id: int):
             except Exception as e:
                 logger.error(f"Failed to initialize funnel log for client: {e}")
                 
-            # Discover articles
-            discovered = discover_articles(
-                keywords=keywords,
-                day=search_date,
-                geo="IN",
-                region_name="india",
-                job_id=job_id,
-                sector=f"{client_name} - {section_name}"
-            )
-            
+            # Discover articles across all target dates, merging and deduplicating
+            discovered = []
+            seen_section_urls = set()
+            for target_date in search_dates:
+                day_discovered = discover_articles(
+                    keywords=keywords,
+                    day=target_date,
+                    geo="IN",
+                    region_name="india",
+                    job_id=f"client_{client_id}_sec_{section_name}_{target_date.strftime('%Y%m%d')}",
+                    sector=f"{client_name} - {section_name}"
+                )
+                for art in day_discovered:
+                    if art["url"] not in seen_section_urls:
+                        discovered.append(art)
+                        seen_section_urls.add(art["url"])
+                        
             try:
                 with get_db_sync() as db:
                     db.execute(
@@ -572,19 +592,6 @@ def run_client_report_task(client_id: int):
                     db.commit()
             except Exception as e:
                 pass
-            
-            # If not enough articles, fallback/extend search to yesterday
-            if len(discovered) < 3:
-                yesterday = search_date - timedelta(days=1)
-                discovered_yesterday = discover_articles(
-                    keywords=keywords,
-                    day=yesterday,
-                    geo="IN",
-                    region_name="india",
-                    job_id=f"client_{client_id}_sec_{section_name}_yesterday",
-                    sector=f"{client_name} - {section_name}"
-                )
-                discovered.extend(discovered_yesterday)
                 
             # Deduplicate by url
             unique_discovered = []
@@ -1171,6 +1178,11 @@ def check_client_schedules():
                 client_tz = pytz.timezone(client.timezone)
                 from datetime import datetime, timedelta
                 now_tz = datetime.now(client_tz)
+                
+                # Skip scheduled runs on weekends (Saturday=5, Sunday=6) in client's timezone
+                if now_tz.weekday() in [5, 6]:
+                    logger.info(f"Skipping schedule check for client '{client.name}' as it is the weekend ({now_tz.strftime('%A')}).")
+                    continue
                 
                 # 2. Parse scheduled time (format HH:MM)
                 sched_hour, sched_min = map(int, client.scheduled_time.split(":"))
