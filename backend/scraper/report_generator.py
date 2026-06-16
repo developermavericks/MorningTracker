@@ -171,6 +171,14 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
                     fallback_run.font.bold = True
                     fallback_run.font.color.rgb = RGBColor(0, 102, 204)
                 
+                # Paywall tag (if applicable)
+                if article.get("is_paywalled"):
+                    pw_run = art_p.add_run("  🔒 Paywalled")
+                    pw_run.font.name = 'Arial'
+                    pw_run.font.size = Pt(9)
+                    pw_run.font.bold = True
+                    pw_run.font.color.rgb = RGBColor(204, 102, 0)  # Amber/orange
+                
                 # Publication name on same line
                 pub_run = art_p.add_run(f" — {agency}\n")
                 pub_run.font.name = 'Arial'

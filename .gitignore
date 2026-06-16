@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 venv/
 .env
+*.env
+backend/google_credentials.json
 *.log
 *.db
 *.db-shm
