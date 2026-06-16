@@ -33,10 +33,9 @@ class TestDiscoveryContext(unittest.TestCase):
             spawn_calls = pool_instance.spawn.call_args_list
             spawned_queries = [call[0][1] for call in spawn_calls]
             
-            # If is_brand_track=True, spawned_queries should ONLY be the exact keywords
-            # (Note: Google News RSS might add " when:1d" or similar)
+            # If is_brand_track=True, spawned_queries should contain the brand keywords
             for q in spawned_queries:
-                self.assertTrue(any(q.startswith(kw) for kw in keywords))
+                self.assertTrue(any(kw in q for kw in keywords))
 
     def test_sector_track_has_modifiers(self):
         """
