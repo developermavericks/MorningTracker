@@ -92,3 +92,95 @@ def verify_boolean_relevance(text: str, segments: List[str]) -> bool:
                 
     return False
 
+def match_publication_category(agency_name: str, url: str) -> str:
+    """
+    Categorizes the publication of an article into 'A', 'B', or 'C'
+    based on the agency name or domain URL.
+    """
+    name_to_check = (agency_name or "").strip().lower()
+    url_to_check = (url or "").strip().lower()
+    
+    # Category A Patterns
+    category_a_regexes = [
+        re.compile(p, re.IGNORECASE) for p in [
+            r"reuters\.com", r"\breuters\b",
+            r"bloomberg\.com", r"\bbloomberg\b",
+            r"timesofindia", r"times of india", r"delhitimes", r"delhi times", r"mumbaitimes", r"mumbai times", r"bombaytimes", r"bombay times",
+            r"hindustantimes", r"hindustan times", r"ht brunch", r"htbrunch",
+            r"\bindianexpress\.com", r"(?<!new\s)indian express",
+            r"thehindu\.com", r"the hindu",
+            r"economictimes", r"economic times", r"et now", r"etnow", r"et prime", r"etprime", r"et wealth", r"etwealth", r"ettravelworld", r"et travelworld", r"ethospitalityworld", r"et hospitalityworld",
+            r"indiatoday", r"india today",
+            r"zeenews", r"zee news",
+            r"news18",
+            r"zeebiz", r"zee business",
+            r"cnbctv18", r"cnbc tv18",
+            r"moneycontrol",
+            r"livemint", r"\bmint\b", r"mint lounge", r"mintlounge",
+            r"business-standard", r"business standard",
+            r"financialexpress", r"financial express",
+            r"thehindubusinessline", r"business line", r"businessline",
+            r"forbesindia", r"forbes india",
+            r"fortuneindia", r"fortune india",
+            r"businesstoday", r"business today",
+            r"theweek\.in", r"\bthe week\b",
+            r"outlookmoney", r"outlook money",
+            r"pti\.in", r"\bpti\b", r"press trust of india",
+            r"cntraveller", r"condé nast", r"conde nast",
+            r"natgeotraveller", r"national geographic",
+            r"travelandleisureindia", r"travel \+ leisure", r"travel and leisure",
+            r"curlytales", r"curly tales",
+            r"outlooktraveller", r"outlook traveller",
+            r"skift",
+            r"the-ken\.com", r"the ken",
+            r"yourstory",
+            r"inc42",
+            r"vccircle",
+            r"harpersbazaar", r"harper’s bazaar", r"harper's bazaar",
+            r"story18",
+            r"peoplematters", r"people matters",
+            r"ians\.in", r"\bians\b",
+            r"indulgeexpress", r"indulge \(the new indian express\)", r"indulge"
+        ]
+    ]
+
+    # Category B Patterns
+    category_b_regexes = [
+        re.compile(p, re.IGNORECASE) for p in [
+            r"newindianexpress", r"new indian express",
+            r"deccanherald", r"deccan herald",
+            r"tribuneindia", r"the tribune",
+            r"telegraphindia", r"the telegraph",
+            r"deccanchronicle", r"deccan chronicle",
+            r"news9live", r"news9",
+            r"travelandtourworld", r"travel & tour world", r"travel and tour world",
+            r"traveldailymedia", r"travel daily",
+            r"travelbizmonitor", r"travel biz monitor",
+            r"hotelierindia", r"hotelier india",
+            r"bwhotelier", r"bw hotelier",
+            r"indianretailer", r"indian retailer",
+            r"tradebrains", r"trade brains",
+            r"livefromalounge", r"live from a lounge",
+            r"traveltrendstoday", r"travel trends today",
+            r"bottindia",
+            r"hospitalitybizindia", r"hospitality biz",
+            r"ttrweekly", r"ttr weekly",
+            r"bweverythingexperiential", r"bw everything experiential",
+            r"heraldgoa", r"oheraldo", r"goan herald", r"herald",
+            r"uniindia", r"united news of india", r"\buni\b",
+            r"thehansindia", r"the hans india"
+        ]
+    ]
+
+    # Check Category A
+    for regex in category_a_regexes:
+        if regex.search(name_to_check) or regex.search(url_to_check):
+            return "A"
+
+    # Check Category B
+    for regex in category_b_regexes:
+        if regex.search(name_to_check) or regex.search(url_to_check):
+            return "B"
+
+    # Default to C
+    return "C"

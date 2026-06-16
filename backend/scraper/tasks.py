@@ -390,6 +390,18 @@ def complete_stale_jobs():
     """
     from datetime import datetime, timedelta
     from db.database import ClientRunLog
+    
+    # Redis Lock to prevent duplicate runs from concurrent schedulers
+    try:
+        r = get_redis_sync()
+        current_minute = datetime.now().minute
+        minute_block = current_minute - (current_minute % 5)
+        lock_key = f"lock:scheduler:stale:{datetime.now().strftime('%Y-%m-%d-%H')}-{minute_block}"
+        if not r.set(lock_key, "1", nx=True, ex=240):
+            logger.info("Stale jobs cleanup already processed by another instance. Skipping.")
+            return
+    except Exception as lock_err:
+        logger.warning(f"Failed to acquire Redis stale-jobs lock: {lock_err}")
     try:
         with get_db_sync() as db:
             stale_cutoff = datetime.now() - timedelta(minutes=10)
@@ -612,12 +624,20 @@ def run_client_report_task(client_id: int):
                         if existing_article and existing_article.full_body and existing_article.summary:
                             logger.info(f"Early DB Cache HIT for {normalized_raw_url}")
                             _increment_funnel_metric(job_id, "cache_skipped")
+                            
+                            from scraper.search_utils import match_publication_category
+                            cached_meta = existing_article.extra_metadata or {}
+                            pub_category = cached_meta.get("publication_category")
+                            if not pub_category:
+                                pub_category = match_publication_category(existing_article.agency or agency, existing_article.resolved_url or existing_article.url)
+                            
                             return {
                                 "art_data": {
                                     "title": existing_article.title,
                                     "url": existing_article.resolved_url or existing_article.url,
                                     "agency": existing_article.agency or agency,
-                                    "summary": existing_article.summary
+                                    "summary": existing_article.summary,
+                                    "publication_category": pub_category
                                 },
                                 "is_relevant_kw": True,
                                 "is_semantic_relevant": True
@@ -668,12 +688,20 @@ def run_client_report_task(client_id: int):
                         if existing_article and existing_article.full_body and existing_article.summary:
                             logger.info(f"Canonical DB Cache HIT for {normalized_url}")
                             _increment_funnel_metric(job_id, "cache_skipped")
+                            
+                            from scraper.search_utils import match_publication_category
+                            cached_meta = existing_article.extra_metadata or {}
+                            pub_category = cached_meta.get("publication_category")
+                            if not pub_category:
+                                pub_category = match_publication_category(existing_article.agency or agency, existing_article.resolved_url or existing_article.url)
+                                
                             return {
                                 "art_data": {
                                     "title": existing_article.title,
                                     "url": existing_article.resolved_url or existing_article.url,
                                     "agency": existing_article.agency or agency,
-                                    "summary": existing_article.summary
+                                    "summary": existing_article.summary,
+                                    "publication_category": pub_category
                                 },
                                 "is_relevant_kw": True,
                                 "is_semantic_relevant": True
@@ -839,6 +867,10 @@ def run_client_report_task(client_id: int):
                         summary_text = body_text[:300] + "..."
                         
                     _increment_funnel_metric(job_id, "summarized_count")
+                    
+                    from scraper.search_utils import match_publication_category
+                    pub_category = match_publication_category(agency, resolved_url)
+                    extra_meta["publication_category"] = pub_category
                         
                     # 10. Cache to DB
                     try:
@@ -876,7 +908,8 @@ def run_client_report_task(client_id: int):
                         "title": title,
                         "url": resolved_url,
                         "agency": agency,
-                        "summary": summary_text
+                        "summary": summary_text,
+                        "publication_category": pub_category
                     }
                     
                     return {
@@ -917,8 +950,15 @@ def run_client_report_task(client_id: int):
             
             report_data_filtered[section_name] = filtered_section_articles
             report_data_master[section_name] = master_section_articles
-            
-            _update_progress(f"Section '{section_name}' completed. Discovered: {total_to_process}, Relevant: {len(filtered_section_articles)}.")
+            cat_counts = {"A": 0, "B": 0, "C": 0}
+            for art in filtered_section_articles:
+                cat_counts[art.get("publication_category", "C")] += 1
+                
+            _update_progress(
+                f"Section '{section_name}' completed. "
+                f"Discovered: {total_to_process}, "
+                f"Relevant: {len(filtered_section_articles)} (Cat A: {cat_counts['A']}, Cat B: {cat_counts['B']}, Cat C: {cat_counts['C']})."
+            )
             
         # Check if we got any articles at all
         total_filtered_count = sum(len(articles) for articles in report_data_filtered.values())
@@ -1108,6 +1148,18 @@ def check_client_schedules():
     import pytz
     from sqlalchemy import select, desc
     
+    # Redis Lock to prevent duplicate runs from concurrent schedulers
+    try:
+        r = get_redis_sync()
+        current_minute = datetime.now().minute
+        minute_block = current_minute - (current_minute % 5)
+        lock_key = f"lock:scheduler:check:{datetime.now().strftime('%Y-%m-%d-%H')}-{minute_block}"
+        if not r.set(lock_key, "1", nx=True, ex=240):
+            logger.info("Schedule check already processed by another instance. Skipping.")
+            return
+    except Exception as lock_err:
+        logger.warning(f"Failed to acquire Redis scheduler lock: {lock_err}")
+    
     logger.info("Checking client automation schedules...")
     
     with get_db_sync() as db:
@@ -1117,40 +1169,46 @@ def check_client_schedules():
             try:
                 # 1. Parse client timezone
                 client_tz = pytz.timezone(client.timezone)
+                from datetime import datetime, timedelta
                 now_tz = datetime.now(client_tz)
                 
                 # 2. Parse scheduled time (format HH:MM)
                 sched_hour, sched_min = map(int, client.scheduled_time.split(":"))
                 
-                # 3. Check if current time matches scheduled hour & is within schedule window (e.g. 5 minutes)
-                # Since celery beat runs every 5 minutes, we match the hour and check if we are in the target window.
-                # To prevent double triggering, we check if a run has already occurred today in the client's timezone.
-                if now_tz.hour == sched_hour:
-                    # Check if the target minute is in the past and close
-                    time_diff_minutes = (now_tz.hour * 60 + now_tz.minute) - (sched_hour * 60 + sched_min)
+                # 3. Calculate time differences to check if we are in the 10-minute window
+                # We check target time for both today and yesterday to support midnight boundary crossings
+                target_today = now_tz.replace(hour=sched_hour, minute=sched_min, second=0, microsecond=0)
+                diff_today = (now_tz - target_today).total_seconds() / 60.0
+                
+                target_yesterday = target_today - timedelta(days=1)
+                diff_yesterday = (now_tz - target_yesterday).total_seconds() / 60.0
+                
+                # Determine if current time falls within 10 minutes after scheduled target time
+                is_in_window = (0 <= diff_today < 10) or (0 <= diff_yesterday < 10)
+                
+                if is_in_window:
+                    # Decide which target date this trigger belongs to
+                    target_date = target_today.date() if (0 <= diff_today < 10) else target_yesterday.date()
                     
-                    if 0 <= time_diff_minutes < 10:
-                        # Check if a successful or running job already exists for today
-                        # Query last log
-                        last_log = db.execute(
-                            select(ClientRunLog)
-                            .where(ClientRunLog.client_id == client.id)
-                            .order_by(desc(ClientRunLog.started_at))
-                            .limit(1)
-                        ).scalar_one_or_none()
-                        
-                        already_ran = False
-                        if last_log:
-                            # Convert last run's started_at to client's timezone
-                            last_started = last_log.started_at.replace(tzinfo=pytz.utc).astimezone(client_tz) if last_log.started_at.tzinfo else pytz.utc.localize(last_log.started_at).astimezone(client_tz)
-                            if last_started.date() == now_tz.date() and last_log.status in ["completed", "running"]:
-                                already_ran = True
-                                
-                        if not already_ran:
-                            logger.info(f"Scheduling report run for client '{client.name}' (Scheduled: {client.scheduled_time} in {client.timezone})")
-                            celery_app.send_task(
-                                "scraper.tasks.run_client_report_task",
-                                args=[client.id]
-                            )
+                    # Check if a run has already occurred for this specific target date
+                    last_log = db.execute(
+                        select(ClientRunLog)
+                        .where(ClientRunLog.client_id == client.id)
+                        .order_by(desc(ClientRunLog.started_at))
+                        .limit(1)
+                    ).scalar_one_or_none()
+                    
+                    already_ran = False
+                    if last_log:
+                        last_started = last_log.started_at.replace(tzinfo=pytz.utc).astimezone(client_tz) if last_log.started_at.tzinfo else pytz.utc.localize(last_log.started_at).astimezone(client_tz)
+                        if last_started.date() == target_date and last_log.status in ["completed", "running"]:
+                            already_ran = True
+                            
+                    if not already_ran:
+                        logger.info(f"Scheduling report run for client '{client.name}' (Target Date: {target_date}, Scheduled: {client.scheduled_time} in {client.timezone})")
+                        celery_app.send_task(
+                            "scraper.tasks.run_client_report_task",
+                            args=[client.id]
+                        )
             except Exception as e:
                 logger.error(f"Error checking schedule for client '{client.name}': {e}")

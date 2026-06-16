@@ -120,45 +120,73 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
             no_art_p.paragraph_format.space_after = Pt(12)
             continue
 
-        for i, article in enumerate(articles):
-            title = article.get("title", "No Title")
-            agency = article.get("agency") or "Unknown Publication"
-            summary = article.get("summary") or "No summary available."
-            url = article.get("url") or article.get("resolved_url") or "#"
-            
-            # Single paragraph for the entire article block to avoid large spacing gaps
-            art_p = doc.add_paragraph()
-            art_p.paragraph_format.space_before = Pt(8)
-            art_p.paragraph_format.space_after = Pt(10)
-            art_p.paragraph_format.line_spacing = 1.15
-            
-            # 1. Headline (Hyperlink)
-            try:
-                add_hyperlink(art_p, url, title, color="0066CC", underline=True)
-            except Exception as e:
-                # Fallback to plain text if hyperlink XML injection fails
-                fallback_run = art_p.add_run(title)
-                fallback_run.font.name = 'Arial'
-                fallback_run.font.size = Pt(11)
-                fallback_run.font.bold = True
-                fallback_run.font.color.rgb = RGBColor(0, 102, 204)
-            
-            # Publication name on same line
-            pub_run = art_p.add_run(f" — {agency}\n")
-            pub_run.font.name = 'Arial'
-            pub_run.font.size = Pt(9.5)
-            pub_run.font.italic = True
-            pub_run.font.color.rgb = RGBColor(120, 120, 120)
-            
-            # 2. Summary Content (Second line onwards)
-            sum_run = art_p.add_run(summary)
-            sum_run.font.name = 'Arial'
-            sum_run.font.size = Pt(9.5)
-            sum_run.font.color.rgb = RGBColor(60, 60, 60)
-            
-            # Thin divider line between articles
-            if i < len(articles) - 1:
-                add_horizontal_line(art_p)
+        # Group articles by category (A, B, or C)
+        from scraper.search_utils import match_publication_category
+        grouped_articles = {"A": [], "B": [], "C": []}
+        for article in articles:
+            cat = article.get("publication_category")
+            if not cat:
+                cat = match_publication_category(article.get("agency"), article.get("url") or article.get("resolved_url"))
+            if cat not in ["A", "B", "C"]:
+                cat = "C"
+            grouped_articles[cat].append(article)
+
+        # Write grouped categories
+        for cat_name in ["A", "B", "C"]:
+            cat_list = grouped_articles[cat_name]
+            if not cat_list:
+                continue
+
+            # Sub-heading for Category
+            cat_p = doc.add_paragraph()
+            cat_run = cat_p.add_run(f"Category {cat_name} Publications")
+            cat_run.font.name = 'Arial'
+            cat_run.font.size = Pt(11)
+            cat_run.font.bold = True
+            cat_run.font.italic = True
+            cat_run.font.color.rgb = RGBColor(120, 120, 120)
+            cat_p.paragraph_format.space_before = Pt(10)
+            cat_p.paragraph_format.space_after = Pt(4)
+
+            for i, article in enumerate(cat_list):
+                title = article.get("title", "No Title")
+                agency = article.get("agency") or "Unknown Publication"
+                summary = article.get("summary") or "No summary available."
+                url = article.get("url") or article.get("resolved_url") or "#"
+                
+                # Single paragraph for the entire article block to avoid large spacing gaps
+                art_p = doc.add_paragraph()
+                art_p.paragraph_format.space_before = Pt(8)
+                art_p.paragraph_format.space_after = Pt(10)
+                art_p.paragraph_format.line_spacing = 1.15
+                
+                # 1. Headline (Hyperlink)
+                try:
+                    add_hyperlink(art_p, url, title, color="0066CC", underline=True)
+                except Exception as e:
+                    # Fallback to plain text if hyperlink XML injection fails
+                    fallback_run = art_p.add_run(title)
+                    fallback_run.font.name = 'Arial'
+                    fallback_run.font.size = Pt(11)
+                    fallback_run.font.bold = True
+                    fallback_run.font.color.rgb = RGBColor(0, 102, 204)
+                
+                # Publication name on same line
+                pub_run = art_p.add_run(f" — {agency}\n")
+                pub_run.font.name = 'Arial'
+                pub_run.font.size = Pt(9.5)
+                pub_run.font.italic = True
+                pub_run.font.color.rgb = RGBColor(120, 120, 120)
+                
+                # 2. Summary Content (Second line onwards)
+                sum_run = art_p.add_run(summary)
+                sum_run.font.name = 'Arial'
+                sum_run.font.size = Pt(9.5)
+                sum_run.font.color.rgb = RGBColor(60, 60, 60)
+                
+                # Thin divider line between articles within the category
+                if i < len(cat_list) - 1:
+                    add_horizontal_line(art_p)
                 
     # Save the document
     doc.save(output_path)
