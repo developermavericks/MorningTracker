@@ -660,7 +660,18 @@ def run_client_report_task(client_id: int):
                             if age.days < 30:
                                 logger.info(f"Early Irrelevant Cache HIT for {normalized_raw_url}")
                                 _increment_funnel_metric(job_id, "cache_skipped")
-                                return None
+                                from scraper.search_utils import match_publication_category
+                                return {
+                                    "art_data": {
+                                        "title": cached_ir.title or title,
+                                        "url": raw_url,
+                                        "agency": agency,
+                                        "summary": cached_ir.description or desc or "Irrelevant article cached.",
+                                        "publication_category": match_publication_category(agency, raw_url)
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": False
+                                }
                             else:
                                 db.delete(cached_ir)
                                 db.commit()
@@ -724,7 +735,18 @@ def run_client_report_task(client_id: int):
                             if age.days < 30:
                                 logger.info(f"Canonical Irrelevant Cache HIT for {normalized_url}")
                                 _increment_funnel_metric(job_id, "cache_skipped")
-                                return None
+                                from scraper.search_utils import match_publication_category
+                                return {
+                                    "art_data": {
+                                        "title": cached_ir.title or title,
+                                        "url": resolved_url,
+                                        "agency": agency,
+                                        "summary": cached_ir.description or desc or "Irrelevant article cached.",
+                                        "publication_category": match_publication_category(agency, resolved_url)
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": False
+                                }
                             else:
                                 db.delete(cached_ir)
                                 db.commit()
@@ -757,7 +779,18 @@ def run_client_report_task(client_id: int):
                             
                     if not html_content:
                         logger.warning(f"Could not fetch HTML content for {resolved_url}. Skipping.")
-                        return None
+                        from scraper.search_utils import match_publication_category
+                        return {
+                            "art_data": {
+                                "title": title,
+                                "url": resolved_url,
+                                "agency": agency,
+                                "summary": desc or "Could not fetch HTML content.",
+                                "publication_category": match_publication_category(agency, resolved_url)
+                            },
+                            "is_relevant_kw": True,
+                            "is_semantic_relevant": False
+                        }
                         
                     _increment_funnel_metric(job_id, "scraped_count")
                         
@@ -772,7 +805,18 @@ def run_client_report_task(client_id: int):
                         
                     if not body_text or len(body_text) < 100:
                         logger.warning(f"No meaningful text extracted for {resolved_url}. Skipping.")
-                        return None
+                        from scraper.search_utils import match_publication_category
+                        return {
+                            "art_data": {
+                                "title": title,
+                                "url": resolved_url,
+                                "agency": agency,
+                                "summary": desc or "No meaningful text extracted from article.",
+                                "publication_category": match_publication_category(agency, resolved_url)
+                            },
+                            "is_relevant_kw": True,
+                            "is_semantic_relevant": False
+                        }
                         
                     # 8. Cosine Similarity Pre-Filter
                     from scraper.similarity import evaluate_similarity_pre_filter, SIM_DROP_THRESHOLD
@@ -792,7 +836,18 @@ def run_client_report_task(client_id: int):
                             ))
                             db.commit()
                         _increment_funnel_metric(job_id, "pre_filter_dropped")
-                        return None
+                        from scraper.search_utils import match_publication_category
+                        return {
+                            "art_data": {
+                                "title": title,
+                                "url": resolved_url,
+                                "agency": agency,
+                                "summary": desc or (body_text[:200] + "...") if body_text else "Similarity pre-filter drop.",
+                                "publication_category": match_publication_category(agency, resolved_url)
+                            },
+                            "is_relevant_kw": True,
+                            "is_semantic_relevant": False
+                        }
 
                     # 9. Relevance Check (Asymmetric & Ensembling)
                     is_semantic_relevant = False
@@ -824,7 +879,18 @@ def run_client_report_task(client_id: int):
                             ))
                             db.commit()
                         _increment_funnel_metric(job_id, "relevance_no")
-                        return None
+                        from scraper.search_utils import match_publication_category
+                        return {
+                            "art_data": {
+                                "title": title,
+                                "url": resolved_url,
+                                "agency": agency,
+                                "summary": desc or (body_text[:200] + "...") if body_text else "Semantically irrelevant.",
+                                "publication_category": match_publication_category(agency, resolved_url)
+                            },
+                            "is_relevant_kw": True,
+                            "is_semantic_relevant": False
+                        }
                         
                     _increment_funnel_metric(job_id, "relevance_yes")
                         

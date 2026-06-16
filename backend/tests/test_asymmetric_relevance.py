@@ -59,7 +59,7 @@ def test_zero_result_query_logging():
         mock_rss.return_value = "<rss></rss>"
         
         with get_db_sync() as db:
-            db.execute(delete(ZeroResultQuery).where(ZeroResultQuery.query_string == '"emptytestquery"'))
+            db.execute(delete(ZeroResultQuery).where(ZeroResultQuery.query_string == 'emptytestquery'))
             db.commit()
             
         discover_articles(
@@ -74,7 +74,7 @@ def test_zero_result_query_logging():
         with get_db_sync() as db:
             log_entry = db.execute(
                 select(ZeroResultQuery)
-                .where(ZeroResultQuery.query_string == '"emptytestquery"')
+                .where(ZeroResultQuery.query_string == 'emptytestquery')
             ).scalar_one_or_none()
             
             assert log_entry is not None

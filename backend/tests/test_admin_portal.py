@@ -15,8 +15,9 @@ from main import app
 from db.database import Base, User, ScrapeJob, get_db_yield, init_db
 
 # Setup Test Database for direct execution if needed
-engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-AsyncSessionTesting = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+from db.database import Base, User, ScrapeJob, get_db_yield, init_db, engine, AsyncSessionLocal
+
+AsyncSessionTesting = AsyncSessionLocal
 
 async def override_get_db():
     async with AsyncSessionTesting() as session:
@@ -27,12 +28,20 @@ app.dependency_overrides[get_db_yield] = override_get_db
 client = TestClient(app)
 
 @pytest.fixture(autouse=True)
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+def setup_db():
+    async def _setup():
+        async with AsyncSessionTesting() as db:
+            await db.execute(delete(User))
+            await db.execute(delete(ScrapeJob))
+            await db.commit()
+    async def _teardown():
+        async with AsyncSessionTesting() as db:
+            await db.execute(delete(User))
+            await db.execute(delete(ScrapeJob))
+            await db.commit()
+    asyncio.run(_setup())
     yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    asyncio.run(_teardown())
 
 def test_admin_login_success():
     """Verify that using ADMIN_EMAIL and ADMIN_PASSWORD grants admin status."""
