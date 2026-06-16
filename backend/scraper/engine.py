@@ -108,8 +108,13 @@ def load_proxies():
     pw = os.getenv("WEBSHARE_PROXY_PASS", "symou02ck2bw")
     if user_base and pw:
         for i in range(1, 11): proxies.append(f"http://{user_base}-{i}:{pw}@p.webshare.io:80")
-            
+
+    # Remove duplicates
     proxies = list(dict.fromkeys(proxies))
+    
+    if not proxies:
+        logger.warning("No proxies loaded. Scraper will run without proxy protection.")
+        
     return proxies
 
 def log(msg: str):
