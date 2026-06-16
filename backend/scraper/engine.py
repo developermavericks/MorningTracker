@@ -195,7 +195,7 @@ def quote_keyword(kw: str) -> str:
     kw = kw.strip()
     if kw.startswith('"') and kw.endswith('"'):
         return kw
-    return f'"{kw}"'
+    return kw
 
 # ─── Discovery Phase
 def discover_articles(keywords: List[str], day: Optional[date], geo: str, region_name: str, job_id: str, cumulative: set = None, is_brand_track: bool = False, sector: str = "Unknown") -> List[dict]:

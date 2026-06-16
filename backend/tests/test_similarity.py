@@ -39,6 +39,6 @@ def test_keyword_classification():
     assert is_generic_keyword("Scapia") is False
     assert is_generic_keyword("Federal Bank India") is False
     
-    assert quote_keyword("OneCard") == '"OneCard"'
+    assert quote_keyword("OneCard") == 'OneCard'
     assert quote_keyword('"AlreadyQuoted"') == '"AlreadyQuoted"'
 
