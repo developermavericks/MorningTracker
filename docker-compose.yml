@@ -21,8 +21,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: nexus_backend
     restart: unless-stopped
     environment:
@@ -45,8 +45,8 @@ services:
 
   celery_worker:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: nexus_worker
     restart: unless-stopped
     command: celery -A celery_app worker --loglevel=info --concurrency=4
