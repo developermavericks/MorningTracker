@@ -54,6 +54,11 @@ def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: s
     # 1. Copy paragraphs from new_doc (the new daily briefing)
     for paragraph in new_doc.paragraphs:
         new_p = combined.add_paragraph()
+        if paragraph.style:
+            try:
+                new_p.style = paragraph.style
+            except Exception:
+                pass
         new_p.alignment = paragraph.alignment
         new_p.paragraph_format.space_before = paragraph.paragraph_format.space_before
         new_p.paragraph_format.space_after = paragraph.paragraph_format.space_after
@@ -81,6 +86,11 @@ def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: s
     # 2. Copy paragraphs from existing_doc (previous days)
     for paragraph in existing_doc.paragraphs:
         new_p = combined.add_paragraph()
+        if paragraph.style:
+            try:
+                new_p.style = paragraph.style
+            except Exception:
+                pass
         new_p.alignment = paragraph.alignment
         new_p.paragraph_format.space_before = paragraph.paragraph_format.space_before
         new_p.paragraph_format.space_after = paragraph.paragraph_format.space_after
