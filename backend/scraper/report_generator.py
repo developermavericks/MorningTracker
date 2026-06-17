@@ -170,7 +170,7 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
             cat_p.paragraph_format.space_before = Pt(12)
             cat_p.paragraph_format.space_after = Pt(12)
 
-            for article in cat_list:
+            for i, article in enumerate(cat_list):
                 title = article.get("title", "No Title")
                 agency = article.get("agency") or "Unknown Publication"
                 summary = article.get("summary") or "No summary available."
@@ -213,6 +213,10 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
                 sum_run.font.name = 'Calibri'
                 sum_run.font.size = Pt(10)
                 sum_run.font.color.rgb = RGBColor(0, 0, 0)
+                
+                # Thin divider line between articles within the category
+                if i < len(cat_list) - 1:
+                    add_horizontal_line(art_p)
                 
     # Save the document
     doc.save(output_path)
