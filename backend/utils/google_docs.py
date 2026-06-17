@@ -4,7 +4,9 @@ from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+import docx
 from docx import Document
+from docx.text.run import Run
 from docx.shared import RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -29,61 +31,68 @@ def add_horizontal_line(paragraph):
     pBdr.append(bottom)
     pPr.append(pBdr)
 
+def add_hyperlink(paragraph, url, text, color="1155cc", underline=True):
+    """Adds a hyperlink with custom style (Calibri, blue, bold, underline) to a paragraph."""
+    part = paragraph.part
+    r_id = part.relate_to(url, docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
+    
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+    
+    new_run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+    
+    if color:
+        c = OxmlElement('w:color')
+        c.set(qn('w:val'), color)
+        rPr.append(c)
+        
+    if underline:
+        u = OxmlElement('w:u')
+        u.set(qn('w:val'), 'single')
+        rPr.append(u)
+        
+    rFonts = OxmlElement('w:rFonts')
+    rFonts.set(qn('w:ascii'), 'Calibri')
+    rFonts.set(qn('w:hAnsi'), 'Calibri')
+    rPr.append(rFonts)
+    
+    sz = OxmlElement('w:sz')
+    sz.set(qn('w:val'), '20')  # 10pt
+    rPr.append(sz)
+    
+    bold = OxmlElement('w:b')
+    rPr.append(bold)
+    
+    new_run.append(rPr)
+    text_node = OxmlElement('w:t')
+    text_node.text = text
+    new_run.append(text_node)
+    
+    hyperlink.append(new_run)
+    paragraph._p.append(hyperlink)
+    return hyperlink
+
 def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: str):
     """
     Combines two DOCX files.
     The new daily briefing is prepended at the top, followed by a divider, 
     and then the previous days' content from the existing monthly file.
+    Uses new_docx_path as the base to preserve images (logo) and styles perfectly,
+    and triages standard runs and hyperlink runs from existing_docx_path.
     """
-    # Read new briefing
-    new_doc = Document(new_docx_path)
-    # Read existing master doc
+    # Load new daily briefing as the base
+    combined = Document(new_docx_path)
+    # Load existing monthly doc
     existing_doc = Document(existing_docx_path)
     
-    # Create combined document
-    combined = Document()
-    
-    # Copy margins from new_doc
-    for section in new_doc.sections:
-        for comb_section in combined.sections:
-            comb_section.top_margin = section.top_margin
-            comb_section.bottom_margin = section.bottom_margin
-            comb_section.left_margin = section.left_margin
-            comb_section.right_margin = section.right_margin
-            
-    # 1. Copy paragraphs from new_doc (the new daily briefing)
-    for paragraph in new_doc.paragraphs:
-        new_p = combined.add_paragraph()
-        if paragraph.style:
-            try:
-                new_p.style = paragraph.style
-            except Exception:
-                pass
-        new_p.alignment = paragraph.alignment
-        new_p.paragraph_format.space_before = paragraph.paragraph_format.space_before
-        new_p.paragraph_format.space_after = paragraph.paragraph_format.space_after
-        new_p.paragraph_format.line_spacing = paragraph.paragraph_format.line_spacing
-        
-        for run in paragraph.runs:
-            new_run = new_p.add_run(run.text)
-            new_run.bold = run.bold
-            new_run.italic = run.italic
-            new_run.underline = run.underline
-            new_run.font.name = run.font.name
-            new_run.font.size = run.font.size
-            if run.font.color and run.font.color.rgb:
-                new_run.font.color.rgb = run.font.color.rgb
-            
-        if paragraph._p.pPr is not None and paragraph._p.pPr.find(qn('w:pBdr')) is not None:
-            add_horizontal_line(new_p)
-            
-    # Add page/spacer break
+    # 1. Add page break / separator at the end of combined
     sep_p = combined.add_paragraph()
     sep_run = sep_p.add_run("\n" + "="*40 + "\n")
     sep_run.font.color.rgb = RGBColor(180, 180, 180)
     sep_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # 2. Copy paragraphs from existing_doc (previous days)
+    # 2. Copy paragraphs from existing_doc to the end of combined
     for paragraph in existing_doc.paragraphs:
         new_p = combined.add_paragraph()
         if paragraph.style:
@@ -96,16 +105,36 @@ def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: s
         new_p.paragraph_format.space_after = paragraph.paragraph_format.space_after
         new_p.paragraph_format.line_spacing = paragraph.paragraph_format.line_spacing
         
-        for run in paragraph.runs:
-            new_run = new_p.add_run(run.text)
-            new_run.bold = run.bold
-            new_run.italic = run.italic
-            new_run.underline = run.underline
-            new_run.font.name = run.font.name
-            new_run.font.size = run.font.size
-            if run.font.color and run.font.color.rgb:
-                new_run.font.color.rgb = run.font.color.rgb
-            
+        # Iterate over child elements of paragraph XML block to copy standard runs and hyperlinks
+        for child in paragraph._p:
+            tag_name = child.tag
+            if tag_name.endswith('hyperlink'):
+                # Hyperlink node!
+                rId = child.get(qn('r:id'))
+                if rId and rId in paragraph.part.rels:
+                    url = paragraph.part.rels[rId].target_ref
+                    # Extract text inside hyperlink
+                    link_text = ""
+                    for r_child in child:
+                        if r_child.tag.endswith('r'):
+                            r_obj = Run(r_child, paragraph)
+                            link_text += r_obj.text
+                    
+                    # Recreate hyperlink in target
+                    add_hyperlink(new_p, url, link_text, color="1155cc", underline=True)
+            elif tag_name.endswith('r'):
+                # Standard run!
+                run = Run(child, paragraph)
+                if run.text:
+                    new_run = new_p.add_run(run.text)
+                    new_run.bold = run.bold
+                    new_run.italic = run.italic
+                    new_run.underline = run.underline
+                    new_run.font.name = run.font.name
+                    new_run.font.size = run.font.size
+                    if run.font.color and run.font.color.rgb:
+                        new_run.font.color.rgb = run.font.color.rgb
+                        
         if paragraph._p.pPr is not None and paragraph._p.pPr.find(qn('w:pBdr')) is not None:
             add_horizontal_line(new_p)
             
