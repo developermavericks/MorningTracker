@@ -4,20 +4,34 @@ from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
+from docx.oxml.ns import qn, nsmap
 import docx
 
+# Register VML namespaces for horizontal vector shapes
+nsmap['v'] = 'urn:schemas-microsoft-com:vml'
+nsmap['o'] = 'urn:schemas-microsoft-com:office:office'
+
 def add_horizontal_line(paragraph):
-    """Adds a thin bottom border to a paragraph (horizontal divider line)."""
-    pPr = paragraph._p.get_or_add_pPr()
-    pBdr = OxmlElement('w:pBdr')
-    bottom = OxmlElement('w:bottom')
-    bottom.set(qn('w:val'), 'single')
-    bottom.set(qn('w:sz'), '6')  # Size 6 = 3/4 pt
-    bottom.set(qn('w:space'), '12')
-    bottom.set(qn('w:color'), 'D3D3D3')  # Light grey
-    pBdr.append(bottom)
-    pPr.append(pBdr)
+    """Adds a thin template-matching horizontal divider line to the paragraph using VML rect."""
+    paragraph.add_run("\n")
+    
+    run = paragraph.add_run()
+    # Create w:pict
+    pict = OxmlElement('w:pict')
+    
+    # Create v:rect (drawing vector shape)
+    rect = OxmlElement('v:rect')
+    rect.set('style', 'width:0.0pt;height:1.5pt')
+    rect.set(qn('o:hr'), 't')
+    rect.set(qn('o:hrstd'), 't')
+    rect.set(qn('o:hralign'), 'center')
+    rect.set('fillcolor', '#D3D3D3')  # Light grey
+    rect.set('stroked', 'f')
+    
+    pict.append(rect)
+    run._r.append(pict)
+    
+    paragraph.add_run("\n")
 
 def add_hyperlink(paragraph, url, text, color="1155cc", underline=True):
     """

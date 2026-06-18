@@ -10,7 +10,11 @@ from docx.text.run import Run
 from docx.shared import RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
+from docx.oxml.ns import qn, nsmap
+
+# Register VML namespaces for horizontal vector shapes
+nsmap['v'] = 'urn:schemas-microsoft-com:vml'
+nsmap['o'] = 'urn:schemas-microsoft-com:office:office'
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +24,26 @@ SCOPES = [
 ]
 
 def add_horizontal_line(paragraph):
-    """Adds a thin bottom border to a paragraph (horizontal divider line)."""
-    pPr = paragraph._p.get_or_add_pPr()
-    pBdr = OxmlElement('w:pBdr')
-    bottom = OxmlElement('w:bottom')
-    bottom.set(qn('w:val'), 'single')
-    bottom.set(qn('w:sz'), '6')  # Size 6 = 3/4 pt
-    bottom.set(qn('w:space'), '12')
-    bottom.set(qn('w:color'), 'D3D3D3')  # Light grey
-    pBdr.append(bottom)
-    pPr.append(pBdr)
+    """Adds a thin template-matching horizontal divider line to the paragraph using VML rect."""
+    paragraph.add_run("\n")
+    
+    run = paragraph.add_run()
+    # Create w:pict
+    pict = OxmlElement('w:pict')
+    
+    # Create v:rect (drawing vector shape)
+    rect = OxmlElement('v:rect')
+    rect.set('style', 'width:0.0pt;height:1.5pt')
+    rect.set(qn('o:hr'), 't')
+    rect.set(qn('o:hrstd'), 't')
+    rect.set(qn('o:hralign'), 'center')
+    rect.set('fillcolor', '#D3D3D3')  # Light grey
+    rect.set('stroked', 'f')
+    
+    pict.append(rect)
+    run._r.append(pict)
+    
+    paragraph.add_run("\n")
 
 def add_hyperlink(paragraph, url, text, color="1155cc", underline=True):
     """Adds a hyperlink with custom style (Calibri, blue, bold, underline) to a paragraph."""
@@ -123,17 +137,23 @@ def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: s
                     # Recreate hyperlink in target
                     add_hyperlink(new_p, url, link_text, color="1155cc", underline=True)
             elif tag_name.endswith('r'):
-                # Standard run!
-                run = Run(child, paragraph)
-                if run.text:
-                    new_run = new_p.add_run(run.text)
-                    new_run.bold = run.bold
-                    new_run.italic = run.italic
-                    new_run.underline = run.underline
-                    new_run.font.name = run.font.name
-                    new_run.font.size = run.font.size
-                    if run.font.color and run.font.color.rgb:
-                        new_run.font.color.rgb = run.font.color.rgb
+                # Check if run contains drawing or pict elements (e.g. divider lines)
+                has_pict = child.find(qn('w:pict')) is not None or child.find(qn('w:drawing')) is not None
+                if has_pict:
+                    import copy
+                    copied_r = copy.deepcopy(child)
+                    new_p._p.append(copied_r)
+                else:
+                    run = Run(child, paragraph)
+                    if run.text:
+                        new_run = new_p.add_run(run.text)
+                        new_run.bold = run.bold
+                        new_run.italic = run.italic
+                        new_run.underline = run.underline
+                        new_run.font.name = run.font.name
+                        new_run.font.size = run.font.size
+                        if run.font.color and run.font.color.rgb:
+                            new_run.font.color.rgb = run.font.color.rgb
                         
         if paragraph._p.pPr is not None and paragraph._p.pPr.find(qn('w:pBdr')) is not None:
             add_horizontal_line(new_p)
