@@ -6,6 +6,7 @@ from sqlalchemy import select, func, text
 from db.database import get_db, ScrapeJob, Article
 from .auth_utils import get_auth_user as get_current_user, TokenData
 from celery_app import app as celery_app
+from scraper.llm import GROQ_PRIMARY_MODEL
 
 router = APIRouter()
 _diag_cache = {"data": None, "timestamp": None}
@@ -23,14 +24,14 @@ async def test_llm():
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": GROQ_PRIMARY_MODEL,
                     "messages": [{"role": "user", "content": "Reply with only the word: WORKING"}],
                     "max_tokens": 5
                 }
             )
         if resp.status_code == 200:
             reply = resp.json()["choices"][0]["message"]["content"].strip()
-            return {"status": "ok", "model": "llama-3.3-70b-versatile", "provider": "Groq", "response": reply, "message": "Groq API is active and working!"}
+            return {"status": "ok", "model": GROQ_PRIMARY_MODEL, "provider": "Groq", "response": reply, "message": "Groq API is active and working!"}
         else:
             return {"status": "error", "http_code": resp.status_code, "detail": resp.json()}
     except Exception as e:
@@ -86,7 +87,7 @@ async def get_system_health():
                 res = await client.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
+                    json={"model": GROQ_PRIMARY_MODEL, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
                 )
                 if res.status_code == 200:
                     status["groq_api"] = {"status": "online", "message": "Authenticated"}
@@ -107,7 +108,7 @@ async def get_system_health():
                 res = await client.post(
                     url,
                     headers={"Authorization": f"Bearer {GROQ_RELEVANCE_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
+                    json={"model": GROQ_PRIMARY_MODEL, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
                 )
                 if res.status_code == 200:
                     status["groq_relevance_api"] = {"status": "online", "message": "Authenticated"}

@@ -15,6 +15,9 @@ load_dotenv()
 _groq_raw = os.getenv("GROQ_API_KEY") or os.getenv("XAI_API_KEY") or ""
 GROQ_API_KEYS = [k.strip() for k in _groq_raw.split(",") if k.strip()]
 
+GROQ_PRIMARY_MODEL = os.getenv("GROQ_PRIMARY_MODEL") or "openai/gpt-oss-120b"
+GROQ_SECONDARY_MODEL = os.getenv("GROQ_SECONDARY_MODEL") or "openai/gpt-oss-120b"
+
 # --- Redis for Global Throttling (C-7) ---
 import redis.asyncio as redis
 _redis_client = None
@@ -121,7 +124,7 @@ def _call_groq_summary_api(text: str, is_strict: bool = False) -> Optional[str]:
         system_content += " IMPORTANT: Do NOT copy the article title. Write a fresh, independent summary."
         
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": GROQ_PRIMARY_MODEL,
         "messages": [
             {"role": "system", "content": system_content},
             {"role": "user", "content": text[:4000]},
@@ -155,7 +158,7 @@ def _call_groq_summary_120b(text: str) -> Optional[str]:
         
     url = "https://api.groq.com/openai/v1/chat/completions"
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": GROQ_SECONDARY_MODEL,
         "messages": [
             {
                 "role": "system", 
@@ -314,7 +317,7 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
             "  * Publications like Nomad Lawyer should not be included.\n\n"
         )
         
-    model_name = "llama-3.3-70b-versatile"
+    model_name = GROQ_SECONDARY_MODEL if use_120b else GROQ_PRIMARY_MODEL
     
     prompt = (
         f"You are an editor filtering news for the client '{client_name}'.\n\n"
@@ -427,7 +430,7 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
             "  * Publications like Nomad Lawyer should not be included.\n\n"
         )
         
-    model_name = "llama-3.3-70b-versatile"
+    model_name = GROQ_SECONDARY_MODEL if use_120b else GROQ_PRIMARY_MODEL
     
     prompt = (
         f"You are an editor filtering news for the client '{client_name}'.\n\n"
@@ -573,7 +576,7 @@ def extract_metadata_with_groq_sync(body: str, url: str = "", context_agency: st
         api_key = GROQ_API_KEYS[0] if GROQ_API_KEYS else None
         is_placeholder = not api_key
         
-    model_name = "llama-3.3-70b-versatile"
+    model_name = GROQ_PRIMARY_MODEL
     
     if api_key:
         try:
