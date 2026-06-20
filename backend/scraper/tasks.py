@@ -246,22 +246,24 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
         pub_category = match_publication_category(agency_to_check, url_to_check)
         is_cat_a = (pub_category == "A")
 
+        # Fast-reject keyword pre-filter is temporarily disabled for maximum recall
         is_pre_filtered_relevant = True
-        if is_cat_a:
-            is_pre_filtered_relevant = True
-        elif keywords:
-            is_pre_filtered_relevant = verify_boolean_relevance(text_to_check, keywords)
-            if not is_pre_filtered_relevant and sector.lower() in text_to_check.lower():
-                is_pre_filtered_relevant = True
-                
-        if not is_pre_filtered_relevant:
-            logger.info(f"Fast-reject (Celery): article '{title}' failed keyword pre-filter. Skipping.")
-            with get_db_sync() as db:
-                db.merge(IrrelevantArticle(url=normalized_url, last_seen_at=datetime.now()))
-                db.commit()
-            _mark_article_processed(job_id)
-            _increment_funnel_metric(job_id, "pre_filter_dropped")
-            return None
+        # Original keyword filter (commented out to allow switching back):
+        # if is_cat_a:
+        #     is_pre_filtered_relevant = True
+        # elif keywords:
+        #     is_pre_filtered_relevant = verify_boolean_relevance(text_to_check, keywords)
+        #     if not is_pre_filtered_relevant and sector.lower() in text_to_check.lower():
+        #         is_pre_filtered_relevant = True
+        #         
+        # if not is_pre_filtered_relevant:
+        #     logger.info(f"Fast-reject (Celery): article '{title}' failed keyword pre-filter. Skipping.")
+        #     with get_db_sync() as db:
+        #         db.merge(IrrelevantArticle(url=normalized_url, last_seen_at=datetime.now()))
+        #         db.commit()
+        #     _mark_article_processed(job_id)
+        #     _increment_funnel_metric(job_id, "pre_filter_dropped")
+        #     return None
 
         # --- FAST-TRACK SCRAPING (httpx + trafilatura) ---
         html = None
@@ -366,21 +368,8 @@ def enrich_article_node(self, article_id):
             sim_score = evaluate_similarity_pre_filter(
                 article.title, article.full_body, keywords, client_context
             )
-            if sim_score < SIM_DROP_THRESHOLD:
-                logger.info(f"Cosine similarity pre-filter drop for article {article_id}: '{article.title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}). Skipping LLM.")
-                from db.database import IrrelevantArticle
-                db.merge(IrrelevantArticle(
-                    url=article.url,
-                    title=article.title,
-                    description=article.summary or (article.full_body[:200] if article.full_body else ""),
-                    rejection_reason=f"Similarity pre-filter drop (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD})",
-                    relevance_score=sim_score,
-                    last_seen_at=datetime.now()
-                ))
-                db.delete(article)
-                db.commit()
-                _increment_funnel_metric(article.scrape_job_id, "pre_filter_dropped")
-                return
+            # Cosine similarity pre-filter drop is temporarily disabled for maximum recall
+            logger.info(f"Cosine similarity pre-filter drop bypassed for article {article_id}: '{article.title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}).")
 
             # --- LLM Relevance Check ---
             is_semantic_relevant, verdict, reason, score = check_relevance_with_groq(
@@ -760,22 +749,24 @@ def run_client_report_task(client_id: int):
                     pub_category = match_publication_category(agency, raw_url)
                     is_cat_a = (pub_category == "A")
 
+                    # Fast-reject keyword pre-filter is temporarily disabled for maximum recall
                     is_relevant_kw = True
-                    if is_cat_a:
-                        is_relevant_kw = True
-                    else:
-                        is_relevant_kw = verify_boolean_relevance(text_to_check, keywords)
-                        if not is_relevant_kw and section_name.lower() in text_to_check.lower():
-                            is_relevant_kw = True
-                        
-                    if not is_relevant_kw:
-                        logger.info(f"Fast-reject: article '{title}' failed pre-filter.")
-                        # Cache as irrelevant in DB
-                        with get_db_sync() as db:
-                            db.merge(IrrelevantArticle(url=normalized_raw_url, last_seen_at=datetime.now()))
-                            db.commit()
-                        _increment_funnel_metric(job_id, "pre_filter_dropped")
-                        return None
+                    # Original keyword filter (commented out to allow switching back):
+                    # if is_cat_a:
+                    #     is_relevant_kw = True
+                    # else:
+                    #     is_relevant_kw = verify_boolean_relevance(text_to_check, keywords)
+                    #     if not is_relevant_kw and section_name.lower() in text_to_check.lower():
+                    #         is_relevant_kw = True
+                    #     
+                    # if not is_relevant_kw:
+                    #     logger.info(f"Fast-reject: article '{title}' failed pre-filter.")
+                    #     # Cache as irrelevant in DB
+                    #     with get_db_sync() as db:
+                    #         db.merge(IrrelevantArticle(url=normalized_raw_url, last_seen_at=datetime.now()))
+                    #         db.commit()
+                    #     _increment_funnel_metric(job_id, "pre_filter_dropped")
+                    #     return None
                         
                     # 4. Resolve URL
                     logger.info(f"Resolving Google News URL: {raw_url}")
@@ -1031,32 +1022,35 @@ def run_client_report_task(client_id: int):
                     sim_score = evaluate_similarity_pre_filter(
                         title, body_text, keywords, client_context or ""
                     )
-                    if sim_score < SIM_DROP_THRESHOLD:
-                        logger.info(f"Cosine similarity pre-filter drop for '{title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}). Skipping LLM.")
-                        with get_db_sync() as db:
-                            db.merge(IrrelevantArticle(
-                                url=normalized_url, 
-                                title=title, 
-                                description=desc or body_text[:200],
-                                rejection_reason=f"Similarity pre-filter drop (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD})",
-                                relevance_score=sim_score,
-                                last_seen_at=datetime.now()
-                            ))
-                            db.commit()
-                        _increment_funnel_metric(job_id, "pre_filter_dropped")
-                        from scraper.search_utils import match_publication_category
-                        return {
-                            "art_data": {
-                                "title": title,
-                                "url": resolved_url,
-                                "agency": agency,
-                                "summary": desc or (body_text[:200] + "...") if body_text else "Similarity pre-filter drop.",
-                                "publication_category": match_publication_category(agency, resolved_url),
-                                "is_paywalled": False
-                            },
-                            "is_relevant_kw": True,
-                            "is_semantic_relevant": False
-                        }
+                    # Cosine similarity pre-filter drop is temporarily disabled for maximum recall
+                    logger.info(f"Cosine similarity pre-filter drop bypassed for '{title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}).")
+                    # Original similarity filter (commented out to allow switching back):
+                    # if sim_score < SIM_DROP_THRESHOLD:
+                    #     logger.info(f"Cosine similarity pre-filter drop for '{title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}). Skipping LLM.")
+                    #     with get_db_sync() as db:
+                    #         db.merge(IrrelevantArticle(
+                    #             url=normalized_url, 
+                    #             title=title, 
+                    #             description=desc or body_text[:200],
+                    #             rejection_reason=f"Similarity pre-filter drop (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD})",
+                    #             relevance_score=sim_score,
+                    #             last_seen_at=datetime.now()
+                    #         ))
+                    #         db.commit()
+                    #     _increment_funnel_metric(job_id, "pre_filter_dropped")
+                    #     from scraper.search_utils import match_publication_category
+                    #     return {
+                    #         "art_data": {
+                    #             "title": title,
+                    #             "url": resolved_url,
+                    #             "agency": agency,
+                    #             "summary": desc or (body_text[:200] + "...") if body_text else "Similarity pre-filter drop.",
+                    #             "publication_category": match_publication_category(agency, resolved_url),
+                    #             "is_paywalled": False
+                    #         },
+                    #         "is_relevant_kw": True,
+                    #         "is_semantic_relevant": False
+                    #     }
 
                     # 9. Relevance Check (Asymmetric & Ensembling)
                     is_semantic_relevant = False

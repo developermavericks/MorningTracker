@@ -26,6 +26,54 @@ def should_use_playwright(url: str) -> bool:
     except Exception:
         return False
 
+KNOWN_PAYWALLED_DOMAINS = {
+    "the-ken.com", "livemint.com", "economictimes.indiatimes.com",
+    "business-standard.com", "financialexpress.com",
+    "wsj.com", "ft.com",
+    "reuters.com", "bloomberg.com", "thehindu.com", "indianexpress.com",
+    "moneycontrol.com", "timesofindia.indiatimes.com", "hindustantimes.com",
+}
+
+PAYWALL_HTML_INDICATORS = [
+    "paywall", "premium-content", "subscription-wall", "subscribe-gate",
+    "metered-content", "locked-content", "premium-article",
+    "subscribe to continue reading", "exclusive to subscribers",
+    "premium article", "this article is for subscribers",
+    "you have reached your free article limit",
+    "sign up to read this article", "become a member to read",
+]
+
+def detect_paywall(url: str, html_content: str, body_text: str) -> bool:
+    """
+    Detects if an article is behind a paywall using three methods:
+    1. Known paywalled domain matching
+    2. HTML content heuristic scanning for paywall indicators
+    3. Body length anomaly (short body text but large HTML)
+    """
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        # 1. Known domain check
+        if any(domain == d or domain.endswith("." + d) for d in KNOWN_PAYWALLED_DOMAINS):
+            return True
+    except Exception:
+        pass
+
+    # 2. HTML heuristic check
+    if html_content:
+        html_lower = html_content[:20000].lower()  # Only scan first 20KB for performance
+        for indicator in PAYWALL_HTML_INDICATORS:
+            if indicator in html_lower:
+                return True
+
+    # 3. Body length anomaly: short extracted text from a large HTML page
+    if html_content and body_text:
+        if len(body_text) < 200 and len(html_content) > 5000:
+            return True
+
+    return False
 
 def _mark_article_processed(job_id: str):
     """
@@ -191,20 +239,31 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
         description = article_data.get("description", "")
         text_to_check = f"{title} {description}"
         
+        # Check publication category first to bypass fast-reject for Category A
+        from scraper.search_utils import match_publication_category
+        url_to_check = article_data.get("url") or article_data.get("link")
+        agency_to_check = article_data.get("agency") or "News"
+        pub_category = match_publication_category(agency_to_check, url_to_check)
+        is_cat_a = (pub_category == "A")
+
+        # Fast-reject keyword pre-filter is temporarily disabled for maximum recall
         is_pre_filtered_relevant = True
-        if keywords:
-            is_pre_filtered_relevant = verify_boolean_relevance(text_to_check, keywords)
-            if not is_pre_filtered_relevant and sector.lower() in text_to_check.lower():
-                is_pre_filtered_relevant = True
-                
-        if not is_pre_filtered_relevant:
-            logger.info(f"Fast-reject (Celery): article '{title}' failed keyword pre-filter. Skipping.")
-            with get_db_sync() as db:
-                db.merge(IrrelevantArticle(url=normalized_url, last_seen_at=datetime.now()))
-                db.commit()
-            _mark_article_processed(job_id)
-            _increment_funnel_metric(job_id, "pre_filter_dropped")
-            return None
+        # Original keyword filter (commented out to allow switching back):
+        # if is_cat_a:
+        #     is_pre_filtered_relevant = True
+        # elif keywords:
+        #     is_pre_filtered_relevant = verify_boolean_relevance(text_to_check, keywords)
+        #     if not is_pre_filtered_relevant and sector.lower() in text_to_check.lower():
+        #         is_pre_filtered_relevant = True
+        #         
+        # if not is_pre_filtered_relevant:
+        #     logger.info(f"Fast-reject (Celery): article '{title}' failed keyword pre-filter. Skipping.")
+        #     with get_db_sync() as db:
+        #         db.merge(IrrelevantArticle(url=normalized_url, last_seen_at=datetime.now()))
+        #         db.commit()
+        #     _mark_article_processed(job_id)
+        #     _increment_funnel_metric(job_id, "pre_filter_dropped")
+        #     return None
 
         # --- FAST-TRACK SCRAPING (httpx + trafilatura) ---
         html = None
@@ -309,21 +368,8 @@ def enrich_article_node(self, article_id):
             sim_score = evaluate_similarity_pre_filter(
                 article.title, article.full_body, keywords, client_context
             )
-            if sim_score < SIM_DROP_THRESHOLD:
-                logger.info(f"Cosine similarity pre-filter drop for article {article_id}: '{article.title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}). Skipping LLM.")
-                from db.database import IrrelevantArticle
-                db.merge(IrrelevantArticle(
-                    url=article.url,
-                    title=article.title,
-                    description=article.summary or (article.full_body[:200] if article.full_body else ""),
-                    rejection_reason=f"Similarity pre-filter drop (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD})",
-                    relevance_score=sim_score,
-                    last_seen_at=datetime.now()
-                ))
-                db.delete(article)
-                db.commit()
-                _increment_funnel_metric(article.scrape_job_id, "pre_filter_dropped")
-                return
+            # Cosine similarity pre-filter drop is temporarily disabled for maximum recall
+            logger.info(f"Cosine similarity pre-filter drop bypassed for article {article_id}: '{article.title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}).")
 
             # --- LLM Relevance Check ---
             is_semantic_relevant, verdict, reason, score = check_relevance_with_groq(
@@ -390,6 +436,18 @@ def complete_stale_jobs():
     """
     from datetime import datetime, timedelta
     from db.database import ClientRunLog
+    
+    # Redis Lock to prevent duplicate runs from concurrent schedulers
+    try:
+        r = get_redis_sync()
+        current_minute = datetime.now().minute
+        minute_block = current_minute - (current_minute % 5)
+        lock_key = f"lock:scheduler:stale:{datetime.now().strftime('%Y-%m-%d-%H')}-{minute_block}"
+        if not r.set(lock_key, "1", nx=True, ex=240):
+            logger.info("Stale jobs cleanup already processed by another instance. Skipping.")
+            return
+    except Exception as lock_err:
+        logger.warning(f"Failed to acquire Redis stale-jobs lock: {lock_err}")
     try:
         with get_db_sync() as db:
             stale_cutoff = datetime.now() - timedelta(minutes=10)
@@ -477,6 +535,7 @@ def run_client_report_task(client_id: int):
         client_name = client.name
         template_path = client.template_path
         client_context = client.context
+        client_timezone = client.timezone or "Asia/Kolkata"
         
     try:
         def _update_progress(msg: str):
@@ -519,10 +578,22 @@ def run_client_report_task(client_id: int):
         report_data_filtered = {} # {section_name: [list of article dicts]}
         report_data_master = {} # {section_name: [list of article dicts]}
         
-        # We scrape for the past 24 hours/today
-        # In case it's early in the day, we search yesterday and today to be safe
-        search_date = date.today()
+        # Determine the search window based on the day of the week in client's timezone
+        client_tz = pytz.timezone(client_timezone)
+        run_date = datetime.now(client_tz).date()
         
+        search_dates = [run_date]
+        if run_date.weekday() == 0:  # 0 is Monday
+            # On Monday, consolidate Friday, Saturday, Sunday, and Monday
+            search_dates.extend([
+                run_date - timedelta(days=1),  # Sunday
+                run_date - timedelta(days=2),  # Saturday
+                run_date - timedelta(days=3)   # Friday
+            ])
+        else:
+            # On other weekdays, search today and yesterday
+            search_dates.append(run_date - timedelta(days=1))
+            
         for section_name, keywords in sections_data.items():
             if not keywords:
                 continue
@@ -540,16 +611,36 @@ def run_client_report_task(client_id: int):
             except Exception as e:
                 logger.error(f"Failed to initialize funnel log for client: {e}")
                 
-            # Discover articles
-            discovered = discover_articles(
-                keywords=keywords,
-                day=search_date,
-                geo="IN",
-                region_name="india",
-                job_id=job_id,
-                sector=f"{client_name} - {section_name}"
-            )
-            
+            # Discover articles across all target dates, merging and deduplicating
+            discovered = []
+            seen_section_urls = set()
+            for target_date in search_dates:
+                day_discovered = discover_articles(
+                    keywords=keywords,
+                    day=target_date,
+                    geo="IN",
+                    region_name="india",
+                    job_id=f"client_{client_id}_sec_{section_name}_{target_date.strftime('%Y%m%d')}",
+                    sector=f"{client_name} - {section_name}"
+                )
+                for art in day_discovered:
+                    if art["url"] not in seen_section_urls:
+                        discovered.append(art)
+                        seen_section_urls.add(art["url"])
+                        
+                # Direct feed discovery
+                from scraper.engine import discover_direct_feeds
+                day_discovered_direct = discover_direct_feeds(
+                    keywords=keywords,
+                    day=target_date,
+                    job_id=f"client_{client_id}_sec_{section_name}_{target_date.strftime('%Y%m%d')}",
+                    sector=f"{client_name} - {section_name}"
+                )
+                for art in day_discovered_direct:
+                    if art["url"] not in seen_section_urls:
+                        discovered.append(art)
+                        seen_section_urls.add(art["url"])
+                        
             try:
                 with get_db_sync() as db:
                     db.execute(
@@ -560,19 +651,6 @@ def run_client_report_task(client_id: int):
                     db.commit()
             except Exception as e:
                 pass
-            
-            # If not enough articles, fallback/extend search to yesterday
-            if len(discovered) < 3:
-                yesterday = search_date - timedelta(days=1)
-                discovered_yesterday = discover_articles(
-                    keywords=keywords,
-                    day=yesterday,
-                    geo="IN",
-                    region_name="india",
-                    job_id=f"client_{client_id}_sec_{section_name}_yesterday",
-                    sector=f"{client_name} - {section_name}"
-                )
-                discovered.extend(discovered_yesterday)
                 
             # Deduplicate by url
             unique_discovered = []
@@ -593,6 +671,12 @@ def run_client_report_task(client_id: int):
                 raw_url = art["url"]
                 title = art["title"]
                 desc = art.get("description") or ""
+                # Strip HTML tags from RSS description (Google News RSS contains raw HTML markup)
+                if desc and "<" in desc:
+                    import re
+                    desc = re.sub(r'<[^>]+>', '', desc).strip()
+                    desc = re.sub(r'&nbsp;', ' ', desc)
+                    desc = re.sub(r'\s{2,}', ' ', desc).strip()
                 agency = art.get("agency") or "News"
                 
                 job_id = f"client_{client_id}_sec_{section_name}"
@@ -612,12 +696,20 @@ def run_client_report_task(client_id: int):
                         if existing_article and existing_article.full_body and existing_article.summary:
                             logger.info(f"Early DB Cache HIT for {normalized_raw_url}")
                             _increment_funnel_metric(job_id, "cache_skipped")
+                            
+                            from scraper.search_utils import match_publication_category
+                            cached_meta = existing_article.extra_metadata or {}
+                            pub_category = cached_meta.get("publication_category")
+                            if not pub_category:
+                                pub_category = match_publication_category(existing_article.agency or agency, existing_article.resolved_url or existing_article.url)
+                            
                             return {
                                 "art_data": {
                                     "title": existing_article.title,
                                     "url": existing_article.resolved_url or existing_article.url,
                                     "agency": existing_article.agency or agency,
-                                    "summary": existing_article.summary
+                                    "summary": existing_article.summary,
+                                    "publication_category": pub_category
                                 },
                                 "is_relevant_kw": True,
                                 "is_semantic_relevant": True
@@ -633,25 +725,48 @@ def run_client_report_task(client_id: int):
                             if age.days < 30:
                                 logger.info(f"Early Irrelevant Cache HIT for {normalized_raw_url}")
                                 _increment_funnel_metric(job_id, "cache_skipped")
-                                return None
+                                from scraper.search_utils import match_publication_category
+                                return {
+                                    "art_data": {
+                                        "title": cached_ir.title or title,
+                                        "url": raw_url,
+                                        "agency": agency,
+                                        "summary": cached_ir.description or desc or "Irrelevant article cached.",
+                                        "publication_category": match_publication_category(agency, raw_url)
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": False
+                                }
                             else:
                                 db.delete(cached_ir)
                                 db.commit()
                                 
                     # 3. Triage pre-filter (fast reject)
                     text_to_check = f"{title} {desc}"
-                    is_relevant_kw = verify_boolean_relevance(text_to_check, keywords)
-                    if not is_relevant_kw and section_name.lower() in text_to_check.lower():
-                        is_relevant_kw = True
-                        
-                    if not is_relevant_kw:
-                        logger.info(f"Fast-reject: article '{title}' failed pre-filter.")
-                        # Cache as irrelevant in DB
-                        with get_db_sync() as db:
-                            db.merge(IrrelevantArticle(url=normalized_raw_url, last_seen_at=datetime.now()))
-                            db.commit()
-                        _increment_funnel_metric(job_id, "pre_filter_dropped")
-                        return None
+                    
+                    # Check publication category first to bypass fast-reject for Category A
+                    from scraper.search_utils import match_publication_category
+                    pub_category = match_publication_category(agency, raw_url)
+                    is_cat_a = (pub_category == "A")
+
+                    # Fast-reject keyword pre-filter is temporarily disabled for maximum recall
+                    is_relevant_kw = True
+                    # Original keyword filter (commented out to allow switching back):
+                    # if is_cat_a:
+                    #     is_relevant_kw = True
+                    # else:
+                    #     is_relevant_kw = verify_boolean_relevance(text_to_check, keywords)
+                    #     if not is_relevant_kw and section_name.lower() in text_to_check.lower():
+                    #         is_relevant_kw = True
+                    #     
+                    # if not is_relevant_kw:
+                    #     logger.info(f"Fast-reject: article '{title}' failed pre-filter.")
+                    #     # Cache as irrelevant in DB
+                    #     with get_db_sync() as db:
+                    #         db.merge(IrrelevantArticle(url=normalized_raw_url, last_seen_at=datetime.now()))
+                    #         db.commit()
+                    #     _increment_funnel_metric(job_id, "pre_filter_dropped")
+                    #     return None
                         
                     # 4. Resolve URL
                     logger.info(f"Resolving Google News URL: {raw_url}")
@@ -668,12 +783,21 @@ def run_client_report_task(client_id: int):
                         if existing_article and existing_article.full_body and existing_article.summary:
                             logger.info(f"Canonical DB Cache HIT for {normalized_url}")
                             _increment_funnel_metric(job_id, "cache_skipped")
+                            
+                            from scraper.search_utils import match_publication_category
+                            cached_meta = existing_article.extra_metadata or {}
+                            pub_category = cached_meta.get("publication_category")
+                            if not pub_category:
+                                pub_category = match_publication_category(existing_article.agency or agency, existing_article.resolved_url or existing_article.url)
+                                
                             return {
                                 "art_data": {
                                     "title": existing_article.title,
                                     "url": existing_article.resolved_url or existing_article.url,
                                     "agency": existing_article.agency or agency,
-                                    "summary": existing_article.summary
+                                    "summary": existing_article.summary,
+                                    "publication_category": pub_category,
+                                    "is_paywalled": False
                                 },
                                 "is_relevant_kw": True,
                                 "is_semantic_relevant": True
@@ -689,7 +813,19 @@ def run_client_report_task(client_id: int):
                             if age.days < 30:
                                 logger.info(f"Canonical Irrelevant Cache HIT for {normalized_url}")
                                 _increment_funnel_metric(job_id, "cache_skipped")
-                                return None
+                                from scraper.search_utils import match_publication_category
+                                return {
+                                    "art_data": {
+                                        "title": cached_ir.title or title,
+                                        "url": resolved_url,
+                                        "agency": agency,
+                                        "summary": cached_ir.description or desc or "Irrelevant article cached.",
+                                        "publication_category": match_publication_category(agency, resolved_url),
+                                        "is_paywalled": False
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": False
+                                }
                             else:
                                 db.delete(cached_ir)
                                 db.commit()
@@ -721,8 +857,78 @@ def run_client_report_task(client_id: int):
                             logger.error(f"Browser scrape failed for {resolved_url}: {e}")
                             
                     if not html_content:
-                        logger.warning(f"Could not fetch HTML content for {resolved_url}. Skipping.")
-                        return None
+                        logger.warning(f"Could not fetch HTML content for {resolved_url}.")
+                        from scraper.search_utils import match_publication_category
+                        pub_cat = match_publication_category(agency, resolved_url)
+                        is_pw = detect_paywall(resolved_url, "", "")
+                        
+                        # Category A zero-failure fallback
+                        if pub_cat == "A":
+                            logger.info(f"Scraper failed for Category A url {resolved_url}. Applying zero-failure fallback.")
+                            is_relevant_fallback = True
+                            fallback_summary = desc if (desc and len(desc.strip()) > 20) else "Could not extract full text - paywalled/blocked."
+                            if desc and len(desc.strip()) > 20:
+                                try:
+                                    from scraper.llm import check_relevance_with_groq
+                                    is_relevant_fallback, _, _, _ = check_relevance_with_groq(
+                                        title, desc, keywords, client_name, client_context=client_context
+                                    )
+                                except Exception as fallback_err:
+                                    logger.error(f"Fallback LLM relevance check failed for Category A: {fallback_err}")
+                                    is_relevant_fallback = True
+                            if is_relevant_fallback:
+                                return {
+                                    "art_data": {
+                                        "title": title,
+                                        "url": resolved_url,
+                                        "agency": agency,
+                                        "summary": fallback_summary,
+                                        "publication_category": pub_cat,
+                                        "is_paywalled": True
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": True
+                                }
+                        
+                        if is_pw and desc:
+                            # Paywalled: run LLM relevance on headline + RSS description
+                            logger.info(f"Paywall detected for {resolved_url}. Running LLM relevance on title+description.")
+                            try:
+                                from scraper.llm import check_relevance_with_groq
+                                pw_relevant, _, _, _ = check_relevance_with_groq(
+                                    title, desc, keywords, client_name, client_context=client_context
+                                )
+                            except Exception as pw_err:
+                                logger.error(f"Paywall LLM relevance check failed: {pw_err}")
+                                pw_relevant = False
+                            
+                            if pw_relevant:
+                                logger.info(f"Paywalled article '{title}' deemed RELEVANT by LLM.")
+                                return {
+                                    "art_data": {
+                                        "title": title,
+                                        "url": resolved_url,
+                                        "agency": agency,
+                                        "summary": desc,
+                                        "publication_category": pub_cat,
+                                        "is_paywalled": True
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": True
+                                }
+                        
+                        return {
+                            "art_data": {
+                                "title": title,
+                                "url": resolved_url,
+                                "agency": agency,
+                                "summary": desc or "Could not fetch HTML content.",
+                                "publication_category": pub_cat,
+                                "is_paywalled": is_pw
+                            },
+                            "is_relevant_kw": True,
+                            "is_semantic_relevant": False
+                        }
                         
                     _increment_funnel_metric(job_id, "scraped_count")
                         
@@ -736,28 +942,115 @@ def run_client_report_task(client_id: int):
                         body_text = soup.get_text(separator="\n", strip=True)
                         
                     if not body_text or len(body_text) < 100:
-                        logger.warning(f"No meaningful text extracted for {resolved_url}. Skipping.")
-                        return None
+                        logger.warning(f"No meaningful text extracted for {resolved_url}.")
+                        from scraper.search_utils import match_publication_category
+                        pub_cat = match_publication_category(agency, resolved_url)
+                        is_pw = detect_paywall(resolved_url, html_content, body_text or "")
+                        
+                        # Category A zero-failure fallback
+                        if pub_cat == "A":
+                            logger.info(f"Extraction failed for Category A url {resolved_url}. Applying zero-failure fallback.")
+                            is_relevant_fallback = True
+                            fallback_summary = desc if (desc and len(desc.strip()) > 20) else "Could not extract full text - paywalled/blocked."
+                            if desc and len(desc.strip()) > 20:
+                                try:
+                                    from scraper.llm import check_relevance_with_groq
+                                    is_relevant_fallback, _, _, _ = check_relevance_with_groq(
+                                        title, desc, keywords, client_name, client_context=client_context
+                                    )
+                                except Exception as fallback_err:
+                                    logger.error(f"Fallback LLM relevance check failed for Category A: {fallback_err}")
+                                    is_relevant_fallback = True
+                            if is_relevant_fallback:
+                                return {
+                                    "art_data": {
+                                        "title": title,
+                                        "url": resolved_url,
+                                        "agency": agency,
+                                        "summary": fallback_summary,
+                                        "publication_category": pub_cat,
+                                        "is_paywalled": True
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": True
+                                }
+                        
+                        if is_pw:
+                            # Paywalled: run LLM relevance on headline + available text + RSS description
+                            fallback_text = f"{body_text or ''} {desc or ''}".strip()
+                            if fallback_text:
+                                logger.info(f"Paywall detected for {resolved_url}. Running LLM relevance on partial content.")
+                                try:
+                                    from scraper.llm import check_relevance_with_groq
+                                    pw_relevant, _, _, _ = check_relevance_with_groq(
+                                        title, fallback_text, keywords, client_name, client_context=client_context
+                                    )
+                                except Exception as pw_err:
+                                    logger.error(f"Paywall LLM relevance check failed: {pw_err}")
+                                    pw_relevant = False
+                                
+                                if pw_relevant:
+                                    logger.info(f"Paywalled article '{title}' deemed RELEVANT by LLM.")
+                                    return {
+                                        "art_data": {
+                                            "title": title,
+                                            "url": resolved_url,
+                                            "agency": agency,
+                                            "summary": fallback_text,
+                                            "publication_category": pub_cat,
+                                            "is_paywalled": True
+                                        },
+                                        "is_relevant_kw": True,
+                                        "is_semantic_relevant": True
+                                    }
+                        
+                        return {
+                            "art_data": {
+                                "title": title,
+                                "url": resolved_url,
+                                "agency": agency,
+                                "summary": desc or "No meaningful text extracted from article.",
+                                "publication_category": pub_cat,
+                                "is_paywalled": is_pw
+                            },
+                            "is_relevant_kw": True,
+                            "is_semantic_relevant": False
+                        }
                         
                     # 8. Cosine Similarity Pre-Filter
                     from scraper.similarity import evaluate_similarity_pre_filter, SIM_DROP_THRESHOLD
                     sim_score = evaluate_similarity_pre_filter(
                         title, body_text, keywords, client_context or ""
                     )
-                    if sim_score < SIM_DROP_THRESHOLD:
-                        logger.info(f"Cosine similarity pre-filter drop for '{title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}). Skipping LLM.")
-                        with get_db_sync() as db:
-                            db.merge(IrrelevantArticle(
-                                url=normalized_url, 
-                                title=title, 
-                                description=desc or body_text[:200],
-                                rejection_reason=f"Similarity pre-filter drop (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD})",
-                                relevance_score=sim_score,
-                                last_seen_at=datetime.now()
-                            ))
-                            db.commit()
-                        _increment_funnel_metric(job_id, "pre_filter_dropped")
-                        return None
+                    # Cosine similarity pre-filter drop is temporarily disabled for maximum recall
+                    logger.info(f"Cosine similarity pre-filter drop bypassed for '{title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}).")
+                    # Original similarity filter (commented out to allow switching back):
+                    # if sim_score < SIM_DROP_THRESHOLD:
+                    #     logger.info(f"Cosine similarity pre-filter drop for '{title}' (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD}). Skipping LLM.")
+                    #     with get_db_sync() as db:
+                    #         db.merge(IrrelevantArticle(
+                    #             url=normalized_url, 
+                    #             title=title, 
+                    #             description=desc or body_text[:200],
+                    #             rejection_reason=f"Similarity pre-filter drop (score: {sim_score:.4f} < {SIM_DROP_THRESHOLD})",
+                    #             relevance_score=sim_score,
+                    #             last_seen_at=datetime.now()
+                    #         ))
+                    #         db.commit()
+                    #     _increment_funnel_metric(job_id, "pre_filter_dropped")
+                    #     from scraper.search_utils import match_publication_category
+                    #     return {
+                    #         "art_data": {
+                    #             "title": title,
+                    #             "url": resolved_url,
+                    #             "agency": agency,
+                    #             "summary": desc or (body_text[:200] + "...") if body_text else "Similarity pre-filter drop.",
+                    #             "publication_category": match_publication_category(agency, resolved_url),
+                    #             "is_paywalled": False
+                    #         },
+                    #         "is_relevant_kw": True,
+                    #         "is_semantic_relevant": False
+                    #     }
 
                     # 9. Relevance Check (Asymmetric & Ensembling)
                     is_semantic_relevant = False
@@ -789,7 +1082,19 @@ def run_client_report_task(client_id: int):
                             ))
                             db.commit()
                         _increment_funnel_metric(job_id, "relevance_no")
-                        return None
+                        from scraper.search_utils import match_publication_category
+                        return {
+                            "art_data": {
+                                "title": title,
+                                "url": resolved_url,
+                                "agency": agency,
+                                "summary": desc or (body_text[:200] + "...") if body_text else "Semantically irrelevant.",
+                                "publication_category": match_publication_category(agency, resolved_url),
+                                "is_paywalled": False
+                            },
+                            "is_relevant_kw": True,
+                            "is_semantic_relevant": False
+                        }
                         
                     _increment_funnel_metric(job_id, "relevance_yes")
                         
@@ -839,6 +1144,10 @@ def run_client_report_task(client_id: int):
                         summary_text = body_text[:300] + "..."
                         
                     _increment_funnel_metric(job_id, "summarized_count")
+                    
+                    from scraper.search_utils import match_publication_category
+                    pub_category = match_publication_category(agency, resolved_url)
+                    extra_meta["publication_category"] = pub_category
                         
                     # 10. Cache to DB
                     try:
@@ -876,7 +1185,9 @@ def run_client_report_task(client_id: int):
                         "title": title,
                         "url": resolved_url,
                         "agency": agency,
-                        "summary": summary_text
+                        "summary": summary_text,
+                        "publication_category": pub_category,
+                        "is_paywalled": False
                     }
                     
                     return {
@@ -917,8 +1228,19 @@ def run_client_report_task(client_id: int):
             
             report_data_filtered[section_name] = filtered_section_articles
             report_data_master[section_name] = master_section_articles
-            
-            _update_progress(f"Section '{section_name}' completed. Discovered: {total_to_process}, Relevant: {len(filtered_section_articles)}.")
+            cat_counts = {"A": 0, "B": 0, "C": 0}
+            paywalled_count = 0
+            for art in filtered_section_articles:
+                cat_counts[art.get("publication_category", "C")] += 1
+                if art.get("is_paywalled"):
+                    paywalled_count += 1
+                
+            _update_progress(
+                f"Section '{section_name}' completed. "
+                f"Discovered: {total_to_process}, "
+                f"Relevant: {len(filtered_section_articles)} (Cat A: {cat_counts['A']}, Cat B: {cat_counts['B']}, Cat C: {cat_counts['C']}), "
+                f"Paywalled: {paywalled_count}."
+            )
             
         # Check if we got any articles at all
         total_filtered_count = sum(len(articles) for articles in report_data_filtered.values())
@@ -1108,6 +1430,18 @@ def check_client_schedules():
     import pytz
     from sqlalchemy import select, desc
     
+    # Redis Lock to prevent duplicate runs from concurrent schedulers
+    try:
+        r = get_redis_sync()
+        current_minute = datetime.now().minute
+        minute_block = current_minute - (current_minute % 5)
+        lock_key = f"lock:scheduler:check:{datetime.now().strftime('%Y-%m-%d-%H')}-{minute_block}"
+        if not r.set(lock_key, "1", nx=True, ex=240):
+            logger.info("Schedule check already processed by another instance. Skipping.")
+            return
+    except Exception as lock_err:
+        logger.warning(f"Failed to acquire Redis scheduler lock: {lock_err}")
+    
     logger.info("Checking client automation schedules...")
     
     with get_db_sync() as db:
@@ -1117,40 +1451,51 @@ def check_client_schedules():
             try:
                 # 1. Parse client timezone
                 client_tz = pytz.timezone(client.timezone)
+                from datetime import datetime, timedelta
                 now_tz = datetime.now(client_tz)
+                
+                # Skip scheduled runs on weekends (Saturday=5, Sunday=6) in client's timezone
+                if now_tz.weekday() in [5, 6]:
+                    logger.info(f"Skipping schedule check for client '{client.name}' as it is the weekend ({now_tz.strftime('%A')}).")
+                    continue
                 
                 # 2. Parse scheduled time (format HH:MM)
                 sched_hour, sched_min = map(int, client.scheduled_time.split(":"))
                 
-                # 3. Check if current time matches scheduled hour & is within schedule window (e.g. 5 minutes)
-                # Since celery beat runs every 5 minutes, we match the hour and check if we are in the target window.
-                # To prevent double triggering, we check if a run has already occurred today in the client's timezone.
-                if now_tz.hour == sched_hour:
-                    # Check if the target minute is in the past and close
-                    time_diff_minutes = (now_tz.hour * 60 + now_tz.minute) - (sched_hour * 60 + sched_min)
+                # 3. Calculate time differences to check if we are in the 10-minute window
+                # We check target time for both today and yesterday to support midnight boundary crossings
+                target_today = now_tz.replace(hour=sched_hour, minute=sched_min, second=0, microsecond=0)
+                diff_today = (now_tz - target_today).total_seconds() / 60.0
+                
+                target_yesterday = target_today - timedelta(days=1)
+                diff_yesterday = (now_tz - target_yesterday).total_seconds() / 60.0
+                
+                # Determine if current time falls within 10 minutes after scheduled target time
+                is_in_window = (0 <= diff_today < 10) or (0 <= diff_yesterday < 10)
+                
+                if is_in_window:
+                    # Decide which target date this trigger belongs to
+                    target_date = target_today.date() if (0 <= diff_today < 10) else target_yesterday.date()
                     
-                    if 0 <= time_diff_minutes < 10:
-                        # Check if a successful or running job already exists for today
-                        # Query last log
-                        last_log = db.execute(
-                            select(ClientRunLog)
-                            .where(ClientRunLog.client_id == client.id)
-                            .order_by(desc(ClientRunLog.started_at))
-                            .limit(1)
-                        ).scalar_one_or_none()
-                        
-                        already_ran = False
-                        if last_log:
-                            # Convert last run's started_at to client's timezone
-                            last_started = last_log.started_at.replace(tzinfo=pytz.utc).astimezone(client_tz) if last_log.started_at.tzinfo else pytz.utc.localize(last_log.started_at).astimezone(client_tz)
-                            if last_started.date() == now_tz.date() and last_log.status in ["completed", "running"]:
-                                already_ran = True
-                                
-                        if not already_ran:
-                            logger.info(f"Scheduling report run for client '{client.name}' (Scheduled: {client.scheduled_time} in {client.timezone})")
-                            celery_app.send_task(
-                                "scraper.tasks.run_client_report_task",
-                                args=[client.id]
-                            )
+                    # Check if a run has already occurred for this specific target date
+                    last_log = db.execute(
+                        select(ClientRunLog)
+                        .where(ClientRunLog.client_id == client.id)
+                        .order_by(desc(ClientRunLog.started_at))
+                        .limit(1)
+                    ).scalar_one_or_none()
+                    
+                    already_ran = False
+                    if last_log:
+                        last_started = last_log.started_at.replace(tzinfo=pytz.utc).astimezone(client_tz) if last_log.started_at.tzinfo else pytz.utc.localize(last_log.started_at).astimezone(client_tz)
+                        if last_started.date() == target_date and last_log.status in ["completed", "running"]:
+                            already_ran = True
+                            
+                    if not already_ran:
+                        logger.info(f"Scheduling report run for client '{client.name}' (Target Date: {target_date}, Scheduled: {client.scheduled_time} in {client.timezone})")
+                        celery_app.send_task(
+                            "scraper.tasks.run_client_report_task",
+                            args=[client.id]
+                        )
             except Exception as e:
                 logger.error(f"Error checking schedule for client '{client.name}': {e}")
