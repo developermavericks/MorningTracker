@@ -30,6 +30,8 @@ KNOWN_PAYWALLED_DOMAINS = {
     "the-ken.com", "livemint.com", "economictimes.indiatimes.com",
     "business-standard.com", "financialexpress.com",
     "wsj.com", "ft.com",
+    "reuters.com", "bloomberg.com", "thehindu.com", "indianexpress.com",
+    "moneycontrol.com", "timesofindia.indiatimes.com", "hindustantimes.com",
 }
 
 PAYWALL_HTML_INDICATORS = [
@@ -237,8 +239,17 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
         description = article_data.get("description", "")
         text_to_check = f"{title} {description}"
         
+        # Check publication category first to bypass fast-reject for Category A
+        from scraper.search_utils import match_publication_category
+        url_to_check = article_data.get("url") or article_data.get("link")
+        agency_to_check = article_data.get("agency") or "News"
+        pub_category = match_publication_category(agency_to_check, url_to_check)
+        is_cat_a = (pub_category == "A")
+
         is_pre_filtered_relevant = True
-        if keywords:
+        if is_cat_a:
+            is_pre_filtered_relevant = True
+        elif keywords:
             is_pre_filtered_relevant = verify_boolean_relevance(text_to_check, keywords)
             if not is_pre_filtered_relevant and sector.lower() in text_to_check.lower():
                 is_pre_filtered_relevant = True
@@ -628,6 +639,19 @@ def run_client_report_task(client_id: int):
                         discovered.append(art)
                         seen_section_urls.add(art["url"])
                         
+                # Direct feed discovery
+                from scraper.engine import discover_direct_feeds
+                day_discovered_direct = discover_direct_feeds(
+                    keywords=keywords,
+                    day=target_date,
+                    job_id=f"client_{client_id}_sec_{section_name}_{target_date.strftime('%Y%m%d')}",
+                    sector=f"{client_name} - {section_name}"
+                )
+                for art in day_discovered_direct:
+                    if art["url"] not in seen_section_urls:
+                        discovered.append(art)
+                        seen_section_urls.add(art["url"])
+                        
             try:
                 with get_db_sync() as db:
                     db.execute(
@@ -730,9 +754,19 @@ def run_client_report_task(client_id: int):
                                 
                     # 3. Triage pre-filter (fast reject)
                     text_to_check = f"{title} {desc}"
-                    is_relevant_kw = verify_boolean_relevance(text_to_check, keywords)
-                    if not is_relevant_kw and section_name.lower() in text_to_check.lower():
+                    
+                    # Check publication category first to bypass fast-reject for Category A
+                    from scraper.search_utils import match_publication_category
+                    pub_category = match_publication_category(agency, raw_url)
+                    is_cat_a = (pub_category == "A")
+
+                    is_relevant_kw = True
+                    if is_cat_a:
                         is_relevant_kw = True
+                    else:
+                        is_relevant_kw = verify_boolean_relevance(text_to_check, keywords)
+                        if not is_relevant_kw and section_name.lower() in text_to_check.lower():
+                            is_relevant_kw = True
                         
                     if not is_relevant_kw:
                         logger.info(f"Fast-reject: article '{title}' failed pre-filter.")
@@ -837,6 +871,34 @@ def run_client_report_task(client_id: int):
                         pub_cat = match_publication_category(agency, resolved_url)
                         is_pw = detect_paywall(resolved_url, "", "")
                         
+                        # Category A zero-failure fallback
+                        if pub_cat == "A":
+                            logger.info(f"Scraper failed for Category A url {resolved_url}. Applying zero-failure fallback.")
+                            is_relevant_fallback = True
+                            fallback_summary = desc if (desc and len(desc.strip()) > 20) else "Could not extract full text - paywalled/blocked."
+                            if desc and len(desc.strip()) > 20:
+                                try:
+                                    from scraper.llm import check_relevance_with_groq
+                                    is_relevant_fallback, _, _, _ = check_relevance_with_groq(
+                                        title, desc, keywords, client_name, client_context=client_context
+                                    )
+                                except Exception as fallback_err:
+                                    logger.error(f"Fallback LLM relevance check failed for Category A: {fallback_err}")
+                                    is_relevant_fallback = True
+                            if is_relevant_fallback:
+                                return {
+                                    "art_data": {
+                                        "title": title,
+                                        "url": resolved_url,
+                                        "agency": agency,
+                                        "summary": fallback_summary,
+                                        "publication_category": pub_cat,
+                                        "is_paywalled": True
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": True
+                                }
+                        
                         if is_pw and desc:
                             # Paywalled: run LLM relevance on headline + RSS description
                             logger.info(f"Paywall detected for {resolved_url}. Running LLM relevance on title+description.")
@@ -893,6 +955,34 @@ def run_client_report_task(client_id: int):
                         from scraper.search_utils import match_publication_category
                         pub_cat = match_publication_category(agency, resolved_url)
                         is_pw = detect_paywall(resolved_url, html_content, body_text or "")
+                        
+                        # Category A zero-failure fallback
+                        if pub_cat == "A":
+                            logger.info(f"Extraction failed for Category A url {resolved_url}. Applying zero-failure fallback.")
+                            is_relevant_fallback = True
+                            fallback_summary = desc if (desc and len(desc.strip()) > 20) else "Could not extract full text - paywalled/blocked."
+                            if desc and len(desc.strip()) > 20:
+                                try:
+                                    from scraper.llm import check_relevance_with_groq
+                                    is_relevant_fallback, _, _, _ = check_relevance_with_groq(
+                                        title, desc, keywords, client_name, client_context=client_context
+                                    )
+                                except Exception as fallback_err:
+                                    logger.error(f"Fallback LLM relevance check failed for Category A: {fallback_err}")
+                                    is_relevant_fallback = True
+                            if is_relevant_fallback:
+                                return {
+                                    "art_data": {
+                                        "title": title,
+                                        "url": resolved_url,
+                                        "agency": agency,
+                                        "summary": fallback_summary,
+                                        "publication_category": pub_cat,
+                                        "is_paywalled": True
+                                    },
+                                    "is_relevant_kw": True,
+                                    "is_semantic_relevant": True
+                                }
                         
                         if is_pw:
                             # Paywalled: run LLM relevance on headline + available text + RSS description

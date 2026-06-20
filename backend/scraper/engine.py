@@ -369,6 +369,18 @@ def discover_articles(keywords: List[str], day: Optional[date], geo: str, region
                     if len(q) <= 256:
                         window_queries.append(q)
 
+        # Create a targeted query chunk for Category A domains to ensure they are fetched
+        cat_a_domains_query = "site:reuters.com OR site:bloomberg.com OR site:economictimes.indiatimes.com OR site:livemint.com OR site:timesofindia.indiatimes.com OR site:hindustantimes.com OR site:indianexpress.com"
+        
+        # Add a focused query for generic/tier 2 keywords restricted to Category A sources
+        if tier2_kws:
+            for i in range(0, len(tier2_kws), chunk_size_t2):
+                chunk_t2 = tier2_kws[i:i+chunk_size_t2]
+                chunk_t2_str = " OR ".join([quote_keyword(k) for k in chunk_t2])
+                q = f"({chunk_t2_str}) AND ({cat_a_domains_query})"
+                if len(q) <= 256:
+                    window_queries.append(q)
+
     # Deduplicate queries to avoid double fetches
     window_queries = list(dict.fromkeys(window_queries))
     random.shuffle(window_queries)
@@ -386,6 +398,91 @@ def discover_articles(keywords: List[str], day: Optional[date], geo: str, region
     discovery_pool.join()
 
     if cumulative is not None: cumulative.update(seen_urls)
+    return articles
+
+def discover_direct_feeds(keywords: List[str], day: Optional[date], job_id: str, cumulative: set = None, sector: str = "Unknown") -> List[dict]:
+    articles = []
+    seen_urls = set()
+    from db.database import get_db_sync
+    
+    # 1. Fetch active direct feeds from DB
+    feeds = []
+    try:
+        with get_db_sync() as db:
+            res = db.execute(text("SELECT feed_url, publication_name FROM direct_feeds WHERE is_active = 1"))
+            feeds = [{"url": r[0], "name": r[1]} for r in res.all()]
+    except Exception as e:
+        logger.error(f"Failed to fetch direct feeds from database: {e}")
+        return []
+        
+    if not feeds:
+        return []
+        
+    proxy_pool = load_proxies() or []
+    
+    def fetch_direct_feed(feed_info):
+        feed_url = feed_info["url"]
+        pub_name = feed_info["name"]
+        
+        try:
+            proxy = ProxyGuard.get_healthy_proxy(proxy_pool)
+            xml_content = NetworkHandler.get_google_rss(feed_url, proxy=proxy)
+            if not xml_content:
+                if proxy:
+                    ProxyGuard.mark_unhealthy(proxy)
+                return
+                
+            feed = feedparser.parse(xml_content)
+            for entry in feed.entries:
+                link = entry.link
+                if link not in seen_urls and (cumulative is None or link not in cumulative):
+                    parsed_date = None
+                    if hasattr(entry, 'published_parsed'):
+                        parsed_date = datetime.fromtimestamp(time.mktime(entry.published_parsed)).date()
+                    
+                    if day is not None:
+                        if day >= date.today():
+                            if parsed_date and (day - parsed_date).days > 1:
+                                continue
+                        elif parsed_date and parsed_date != day:
+                            continue
+                            
+                    pub_date_str = (day or date.today()).isoformat()
+                    if hasattr(entry, 'published_parsed'):
+                        try: pub_date_str = datetime(*entry.published_parsed[:6]).isoformat()
+                        except: pass
+                        
+                    desc = entry.summary if hasattr(entry, 'summary') else (entry.description if hasattr(entry, 'description') else "")
+                    
+                    # Run keyword match
+                    title = entry.title
+                    title_desc = f"{title} {desc}"
+                    is_relevant = verify_boolean_relevance(title_desc, keywords)
+                    if not is_relevant and sector.lower() in title_desc.lower():
+                        is_relevant = True
+                        
+                    if is_relevant:
+                        articles.append({
+                            "title": title,
+                            "url": link,
+                            "published_at": pub_date_str,
+                            "agency": pub_name,
+                            "description": desc
+                        })
+                        seen_urls.add(link)
+        except Exception as exc:
+            logger.error(f"Direct feed discovery fail for '{pub_name}' ({feed_url}): {exc}")
+
+    # Use parallel Pool to scrape direct feeds concurrently
+    discovery_pool = Pool(min(len(feeds), 5))
+    for f_info in feeds:
+        if is_job_cancelled(job_id): break
+        discovery_pool.spawn(fetch_direct_feed, f_info)
+        
+    discovery_pool.join()
+    
+    if cumulative is not None: cumulative.update(seen_urls)
+    logger.info(f"Direct RSS feeds discovery found {len(articles)} relevant articles.")
     return articles
 
 # ─── Scraper Phase ───
@@ -587,6 +684,13 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
                     for f in found:
                         f["brand_name"] = brand_obj.name # Tag for later phases
                     all_discovered.extend(found)
+                    
+                    # Direct feed discovery
+                    found_direct = discover_direct_feeds(keywords, curr, job_id, cumulative, sector=brand_obj.name)
+                    for f in found_direct:
+                        f["brand_name"] = brand_obj.name
+                    all_discovered.extend(found_direct)
+                    
                     curr += timedelta(days=1)
         else:
             # Single Sector/Brand Scrape
@@ -602,6 +706,7 @@ def run_scrape_job(job_id, sector, region, date_from, date_to, search_mode, user
             while curr <= date_to:
                 if is_job_cancelled(job_id): break
                 all_discovered.extend(discover_articles(keywords, curr, geo, region, job_id, cumulative, is_brand_track=is_bt, sector=sector))
+                all_discovered.extend(discover_direct_feeds(keywords, curr, job_id, cumulative, sector=sector))
                 curr += timedelta(days=1)
         
         db.execute(update(ScrapeJob).where(ScrapeJob.id == job_id).values(cumulative_found=len(cumulative)))

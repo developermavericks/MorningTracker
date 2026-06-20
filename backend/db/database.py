@@ -235,6 +235,15 @@ class ZeroResultQuery(Base):
     count: Mapped[int] = mapped_column(Integer, default=1)
     logged_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
+class DirectFeed(Base):
+    __tablename__ = "direct_feeds"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    publication_name: Mapped[str] = mapped_column(String, nullable=False)
+    feed_url: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    category: Mapped[str] = mapped_column(String, default="A")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
 # ─── Initialization ───────────────────────────────────────────────────────────
 
 async def init_db():
@@ -341,6 +350,29 @@ async def init_db():
                     print(f"Migration: Renamed duplicate brand '{name}' to '{new_name}' (User: {user_id})")
         except Exception as e:
             print(f"Migration Notice (Brand Cleanup): {e}")
+
+        # Seed default feeds if empty
+        try:
+            feed_count = (await conn.execute(text("SELECT COUNT(*) FROM direct_feeds"))).scalar()
+            if feed_count == 0:
+                default_feeds = [
+                    {"publication_name": "Reuters", "feed_url": "https://news.google.com/rss/search?q=source:Reuters", "category": "A", "is_active": True},
+                    {"publication_name": "Bloomberg", "feed_url": "https://news.google.com/rss/search?q=source:Bloomberg", "category": "A", "is_active": True},
+                    {"publication_name": "The Economic Times", "feed_url": "https://economictimes.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
+                    {"publication_name": "Livemint", "feed_url": "https://www.livemint.com/rss/news", "category": "A", "is_active": True},
+                    {"publication_name": "The Hindu", "feed_url": "https://www.thehindu.com/feeder/default.rss", "category": "A", "is_active": True},
+                    {"publication_name": "The Times of India", "feed_url": "https://timesofindia.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
+                    {"publication_name": "The Indian Express", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Indian%20Express%22", "category": "A", "is_active": True},
+                    {"publication_name": "Moneycontrol", "feed_url": "https://www.moneycontrol.com/rss/latestnews.xml", "category": "A", "is_active": True}
+                ]
+                for f in default_feeds:
+                    await conn.execute(text(
+                        "INSERT INTO direct_feeds (publication_name, feed_url, category, is_active, created_at) "
+                        "VALUES (:publication_name, :feed_url, :category, :is_active, :created_at)"
+                    ), {**f, "created_at": datetime.now()})
+                print("Database: Seeded default direct feeds.")
+        except Exception as seed_err:
+            print(f"Migration Notice (Seed Direct Feeds): {seed_err}")
                 
     print(f"Database initialized via SQLAlchemy ({engine.url.drivername})")
 
@@ -423,6 +455,54 @@ def init_db_sync():
                     conn.execute(text("ALTER TABLE job_funnel_logs ADD COLUMN logged_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
                 except Exception: pass
     except: pass
+    # Automated migration: Add direct_feeds table and seed default feeds if empty
+    try:
+        with engine_sync.begin() as conn:
+            # Create direct_feeds table if it doesn't exist
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS direct_feeds ("
+                    "id SERIAL PRIMARY KEY, "
+                    "publication_name VARCHAR NOT NULL, "
+                    "feed_url VARCHAR UNIQUE NOT NULL, "
+                    "category VARCHAR DEFAULT 'A', "
+                    "is_active BOOLEAN DEFAULT TRUE, "
+                    "created_at TIMESTAMP WITHOUT TIME ZONE"
+                    ")"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS direct_feeds ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "publication_name VARCHAR NOT NULL, "
+                    "feed_url VARCHAR UNIQUE NOT NULL, "
+                    "category VARCHAR DEFAULT 'A', "
+                    "is_active BOOLEAN DEFAULT 1, "
+                    "created_at DATETIME"
+                    ")"
+                ))
+            # Seed default feeds if empty
+            feed_count = conn.execute(text("SELECT COUNT(*) FROM direct_feeds")).scalar()
+            if feed_count == 0:
+                default_feeds = [
+                    {"publication_name": "Reuters", "feed_url": "https://news.google.com/rss/search?q=source:Reuters", "category": "A", "is_active": True},
+                    {"publication_name": "Bloomberg", "feed_url": "https://news.google.com/rss/search?q=source:Bloomberg", "category": "A", "is_active": True},
+                    {"publication_name": "The Economic Times", "feed_url": "https://economictimes.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
+                    {"publication_name": "Livemint", "feed_url": "https://www.livemint.com/rss/news", "category": "A", "is_active": True},
+                    {"publication_name": "The Hindu", "feed_url": "https://www.thehindu.com/feeder/default.rss", "category": "A", "is_active": True},
+                    {"publication_name": "The Times of India", "feed_url": "https://timesofindia.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
+                    {"publication_name": "The Indian Express", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Indian%20Express%22", "category": "A", "is_active": True},
+                    {"publication_name": "Moneycontrol", "feed_url": "https://www.moneycontrol.com/rss/latestnews.xml", "category": "A", "is_active": True}
+                ]
+                for f in default_feeds:
+                    conn.execute(text(
+                        "INSERT INTO direct_feeds (publication_name, feed_url, category, is_active, created_at) "
+                        "VALUES (:publication_name, :feed_url, :category, :is_active, :created_at)"
+                    ), {**f, "created_at": datetime.now()})
+                print("Sync Database: Seeded default direct feeds.")
+    except Exception as e:
+        print(f"Sync Migration Notice (Direct Feeds): {e}")
+
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 
 # Connection Lifecycle is handled via get_db and SessionMiddleware

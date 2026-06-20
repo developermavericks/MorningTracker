@@ -24,26 +24,23 @@ SCOPES = [
 ]
 
 def add_horizontal_line(paragraph):
-    """Adds a thin template-matching horizontal divider line to the paragraph using VML rect."""
-    paragraph.add_run("\n")
-    
-    run = paragraph.add_run()
-    # Create w:pict
-    pict = OxmlElement('w:pict')
-    
-    # Create v:rect (drawing vector shape)
-    rect = OxmlElement('v:rect')
-    rect.set('style', 'width:0.0pt;height:1.5pt')
-    rect.set(qn('o:hr'), 't')
-    rect.set(qn('o:hrstd'), 't')
-    rect.set(qn('o:hralign'), 'center')
-    rect.set('fillcolor', '#D3D3D3')  # Light grey
-    rect.set('stroked', 'f')
-    
-    pict.append(rect)
-    run._r.append(pict)
-    
-    paragraph.add_run("\n")
+    """Adds a thin template-matching horizontal divider line to the paragraph using paragraph bottom border."""
+    pPr = paragraph._p.get_or_add_pPr()
+    pBdr = pPr.find(qn('w:pBdr'))
+    if pBdr is None:
+        pBdr = OxmlElement('w:pBdr')
+        pPr.append(pBdr)
+    else:
+        bottom_existing = pBdr.find(qn('w:bottom'))
+        if bottom_existing is not None:
+            pBdr.remove(bottom_existing)
+            
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'), 'single')
+    bottom.set(qn('w:sz'), '12')  # 1.5pt width
+    bottom.set(qn('w:space'), '12')  # Spacing below the paragraph
+    bottom.set(qn('w:color'), 'D3D3D3')  # Light grey
+    pBdr.append(bottom)
 
 def add_hyperlink(paragraph, url, text, color="1155cc", underline=True):
     """Adds a hyperlink with custom style (Calibri, blue, bold, underline) to a paragraph."""

@@ -3,6 +3,7 @@ import json
 import asyncio
 import random
 from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -22,6 +23,7 @@ async def scrape(url, timeout):
             try:
                 context = await browser.new_context(user_agent=ua)
                 page = await context.new_page()
+                await Stealth().apply_stealth_async(page)
                 
                 async def block_aggressively(route):
                     if route.request.resource_type in ["image", "media", "font", "stylesheet", "other"]:
