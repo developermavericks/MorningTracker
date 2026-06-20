@@ -409,7 +409,7 @@ def discover_direct_feeds(keywords: List[str], day: Optional[date], job_id: str,
     feeds = []
     try:
         with get_db_sync() as db:
-            res = db.execute(text("SELECT feed_url, publication_name FROM direct_feeds WHERE is_active = 1"))
+            res = db.execute(text("SELECT feed_url, publication_name FROM direct_feeds WHERE is_active = true"))
             feeds = [{"url": r[0], "name": r[1]} for r in res.all()]
     except Exception as e:
         logger.error(f"Failed to fetch direct feeds from database: {e}")
