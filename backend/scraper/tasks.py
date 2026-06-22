@@ -3,6 +3,7 @@ import json
 import os
 import httpx
 import trafilatura
+import random
 from datetime import datetime
 from celery_app import app as celery_app
 from db.database import get_db_sync, Article, ScrapeJob, IrrelevantArticle, JobFunnelLog, Client
@@ -148,7 +149,14 @@ def run_scrape_task(self, job_id, sector, region, date_from, date_to, search_mod
 
 # ─── Scraper Node (I/O Intensive) ─────────────────────────────────────────────
 
-@celery_app.task(name="scraper.tasks.scrape_article_node", bind=True, rate_limit="30/m", max_retries=3, default_retry_delay=10)
+@celery_app.task(
+    name="scraper.tasks.scrape_article_node",
+    bind=True,
+    rate_limit="30/m",
+    max_retries=10,
+    retry_backoff=15,    # Exponential backoff starting at 15s
+    retry_jitter=True    # Jitter backoff offsets
+)
 def scrape_article_node(self, article_data, job_id, sector, region, user_id):
     """
     Task Node 1: Fetches HTML and extracts raw body. 
@@ -216,6 +224,18 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
             logger.info(f"Task overlap detected for {normalized_url}. Skipping redundant node.")
             _mark_article_processed(job_id)
             return None
+
+        # ─── DOMAIN RATE LIMITING (Throttling) ───
+        from urllib.parse import urlparse
+        domain = urlparse(resolved_url).netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+            
+        domain_lock_key = f"lock:domain:{domain}"
+        if not r.set(domain_lock_key, job_id, nx=True, ex=2):
+            logger.info(f"Domain rate limit triggered for {domain}. Rescheduling task.")
+            # Retry after a short randomized jitter countdown (3-7s)
+            raise self.retry(countdown=random.randint(3, 7))
 
         # ─── FAST-REJECT PRE-FILTER ───
         keywords = []
@@ -933,13 +953,8 @@ def run_client_report_task(client_id: int):
                     _increment_funnel_metric(job_id, "scraped_count")
                         
                     # 7. Extract body text
-                    body_text = trafilatura.extract(html_content)
-                    if not body_text or len(body_text) < 200:
-                        from bs4 import BeautifulSoup
-                        soup = BeautifulSoup(html_content, "lxml")
-                        for s in soup(["script", "style", "nav", "header", "footer"]):
-                            s.decompose()
-                        body_text = soup.get_text(separator="\n", strip=True)
+                    from scraper.parser import extract_body
+                    body_text = extract_body(html_content)
                         
                     if not body_text or len(body_text) < 100:
                         logger.warning(f"No meaningful text extracted for {resolved_url}.")

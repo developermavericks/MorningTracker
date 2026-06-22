@@ -18,10 +18,21 @@ async def scrape(url, timeout):
             ua = random.choice(USER_AGENTS)
             browser = await p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-software-rasterizer"]
+                args=[
+                    "--no-sandbox", 
+                    "--disable-dev-shm-usage", 
+                    "--disable-gpu", 
+                    "--disable-software-rasterizer",
+                    "--disable-blink-features=AutomationControlled"
+                ]
             )
             try:
-                context = await browser.new_context(user_agent=ua)
+                context = await browser.new_context(
+                    user_agent=ua,
+                    viewport={"width": 1280, "height": 800},
+                    locale="en-US",
+                    timezone_id="Asia/Kolkata"
+                )
                 page = await context.new_page()
                 await Stealth().apply_stealth_async(page)
                 
@@ -32,8 +43,12 @@ async def scrape(url, timeout):
                         await route.continue_()
                 
                 await page.route("**/*", block_aggressively)
-                await page.set_extra_http_headers({"Accept-Language": "en-US,en;q=0.9"})
-
+                await page.set_extra_http_headers({
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Referer": "https://news.google.com/"
+                })
+                
                 response = await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
                 
                 if not response:
@@ -41,7 +56,12 @@ async def scrape(url, timeout):
                 elif response.status >= 400:
                     result["error"] = f"HTTP {response.status}"
                 else:
+                    # Wait and scroll down dynamically to trigger lazy loaded items
                     await page.wait_for_timeout(1000)
+                    for _ in range(3):
+                        await page.evaluate("window.scrollBy(0, window.innerHeight)")
+                        await page.wait_for_timeout(500)
+                        
                     for attempt in range(5):
                         try:
                             result["content"] = await page.content()

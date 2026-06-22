@@ -94,6 +94,26 @@ def log(msg: str):
 
 
 
+def clean_conversational_prefix(text: str) -> str:
+    if not text:
+        return ""
+    import re
+    # Strip common patterns like "Here is a summary of the article:", "Here is a summary:", "Summary:", etc.
+    patterns = [
+        r"^here\s+is\s+a\s+summary\s+of\s+the\s+article:?\s*",
+        r"^here\s+is\s+a\s+summary:?\s*",
+        r"^here\s+is\s+the\s+summary:?\s*",
+        r"^summary:?\s*",
+        r"^this\s+article:?\s*",
+        r"^the\s+article\s+summarizes\s+that:?\s*",
+        r"^the\s+article\s+reports\s+that:?\s*",
+        r"^based\s+on\s+the\s+article,?\s*"
+    ]
+    cleaned = text.strip()
+    for pattern in patterns:
+        cleaned = re.compile(pattern, re.IGNORECASE).sub("", cleaned).strip()
+    return cleaned
+
 # Compatibility wrapper for existing callers
 def validate_summary(summary: str, title: str) -> bool:
     if not summary:
@@ -142,6 +162,7 @@ def _call_groq_summary_api(text: str, is_strict: bool = False) -> Optional[str]:
                 if resp.status_code == 200:
                     summary = resp.json()["choices"][0]["message"]["content"].strip()
                     summary = summary.replace("\n", " ").replace("- ", "").replace("* ", "")
+                    summary = clean_conversational_prefix(summary)
                     return summary
                 elif resp.status_code == 429:
                     time.sleep(1)
@@ -179,6 +200,7 @@ def _call_groq_summary_120b(text: str) -> Optional[str]:
                 if resp.status_code == 200:
                     summary = resp.json()["choices"][0]["message"]["content"].strip()
                     summary = summary.replace("\n", " ").replace("- ", "").replace("* ", "")
+                    summary = clean_conversational_prefix(summary)
                     return summary
                 elif resp.status_code == 429:
                     time.sleep(1)

@@ -525,12 +525,7 @@ def scrape_only(article: dict, job_id: str, sector: str, region: str, user_id: s
         body, author = None, None
         content = raw_html
         
-        body = trafilatura.extract(content)
-        if not body or len(body) < 200:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(content, "lxml")
-            for s in soup(["script", "style", "nav", "header", "footer"]): s.decompose()
-            body = soup.get_text(separator="\n", strip=True)
+        body = extract_body(content)
 
         author_data = extract_author_v2(content)
         author = author_data.get("name")

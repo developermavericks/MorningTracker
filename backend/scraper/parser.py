@@ -166,6 +166,20 @@ def extract_date(html: str) -> Optional[datetime]:
     except: pass
     return None
 
+def find_article_body_recursive(data: Any) -> Optional[str]:
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k.lower() in ["articlebody", "text"] and isinstance(v, str) and len(v.strip()) > 100:
+                return v
+        for v in data.values():
+            found = find_article_body_recursive(v)
+            if found: return found
+    elif isinstance(data, list):
+        for item in data:
+            found = find_article_body_recursive(item)
+            if found: return found
+    return None
+
 def extract_body(html: str) -> str:
     # 1. Trafilatura bare extraction
     try:
@@ -174,17 +188,15 @@ def extract_body(html: str) -> str:
             return res.get('text')
     except: pass
 
-    # 2. JSON-LD articleBody
+    # 2. JSON-LD articleBody (Recursive structure-agnostic search)
     try:
         soup = BeautifulSoup(html, "lxml")
         for script in soup.find_all("script", type="application/ld+json"):
             try:
                 data = json.loads(script.string)
-                items = data if isinstance(data, list) else [data]
-                for item in items:
-                    if item.get("@type") in ["Article", "NewsArticle", "BlogPosting"]:
-                        body = item.get("articleBody")
-                        if body and len(body) > 400: return body
+                body = find_article_body_recursive(data)
+                if body and len(body.strip()) > 100:
+                    return body.strip()
             except: continue
     except: pass
 
@@ -192,6 +204,17 @@ def extract_body(html: str) -> str:
     try:
         ext = trafilatura.extract(html, include_comments=False, no_fallback=False)
         if ext and len(ext) > 400: return ext
+    except: pass
+
+    # 4. BS4 Fallback (Cleaned paragraph extraction)
+    try:
+        soup = BeautifulSoup(html, "lxml")
+        for s in soup(["script", "style", "nav", "header", "footer", "iframe"]):
+            s.decompose()
+        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p")]
+        body_text = "\n".join([p for p in paragraphs if p])
+        if len(body_text) > 100:
+            return body_text
     except: pass
 
     return ""
