@@ -472,8 +472,8 @@ def complete_stale_jobs():
                     )
                     logger.info(f"Watchdog force-completed stale job {job.id} ({job.total_scraped}/{job.total_found})")
             
-            # Clean up stuck client run logs (older than 15 minutes)
-            client_stale_cutoff = datetime.now() - timedelta(minutes=15)
+            # Clean up stuck client run logs (older than 120 minutes)
+            client_stale_cutoff = datetime.now() - timedelta(minutes=120)
             stale_client_logs = db.execute(
                 select(ClientRunLog).where(
                     ClientRunLog.status == 'running',
