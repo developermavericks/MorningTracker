@@ -331,7 +331,7 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
         f"{context_str}"
         f"Target Keywords/Topics: {', '.join(keywords)}\n\n"
         f"Article Title: {title}\n"
-        f"Article Content: {body[:3000]}\n\n"
+        f"Article Content: {body[:5000]}\n\n"
         f"Determine if this article is relevant to '{client_name}' based on the context, guidelines, and target keywords.\n"
         f"ASYMMETRIC BIAS RULES:\n"
         f"1. Bias toward KEEP: If there is any plausible or indirect connection to the client guidelines or keywords, return 'relevant' or 'uncertain'.\n"
@@ -424,7 +424,7 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
         f"{context_str}"
         f"Target Keywords/Topics: {', '.join(keywords)}\n\n"
         f"Article Title: {title}\n"
-        f"Article Content: {body[:3000]}\n\n"
+        f"Article Content: {body[:5000]}\n\n"
         f"Determine if this article is relevant to '{client_name}' based on the context, guidelines, and target keywords.\n"
         f"ASYMMETRIC BIAS RULES:\n"
         f"1. Bias toward KEEP: If there is any plausible or indirect connection to the client guidelines or keywords, return 'relevant' or 'uncertain'.\n"
@@ -462,7 +462,8 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
                         reason = str(data.get("reason", "No reason provided"))
                         score = float(data.get("score", 0.5))
                         return verdict, reason, score
-                    except:
+                    except Exception as json_err:
+                        log(f"HTTP fallback relevance JSON parse error: {json_err}. Raw: {ans}")
                         ans_upper = ans.upper()
                         if "NOT_RELEVANT" in ans_upper:
                             return "not_relevant", "HTTP Fallback Regex not_relevant", 0.1

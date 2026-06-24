@@ -17,6 +17,17 @@ logger = logging.getLogger(__name__)
 
 PLAYWRIGHT_ONLY_DOMAINS = {"axios.com", "ndtv.com"}
 
+# Rotate across several recent Chrome UA strings to avoid fingerprinting.
+_UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.6533.120 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.6533.120 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.229 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.6533.120 Safari/537.36",
+]
+
+def _pick_ua() -> str:
+    return random.choice(_UA_POOL)
+
 def should_use_playwright(url: str) -> bool:
     try:
         from urllib.parse import urlparse
@@ -290,18 +301,23 @@ def scrape_article_node(self, article_data, job_id, sector, region, user_id):
         if not should_use_playwright(resolved_url):
             try:
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                    "User-Agent": _pick_ua(),
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": "https://news.google.com/"
+                    "Referer": "https://news.google.com/",
+                    "Cache-Control": "no-cache",
                 }
-                with httpx.Client(timeout=15, follow_redirects=True) as client:
+                with httpx.Client(timeout=httpx.Timeout(15.0, connect=8.0), follow_redirects=True) as client:
                     resp = client.get(resolved_url, headers=headers)
-                    if resp.status_code == 200:
+                    if resp.status_code == 429:
+                        logger.info(f"Rate limited (429) by {resolved_url}, skipping to Playwright")
+                    elif resp.status_code == 200:
                         text_content = trafilatura.extract(resp.text)
                         if text_content and len(text_content) > 400:
                             logger.info(f"Fast-track success for {resolved_url} ({len(text_content)} chars)")
                             html = resp.text
+                        else:
+                            logger.debug(f"Fast-track got HTML but <400 chars text ({len(text_content or '')} chars), falling to Playwright")
             except Exception as e:
                 logger.debug(f"Fast-track failed for {resolved_url}: {e}")
         else:
@@ -661,9 +677,13 @@ def run_client_report_task(client_id: int):
                 logger.error(f"Discovery failed for section '{sec_name}': {disc_err}", exc_info=True)
                 return sec_name, []
 
-        _update_progress(f"Discovering articles for {len(sections_data)} sections in parallel...")
+        # Emit per-section discovery messages upfront (matches old log format)
         section_discoveries: dict = {}
         active_sections = {sn: kw for sn, kw in sections_data.items() if kw}
+        for sec_name in active_sections:
+            _update_progress(f"Discovering articles for section '{sec_name}'...")
+            logger.info(f"Discovering articles for section '{sec_name}' with keywords: {active_sections[sec_name]}")
+
         if active_sections:
             disc_workers = min(len(active_sections), 4)
             with _TPE(max_workers=disc_workers) as disc_exe:
@@ -671,7 +691,7 @@ def run_client_report_task(client_id: int):
                 for fut in _ac(disc_futures):
                     sec_name, disc = fut.result()
                     section_discoveries[sec_name] = disc
-                    _update_progress(f"Discovery done for '{sec_name}': {len(disc)} articles found.")
+                    logger.info(f"Discovery done for '{sec_name}': {len(disc)} articles found.")
 
         # ── Phase 2: Process articles per section (sequential sections, parallel articles) ──
         for section_name, keywords in sections_data.items():
@@ -679,7 +699,6 @@ def run_client_report_task(client_id: int):
                 continue
 
             discovered = section_discoveries.get(section_name, [])
-            _update_progress(f"Processing '{section_name}'...")
                 
             # Deduplicate by url
             unique_discovered = []
@@ -799,7 +818,14 @@ def run_client_report_task(client_id: int):
                         
                     # 4. Resolve URL
                     logger.info(f"Resolving Google News URL: {raw_url}")
-                    resolved_url = resolve_google_news_url_sync(raw_url) or raw_url
+                    resolved_url = resolve_google_news_url_sync(raw_url)
+                    if not resolved_url:
+                        # Resolution failed — URL is still on Google's domain (redirect page).
+                        # Scraping it would return a redirect notice page and falsely trigger
+                        # paywall detection. Skip the article entirely.
+                        logger.warning(f"Skipping unresolvable Google News URL: {raw_url}")
+                        _increment_funnel_metric(job_id, "resolution_failed")
+                        return None
                     normalized_url = normalize_url(resolved_url)
                     
                     # 5. Check cache for canonical URL
@@ -862,26 +888,37 @@ def run_client_report_task(client_id: int):
                     # 6. Scrape HTML content
                     logger.info(f"Scraping content from resolved URL: {resolved_url}")
                     html_content = ""
+                    _fast_body_chars = 0
                     if not should_use_playwright(resolved_url):
                         try:
                             headers = {
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                                "User-Agent": _pick_ua(),
                                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
                                 "Accept-Language": "en-US,en;q=0.9",
-                                "Referer": "https://news.google.com/"
+                                "Referer": "https://news.google.com/",
+                                "Cache-Control": "no-cache",
                             }
-                            with httpx.Client(follow_redirects=True, timeout=10) as client_http:
+                            with httpx.Client(follow_redirects=True, timeout=httpx.Timeout(12.0, connect=8.0)) as client_http:
                                 resp = client_http.get(resolved_url, headers=headers)
-                                if resp.status_code == 200:
+                                if resp.status_code == 429:
+                                    logger.info(f"Rate limited (429) by {resolved_url}, falling back to Playwright")
+                                elif resp.status_code == 200:
                                     html_content = resp.text
+                                    _fast_body_chars = len(trafilatura.extract(html_content) or "")
                         except Exception as e:
                             logger.warning(f"Fast HTTP scrape failed for {resolved_url}: {e}")
                     else:
                         logger.info(f"Skipping fast HTTP scrape for known hostile domain: {resolved_url}")
-                        
-                    if not html_content or len(html_content) < 1000:
+
+                    # Trigger Playwright if httpx failed entirely, or if it returned HTML
+                    # but trafilatura could only extract <300 chars — indicates a JS-rendered
+                    # or subscription-wall page that needs a real browser to get content.
+                    if not html_content or _fast_body_chars < 300:
                         try:
-                            html_content = scrape_url(resolved_url)
+                            logger.info(f"Falling back to Playwright for {resolved_url} (fast-track body: {_fast_body_chars} chars)")
+                            pw_html = scrape_url(resolved_url)
+                            if pw_html:
+                                html_content = pw_html  # Use Playwright result; better than wall HTML
                         except Exception as e:
                             logger.error(f"Browser scrape failed for {resolved_url}: {e}")
                             
@@ -895,16 +932,17 @@ def run_client_report_task(client_id: int):
                         if pub_cat == "A":
                             logger.info(f"Scraper failed for Category A url {resolved_url}. Applying zero-failure fallback.")
                             is_relevant_fallback = True
-                            fallback_summary = desc if (desc and len(desc.strip()) > 20) else "Could not extract full text - paywalled/blocked."
-                            if desc and len(desc.strip()) > 20:
-                                try:
-                                    from scraper.llm import check_relevance_with_groq
-                                    is_relevant_fallback, _, _, _ = check_relevance_with_groq(
-                                        title, desc, keywords, client_name, client_context=client_context
-                                    )
-                                except Exception as fallback_err:
-                                    logger.error(f"Fallback LLM relevance check failed for Category A: {fallback_err}")
-                                    is_relevant_fallback = True
+                            # Use desc if available; fall back to title so LLM always has some signal
+                            fallback_content = desc.strip() if (desc and len(desc.strip()) > 10) else title
+                            fallback_summary = fallback_content if len(fallback_content) > 20 else f"[Paywalled/blocked] {title}"
+                            try:
+                                from scraper.llm import check_relevance_with_groq
+                                is_relevant_fallback, _, _, _ = check_relevance_with_groq(
+                                    title, fallback_content, keywords, client_name, client_context=client_context
+                                )
+                            except Exception as fallback_err:
+                                logger.error(f"Fallback LLM relevance check failed for Category A: {fallback_err}")
+                                is_relevant_fallback = True
                             if is_relevant_fallback:
                                 return {
                                     "art_data": {
@@ -918,7 +956,7 @@ def run_client_report_task(client_id: int):
                                     "is_relevant_kw": True,
                                     "is_semantic_relevant": True
                                 }
-                        
+
                         if is_pw and desc:
                             # Paywalled: run LLM relevance on headline + RSS description
                             logger.info(f"Paywall detected for {resolved_url}. Running LLM relevance on title+description.")
@@ -975,16 +1013,17 @@ def run_client_report_task(client_id: int):
                         if pub_cat == "A":
                             logger.info(f"Extraction failed for Category A url {resolved_url}. Applying zero-failure fallback.")
                             is_relevant_fallback = True
-                            fallback_summary = desc if (desc and len(desc.strip()) > 20) else "Could not extract full text - paywalled/blocked."
-                            if desc and len(desc.strip()) > 20:
-                                try:
-                                    from scraper.llm import check_relevance_with_groq
-                                    is_relevant_fallback, _, _, _ = check_relevance_with_groq(
-                                        title, desc, keywords, client_name, client_context=client_context
-                                    )
-                                except Exception as fallback_err:
-                                    logger.error(f"Fallback LLM relevance check failed for Category A: {fallback_err}")
-                                    is_relevant_fallback = True
+                            # Combine partial body + desc + title so LLM always has signal
+                            fallback_content = " ".join(filter(None, [body_text or "", desc or ""])).strip() or title
+                            fallback_summary = fallback_content if len(fallback_content) > 20 else f"[Paywalled/blocked] {title}"
+                            try:
+                                from scraper.llm import check_relevance_with_groq
+                                is_relevant_fallback, _, _, _ = check_relevance_with_groq(
+                                    title, fallback_content, keywords, client_name, client_context=client_context
+                                )
+                            except Exception as fallback_err:
+                                logger.error(f"Fallback LLM relevance check failed for Category A: {fallback_err}")
+                                is_relevant_fallback = True
                             if is_relevant_fallback:
                                 return {
                                     "art_data": {
@@ -998,10 +1037,10 @@ def run_client_report_task(client_id: int):
                                     "is_relevant_kw": True,
                                     "is_semantic_relevant": True
                                 }
-                        
+
                         if is_pw:
                             # Paywalled: run LLM relevance on headline + available text + RSS description
-                            fallback_text = f"{body_text or ''} {desc or ''}".strip()
+                            fallback_text = " ".join(filter(None, [body_text or "", desc or ""])).strip() or title
                             if fallback_text:
                                 logger.info(f"Paywall detected for {resolved_url}. Running LLM relevance on partial content.")
                                 try:
