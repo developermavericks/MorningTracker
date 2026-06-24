@@ -363,15 +363,27 @@ export default function ClientReports() {
     }
   };
 
-  const handleDownloadReport = async (filename) => {
+  const handleDownloadReport = async (filePath) => {
+    // Google Drive URL — export directly as DOCX without going through the backend
+    if (filePath && filePath.startsWith("https://")) {
+      const match = filePath.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+      if (match) {
+        const exportUrl = `https://docs.google.com/document/d/${match[1]}/export?format=docx`;
+        window.open(exportUrl, "_blank");
+      } else {
+        window.open(filePath, "_blank");
+      }
+      return;
+    }
+    // Legacy: local filename served from backend /reports/{filename}
     try {
-      const blob = await apiClient.get(`clients/reports/${filename}`, {
+      const blob = await apiClient.get(`clients/reports/${filePath}`, {
         responseType: "blob"
       });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filename;
+      a.download = filePath;
       document.body.appendChild(a);
       a.click();
       a.remove();

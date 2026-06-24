@@ -311,7 +311,10 @@ async def get_client_run_logs(
             status=log.status,
             error_message=log.error_message,
             progress_message=log.progress_message,
-            generated_file_path=os.path.basename(log.generated_file_path) if log.generated_file_path else None,
+            generated_file_path=(
+                log.generated_file_path if (log.generated_file_path and log.generated_file_path.startswith("https://"))
+                else (os.path.basename(log.generated_file_path) if log.generated_file_path else None)
+            ),
             started_at=log.started_at.isoformat() + ("Z" if log.started_at.tzinfo is None else ""),
             completed_at=log.completed_at.isoformat() + ("Z" if log.completed_at.tzinfo is None else "") if log.completed_at else None
         )

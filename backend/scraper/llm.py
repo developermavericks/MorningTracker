@@ -333,14 +333,14 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
         f"Article Title: {title}\n"
         f"Article Content: {body[:5000]}\n\n"
         f"Determine if this article is relevant to '{client_name}' based on the context, guidelines, and target keywords.\n"
-        f"ASYMMETRIC BIAS RULES:\n"
-        f"1. Bias toward KEEP: If there is any plausible or indirect connection to the client guidelines or keywords, return 'relevant' or 'uncertain'.\n"
-        f"2. Return 'not_relevant' ONLY if the article is completely off-topic or unrelated.\n"
-        f"3. Return 'uncertain' if borderline or unsure.\n\n"
+        f"RELEVANCE RULES:\n"
+        f"1. Return 'relevant' ONLY if the article is clearly on-topic for the client's described sections and would be genuinely useful to the client's teams.\n"
+        f"2. Return 'not_relevant' if the article is off-topic, only tangentially related, or not actionable/useful for the client.\n"
+        f"3. Return 'uncertain' ONLY for genuinely borderline cases — not as a default for weak or indirect matches.\n\n"
         f"You MUST output strictly in JSON format. Do not write any explanations outside the JSON structure. Response format:\n"
         f'{{"verdict": "relevant" | "not_relevant" | "uncertain", "reason": "concise explanation", "score": float between 0.0 and 1.0}}'
     )
-    
+
     from groq import Groq
     client = Groq(api_key=api_key)
     completion = client.chat.completions.create(
@@ -426,14 +426,14 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
         f"Article Title: {title}\n"
         f"Article Content: {body[:5000]}\n\n"
         f"Determine if this article is relevant to '{client_name}' based on the context, guidelines, and target keywords.\n"
-        f"ASYMMETRIC BIAS RULES:\n"
-        f"1. Bias toward KEEP: If there is any plausible or indirect connection to the client guidelines or keywords, return 'relevant' or 'uncertain'.\n"
-        f"2. Return 'not_relevant' ONLY if the article is completely off-topic or unrelated.\n"
-        f"3. Return 'uncertain' if borderline or unsure.\n\n"
+        f"RELEVANCE RULES:\n"
+        f"1. Return 'relevant' ONLY if the article is clearly on-topic for the client's described sections and would be genuinely useful to the client's teams.\n"
+        f"2. Return 'not_relevant' if the article is off-topic, only tangentially related, or not actionable/useful for the client.\n"
+        f"3. Return 'uncertain' ONLY for genuinely borderline cases — not as a default for weak or indirect matches.\n\n"
         f"You MUST output strictly in JSON format. Do not write any explanations outside the JSON structure. Response format:\n"
         f'{{"verdict": "relevant" | "not_relevant" | "uncertain", "reason": "concise explanation", "score": float between 0.0 and 1.0}}'
     )
-    
+
     payload = {
         "model": model_name,
         "messages": [
@@ -502,21 +502,21 @@ def check_relevance_with_groq(title: str, body: str, keywords: List[str], client
         try:
             v_esc, r_esc, s_esc = check_relevance_with_groq_oss(title, body, keywords, client_name, client_context, use_120b=True)
             log(f"Ensemble response for '{title}': verdict={v_esc}, score={s_esc}")
-            # Union rule: if either model says relevant/uncertain, we keep it
-            if v_esc in ["relevant", "uncertain"]:
+            # Stage-2 is the arbiter: only explicit "relevant" keeps the article.
+            if v_esc == "relevant":
                 verdict = v_esc
-                reason = f"Ensembled (120b verdict: {v_esc}. Reason: {r_esc})"
+                reason = f"Ensembled (120b confirmed relevant. Reason: {r_esc})"
                 score = s_esc
             else:
                 verdict = "not_relevant"
-                reason = f"Ensembled (120b confirmed not_relevant. Reason: {r_esc})"
+                reason = f"Ensembled (120b verdict: {v_esc}. Reason: {r_esc})"
                 score = s_esc
         except Exception as e_esc:
             log(f"Ensemble check failed: {e_esc}. Defaulting to keep (bias toward recall).")
             # If both fail, bias toward keep
             return True, "uncertain", f"Ensemble failed: {e_esc}", 0.5
             
-    is_relevant = (verdict in ["relevant", "uncertain"])
+    is_relevant = (verdict == "relevant")
     return is_relevant, verdict, reason, score
 
 # --- Ollama Client ---

@@ -1401,7 +1401,7 @@ def run_client_report_task(client_id: int):
                     .where(ClientRunLog.id == run_log_id)
                     .values(
                         status="completed",
-                        generated_file_path=docx_path_filtered,
+                        generated_file_path=google_doc_url_filtered or docx_path_filtered,
                         progress_message=updated_log,
                         error_message="Email notification failed to send (SMTP connection timeout).",
                         completed_at=datetime.utcnow()
@@ -1427,7 +1427,7 @@ def run_client_report_task(client_id: int):
                 .where(ClientRunLog.id == run_log_id)
                 .values(
                     status="completed",
-                    generated_file_path=docx_path_filtered,
+                    generated_file_path=google_doc_url_filtered or docx_path_filtered,
                     progress_message=updated_log,
                     completed_at=datetime.utcnow()
                 )
