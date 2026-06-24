@@ -17,6 +17,11 @@ GROQ_API_KEYS = [k.strip() for k in _groq_raw.split(",") if k.strip()]
 
 GROQ_PRIMARY_MODEL = os.getenv("GROQ_PRIMARY_MODEL") or "openai/gpt-oss-120b"
 GROQ_SECONDARY_MODEL = os.getenv("GROQ_SECONDARY_MODEL") or "openai/gpt-oss-120b"
+# Faster model used exclusively for Stage-1 relevance classification.
+# openai/gpt-oss-20b: 1000 T/sec, 2× faster and half the cost of 120B — ideal for binary classification.
+# Stage-2 escalation uses GROQ_SECONDARY_MODEL (120B) for uncertain borderline cases.
+# Override via GROQ_RELEVANCE_MODEL env var if needed.
+GROQ_RELEVANCE_MODEL = os.getenv("GROQ_RELEVANCE_MODEL") or "openai/gpt-oss-20b"
 
 # --- Redis for Global Throttling (C-7) ---
 import redis.asyncio as redis
@@ -318,7 +323,8 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
             "- Exclude publications like Nomad Lawyer.\n\n"
         )
         
-    model_name = GROQ_SECONDARY_MODEL if use_120b else GROQ_PRIMARY_MODEL
+    # Stage-2 escalation uses the heavy model; Stage-1 uses the faster relevance model.
+    model_name = GROQ_SECONDARY_MODEL if use_120b else GROQ_RELEVANCE_MODEL
     
     prompt = (
         f"You are an editor filtering news for the client '{client_name}'.\n\n"
@@ -410,7 +416,8 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
             "- Exclude publications like Nomad Lawyer.\n\n"
         )
         
-    model_name = GROQ_SECONDARY_MODEL if use_120b else GROQ_PRIMARY_MODEL
+    # Stage-2 escalation uses the heavy model; Stage-1 uses the faster relevance model.
+    model_name = GROQ_SECONDARY_MODEL if use_120b else GROQ_RELEVANCE_MODEL
     
     prompt = (
         f"You are an editor filtering news for the client '{client_name}'.\n\n"

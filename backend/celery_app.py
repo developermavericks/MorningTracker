@@ -57,18 +57,22 @@ app.conf.update(
     enable_utc=True,
     task_soft_time_limit=60 * 60,   # 60 minutes
     task_time_limit=90 * 60,        # 90 minutes
-    # Note: With prefork, concurrency refers to child processes.
-    worker_concurrency=int(os.getenv("CELERY_WORKER_CONCURRENCY", "8")), 
-    worker_prefetch_multiplier=10,   
-    task_acks_late=True,           
-    task_reject_on_worker_lost=True, 
+    # Note: With gevent, concurrency refers to greenlet count per worker process.
+    worker_concurrency=int(os.getenv("CELERY_WORKER_CONCURRENCY", "8")),
+    # Lower prefetch so long report tasks don't monopolize slots on fast-task workers.
+    # Set CELERY_WORKER_PREFETCH_MULTIPLIER=1 on the reports worker, 4 on fast workers.
+    worker_prefetch_multiplier=int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "4")),
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
     task_routes={
+        # Fast I/O tasks → default celery queue (3 workers)
         "scraper.tasks.run_scrape_task": {"queue": "celery"},
         "scraper.tasks.scrape_article_node": {"queue": "celery"},
         "scraper.tasks.enrich_article_node": {"queue": "celery"},
         "scraper.tasks.complete_stale_jobs": {"queue": "celery"},
-        "scraper.tasks.run_client_report_task": {"queue": "celery"},
         "scraper.tasks.check_client_schedules": {"queue": "celery"},
+        # Long-running report task → dedicated reports queue (1 worker)
+        "scraper.tasks.run_client_report_task": {"queue": "reports"},
     },
     beat_schedule={
         "complete-stale-jobs-every-5-min": {

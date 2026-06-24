@@ -152,7 +152,7 @@ def run_scrape_task(self, job_id, sector, region, date_from, date_to, search_mod
 @celery_app.task(
     name="scraper.tasks.scrape_article_node",
     bind=True,
-    rate_limit="30/m",
+    rate_limit="100/m",
     max_retries=10,
     retry_backoff=15,    # Exponential backoff starting at 15s
     retry_jitter=True    # Jitter backoff offsets
@@ -442,7 +442,7 @@ def enrich_article_node(self, article_id):
             logger.info(f"Successfully enriched article {article_id}")
         except Exception as e:
             logger.error(f"AI Enrichment failed for article {article_id}: {e}")
-            raise self.retry(exc=e, countdown=60)
+            raise self.retry(exc=e, countdown=15)
 
 
 # ─── Stale Job Watchdog (runs every 5 minutes via Celery Beat) ────────────────
@@ -614,63 +614,72 @@ def run_client_report_task(client_id: int):
             # On other weekdays, search today and yesterday
             search_dates.append(run_date - timedelta(days=1))
             
+        # ── Phase 1: Discover articles for ALL sections in parallel ──────────────
+        from scraper.engine import discover_direct_feeds
+        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+
+        def _discover_section(section_name_kws):
+            sec_name, kws = section_name_kws
+            if not kws:
+                return sec_name, []
+            job_id_disc = f"client_{client_id}_sec_{sec_name}"
+            try:
+                # Init funnel log
+                try:
+                    with get_db_sync() as db:
+                        db.execute(delete(JobFunnelLog).where(JobFunnelLog.job_id == job_id_disc))
+                        db.execute(insert(JobFunnelLog).values(job_id=job_id_disc, rss_discovered=0))
+                        db.commit()
+                except Exception as e:
+                    logger.error(f"Failed to initialize funnel log for section '{sec_name}': {e}")
+
+                discovered = []
+                seen_urls = set()
+                for target_date in search_dates:
+                    date_job = f"client_{client_id}_sec_{sec_name}_{target_date.strftime('%Y%m%d')}"
+                    for art in discover_articles(keywords=kws, day=target_date, geo="IN", region_name="india",
+                                                 job_id=date_job, sector=f"{client_name} - {sec_name}"):
+                        if art["url"] not in seen_urls:
+                            discovered.append(art)
+                            seen_urls.add(art["url"])
+                    for art in discover_direct_feeds(keywords=kws, day=target_date, job_id=date_job,
+                                                     sector=f"{client_name} - {sec_name}"):
+                        if art["url"] not in seen_urls:
+                            discovered.append(art)
+                            seen_urls.add(art["url"])
+
+                try:
+                    with get_db_sync() as db:
+                        db.execute(update(JobFunnelLog).where(JobFunnelLog.job_id == job_id_disc)
+                                   .values(rss_discovered=len(discovered)))
+                        db.commit()
+                except Exception:
+                    pass
+                return sec_name, discovered
+            except Exception as disc_err:
+                # A discovery failure for one section must not crash the whole report.
+                logger.error(f"Discovery failed for section '{sec_name}': {disc_err}", exc_info=True)
+                return sec_name, []
+
+        _update_progress(f"Discovering articles for {len(sections_data)} sections in parallel...")
+        section_discoveries: dict = {}
+        active_sections = {sn: kw for sn, kw in sections_data.items() if kw}
+        if active_sections:
+            disc_workers = min(len(active_sections), 4)
+            with _TPE(max_workers=disc_workers) as disc_exe:
+                disc_futures = {disc_exe.submit(_discover_section, item): item[0] for item in active_sections.items()}
+                for fut in _ac(disc_futures):
+                    sec_name, disc = fut.result()
+                    section_discoveries[sec_name] = disc
+                    _update_progress(f"Discovery done for '{sec_name}': {len(disc)} articles found.")
+
+        # ── Phase 2: Process articles per section (sequential sections, parallel articles) ──
         for section_name, keywords in sections_data.items():
             if not keywords:
                 continue
-                
-            _update_progress(f"Discovering articles for section '{section_name}'...")
-            logger.info(f"Discovering articles for section '{section_name}' with keywords: {keywords}")
-            
-            job_id = f"client_{client_id}_sec_{section_name}"
-            # Initialize Funnel Log
-            try:
-                with get_db_sync() as db:
-                    db.execute(delete(JobFunnelLog).where(JobFunnelLog.job_id == job_id))
-                    db.execute(insert(JobFunnelLog).values(job_id=job_id, rss_discovered=0))
-                    db.commit()
-            except Exception as e:
-                logger.error(f"Failed to initialize funnel log for client: {e}")
-                
-            # Discover articles across all target dates, merging and deduplicating
-            discovered = []
-            seen_section_urls = set()
-            for target_date in search_dates:
-                day_discovered = discover_articles(
-                    keywords=keywords,
-                    day=target_date,
-                    geo="IN",
-                    region_name="india",
-                    job_id=f"client_{client_id}_sec_{section_name}_{target_date.strftime('%Y%m%d')}",
-                    sector=f"{client_name} - {section_name}"
-                )
-                for art in day_discovered:
-                    if art["url"] not in seen_section_urls:
-                        discovered.append(art)
-                        seen_section_urls.add(art["url"])
-                        
-                # Direct feed discovery
-                from scraper.engine import discover_direct_feeds
-                day_discovered_direct = discover_direct_feeds(
-                    keywords=keywords,
-                    day=target_date,
-                    job_id=f"client_{client_id}_sec_{section_name}_{target_date.strftime('%Y%m%d')}",
-                    sector=f"{client_name} - {section_name}"
-                )
-                for art in day_discovered_direct:
-                    if art["url"] not in seen_section_urls:
-                        discovered.append(art)
-                        seen_section_urls.add(art["url"])
-                        
-            try:
-                with get_db_sync() as db:
-                    db.execute(
-                        update(JobFunnelLog)
-                        .where(JobFunnelLog.job_id == job_id)
-                        .values(rss_discovered=len(discovered))
-                    )
-                    db.commit()
-            except Exception as e:
-                pass
+
+            discovered = section_discoveries.get(section_name, [])
+            _update_progress(f"Processing '{section_name}'...")
                 
             # Deduplicate by url
             unique_discovered = []
@@ -1221,8 +1230,8 @@ def run_client_report_task(client_id: int):
             art_tuples = [(art, idx) for idx, art in enumerate(unique_discovered)]
             processed_count = 0
             
-            # Run up to 8 threads to resolve and scrape concurrently
-            with ThreadPoolExecutor(max_workers=8) as executor:
+            # Run up to 16 threads to resolve and scrape concurrently
+            with ThreadPoolExecutor(max_workers=16) as executor:
                 futures = {executor.submit(_process_single_article, t): t for t in art_tuples}
                 for future in as_completed(futures):
                     processed_count += 1

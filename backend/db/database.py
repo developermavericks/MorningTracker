@@ -51,11 +51,15 @@ engine_args = {
 if use_nullpool:
     engine_args["poolclass"] = NullPool
 elif "sqlite" not in get_database_url():
+    # Conservative defaults to avoid breaching Railway Postgres connection limits.
+    # With 4 gevent workers (20 greenlets each), naive pool_size=20 per process
+    # creates up to 4×30=120 idle connections. Use small pools + NullPool on workers
+    # (set DB_USE_NULLPOOL=true on worker Railway services).
     engine_args.update({
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
-        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "60")),
-        "pool_recycle": 3600,
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "5")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        "pool_recycle": 1800,
     })
 
 async_connect_args = {"timeout": 60} if "sqlite" in get_database_url() else {"command_timeout": 60}
