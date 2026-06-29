@@ -693,13 +693,15 @@ def run_client_report_task(client_id: int):
                     section_discoveries[sec_name] = disc
                     logger.info(f"Discovery done for '{sec_name}': {len(disc)} articles found.")
 
-        # ── Phase 2: Process articles per section (sequential sections, parallel articles) ──
-        for section_name, keywords in sections_data.items():
+        # ── Phase 2: Process articles per section (ALL sections in parallel) ──
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _process_section(section_name, keywords):
             if not keywords:
-                continue
+                return section_name, [], []
 
             discovered = section_discoveries.get(section_name, [])
-                
+
             # Deduplicate by url
             unique_discovered = []
             seen_urls = set()
@@ -707,12 +709,11 @@ def run_client_report_task(client_id: int):
                 if art["url"] not in seen_urls:
                     unique_discovered.append(art)
                     seen_urls.add(art["url"])
-                    
+
             filtered_section_articles = []
             master_section_articles = []
-            
+
             # Resolve and scrape each article concurrently
-            from concurrent.futures import ThreadPoolExecutor, as_completed
             
             def _process_single_article(art_idx_tuple):
                 art, idx = art_idx_tuple
@@ -1269,8 +1270,8 @@ def run_client_report_task(client_id: int):
             art_tuples = [(art, idx) for idx, art in enumerate(unique_discovered)]
             processed_count = 0
             
-            # Run up to 16 threads to resolve and scrape concurrently
-            with ThreadPoolExecutor(max_workers=16) as executor:
+            # Run up to 8 threads per section (sections now run in parallel, so 8 keeps total threads safe)
+            with ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(_process_single_article, t): t for t in art_tuples}
                 for future in as_completed(futures):
                     processed_count += 1
@@ -1289,22 +1290,37 @@ def run_client_report_task(client_id: int):
                     except Exception as future_err:
                         logger.error(f"Thread task exception: {future_err}")
             
-            report_data_filtered[section_name] = filtered_section_articles
-            report_data_master[section_name] = master_section_articles
             cat_counts = {"A": 0, "B": 0, "C": 0}
             paywalled_count = 0
             for art in filtered_section_articles:
                 cat_counts[art.get("publication_category", "C")] += 1
                 if art.get("is_paywalled"):
                     paywalled_count += 1
-                
+
             _update_progress(
                 f"Section '{section_name}' completed. "
                 f"Discovered: {total_to_process}, "
                 f"Relevant: {len(filtered_section_articles)} (Cat A: {cat_counts['A']}, Cat B: {cat_counts['B']}, Cat C: {cat_counts['C']}), "
                 f"Paywalled: {paywalled_count}."
             )
-            
+            return section_name, filtered_section_articles, master_section_articles
+
+        # Run all sections in parallel — all sections start simultaneously
+        active_processing_sections = {sn: kw for sn, kw in sections_data.items() if kw}
+        sec_workers = min(len(active_processing_sections), 5)
+        with ThreadPoolExecutor(max_workers=sec_workers) as sec_exe:
+            sec_futures = {
+                sec_exe.submit(_process_section, sn, kw): sn
+                for sn, kw in active_processing_sections.items()
+            }
+            for fut in as_completed(sec_futures):
+                try:
+                    sn, filtered, master = fut.result()
+                    report_data_filtered[sn] = filtered
+                    report_data_master[sn] = master
+                except Exception as sec_err:
+                    logger.error(f"Section processing failed: {sec_err}", exc_info=True)
+
         # Check if we got any articles at all
         total_filtered_count = sum(len(articles) for articles in report_data_filtered.values())
         has_articles = total_filtered_count > 0
