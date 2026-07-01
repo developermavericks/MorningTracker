@@ -71,8 +71,10 @@ app.conf.update(
         "scraper.tasks.enrich_article_node": {"queue": "celery"},
         "scraper.tasks.complete_stale_jobs": {"queue": "celery"},
         "scraper.tasks.check_client_schedules": {"queue": "celery"},
-        # Long-running report task → dedicated reports queue (1 worker)
+        "scraper.tasks.check_heavy_automation_schedules": {"queue": "celery"},
+        # Long-running report tasks → dedicated reports queue (1 worker)
         "scraper.tasks.run_client_report_task": {"queue": "reports"},
+        "scraper.tasks.run_heavy_automation_task": {"queue": "reports"},
     },
     beat_schedule={
         "complete-stale-jobs-every-5-min": {
@@ -81,6 +83,14 @@ app.conf.update(
         },
         "check-client-schedules-every-5-min": {
             "task": "scraper.tasks.check_client_schedules",
+            "schedule": 5 * 60,  # Every 5 minutes
+        },
+        "check-heavy-automation-schedules-every-5-min": {
+            "task": "scraper.tasks.check_heavy_automation_schedules",
+            "schedule": 5 * 60,  # Every 5 minutes
+        },
+        "check-heavy-scheduled-sends-every-5-min": {
+            "task": "scraper.tasks.check_heavy_scheduled_sends",
             "schedule": 5 * 60,  # Every 5 minutes
         },
     }

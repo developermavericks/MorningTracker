@@ -4,10 +4,11 @@ const getApiBase = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
+  const nexusBase = import.meta.env.VITE_NEXUS_BASE_URL || "http://35.240.197.209";
   if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
     return "http://localhost:8000/api/";
   }
-  return "/api/";
+  return `${nexusBase}/api/`;
 };
 
 const API_BASE = getApiBase();

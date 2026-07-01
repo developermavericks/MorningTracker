@@ -24,6 +24,8 @@
   --glass-blur: blur(12px);
   --glow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
   --article-text: hsl(var(--accent-h), 10%, 40%);
+  --nav-active:        hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) + 38%));
+  --nav-active-border: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) + 30%));
 
   /* Shared Properties */
   --font-main: 'Outfit', sans-serif;

@@ -69,7 +69,7 @@ def main():
     worker_env = env.copy()
     worker_log = open(os.path.join(backend_dir, "worker.log"), "a", encoding="utf-8")
     
-    celery_cmd = [python_exe, "-m", "celery", "-A", "celery_app", "worker", "--loglevel=info", "-Q", "orchestrator,scraper_nodes,celery"]
+    celery_cmd = [python_exe, "-m", "celery", "-A", "celery_app", "worker", "--loglevel=info", "-Q", "orchestrator,scraper_nodes,celery,reports"]
     if os.name == 'nt':
         celery_cmd.extend(["-P", "solo"])
     else:
@@ -83,12 +83,22 @@ def main():
         stderr=subprocess.STDOUT
     )
 
+    print("[4/4] Starting Celery Beat Scheduler...")
+    beat_log = open(os.path.join(backend_dir, "beat.log"), "a", encoding="utf-8")
+    beat_proc = subprocess.Popen(
+        [python_exe, "-m", "celery", "-A", "celery_app", "beat", "--loglevel=info"],
+        cwd=backend_dir,
+        env=env,
+        stdout=beat_log,
+        stderr=subprocess.STDOUT
+    )
+
     print("\n" + "="*40)
     print(" NEXUS is now running!")
     print("="*40)
     print(" -> API:      http://localhost:8000")
     print(" -> Frontend: http://localhost:5173")
-    print(" -> Logs:     backend/api.log, worker.log")
+    print(" -> Logs:     backend/api.log, worker.log, beat.log")
     print("\n Press Ctrl+C to stop all services.")
     print("="*40 + "\n")
 
@@ -104,6 +114,9 @@ def main():
             if worker_proc.poll() is not None:
                 print("\n[!] Celery worker process exited.")
                 break
+            if beat_proc.poll() is not None:
+                print("\n[!] Celery beat process exited.")
+                break
     except KeyboardInterrupt:
         print("\n[!] Stopping services...")
     finally:
@@ -112,12 +125,13 @@ def main():
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except: pass
 
-        for p in [backend_proc, frontend_proc, worker_proc]:
+        for p in [backend_proc, frontend_proc, worker_proc, beat_proc]:
             if p.pid: kill_tree(p.pid)
             
         backend_log.close()
         frontend_log.close()
         worker_log.close()
+        beat_log.close()
         print("Goodbye!")
 
 if __name__ == "__main__":

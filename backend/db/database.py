@@ -248,6 +248,78 @@ class DirectFeed(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
+# ─── Heavy Automation Models ─────────────────────────────────────────────────
+
+class HeavyCompany(Base):
+    __tablename__ = "heavy_companies"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    sector_match: Mapped[str] = mapped_column(String, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    timezone: Mapped[str] = mapped_column(String, default="Asia/Kolkata")
+    fetch_time: Mapped[str] = mapped_column(String, default="07:00")
+    window_hours: Mapped[int] = mapped_column(Integer, default=24)
+    relevancy_method: Mapped[str] = mapped_column(String, default="Hybrid")  # Keyword|Hybrid|LLM-judge
+    relevance_context: Mapped[Optional[str]] = mapped_column(Text)
+    relevance_threshold: Mapped[float] = mapped_column(Float, default=0.5)
+    llm_judge_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    mail_send_mode: Mapped[str] = mapped_column(String, default="Immediate")  # Immediate|Scheduled
+    mail_send_time: Mapped[Optional[str]] = mapped_column(String)
+    frequency: Mapped[str] = mapped_column(String, default="Daily")  # Daily|Weekly|Monthly|Custom
+    days: Mapped[Optional[str]] = mapped_column(Text)  # JSON list e.g. '["MON","THU"]'
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class HeavyRecipient(Base):
+    __tablename__ = "heavy_recipients"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("heavy_companies.id", ondelete="CASCADE"), nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String, default="brief")  # brief|master_doc
+
+class HeavyRun(Base):
+    __tablename__ = "heavy_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("heavy_companies.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String, default="running")  # running|completed|failed
+    fetched_count: Mapped[int] = mapped_column(Integer, default=0)
+    deduped_count: Mapped[int] = mapped_column(Integer, default=0)
+    relevant_count: Mapped[int] = mapped_column(Integer, default=0)
+    master_doc_path: Mapped[Optional[str]] = mapped_column(Text)
+    filtered_doc_path: Mapped[Optional[str]] = mapped_column(Text)
+    email_status: Mapped[Optional[str]] = mapped_column(String)  # sent|failed|pending|skipped
+    progress_message: Mapped[Optional[str]] = mapped_column(Text)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("idx_heavy_runs_company_id", "company_id"),
+        Index("idx_heavy_runs_started_at", "started_at"),
+    )
+
+class HeavyRunArticle(Base):
+    __tablename__ = "heavy_run_articles"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(Integer, ForeignKey("heavy_runs.id", ondelete="CASCADE"), nullable=False)
+    source_article_id: Mapped[Optional[int]] = mapped_column(Integer)
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    url: Mapped[Optional[str]] = mapped_column(Text)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    dedup_cluster_id: Mapped[Optional[str]] = mapped_column(String)
+    relevance_score: Mapped[Optional[float]] = mapped_column(Float)
+    included_in_brief: Mapped[bool] = mapped_column(Boolean, default=False)
+    pillar: Mapped[Optional[str]] = mapped_column(String)
+    sub_category: Mapped[Optional[str]] = mapped_column(String)
+    matched_keywords: Mapped[Optional[str]] = mapped_column(Text)  # JSON list
+    llm_summary: Mapped[Optional[str]] = mapped_column(Text)
+    bucket: Mapped[Optional[str]] = mapped_column(String)  # clear_keep|ambiguous_middle|clear_discard
+
+    __table_args__ = (
+        Index("idx_heavy_run_articles_run_id", "run_id"),
+    )
+
 # ─── Initialization ───────────────────────────────────────────────────────────
 
 async def init_db():
@@ -327,6 +399,25 @@ async def init_db():
             else:
                 await conn.execute(text("ALTER TABLE clients ADD COLUMN context TEXT"))
         except: pass
+
+        # Automated Migration: Heavy Automation tables (create_all handles new tables; these are safety guards)
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE"))
+                await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
+                await conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN IF NOT EXISTS bucket VARCHAR"))
+            else:
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN updated_at DATETIME"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN email_status VARCHAR"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN bucket VARCHAR"))
+                except Exception: pass
+        except Exception as e:
+            print(f"Migration Notice (Heavy Automation Schema): {e}")
 
         # Automated Cleanup: Duplicate Brands
         try:
@@ -506,6 +597,27 @@ def init_db_sync():
                 print("Sync Database: Seeded default direct feeds.")
     except Exception as e:
         print(f"Sync Migration Notice (Direct Feeds): {e}")
+
+    # Automated migration: Heavy Automation safety guards (create_all handles table creation)
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE"))
+                conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS llm_judge_enabled BOOLEAN DEFAULT TRUE"))
+                conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
+                conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN IF NOT EXISTS bucket VARCHAR"))
+            else:
+                for col_sql in [
+                    "ALTER TABLE heavy_companies ADD COLUMN updated_at DATETIME",
+                    "ALTER TABLE heavy_companies ADD COLUMN llm_judge_enabled BOOLEAN DEFAULT 1",
+                    "ALTER TABLE heavy_runs ADD COLUMN email_status VARCHAR",
+                    "ALTER TABLE heavy_run_articles ADD COLUMN bucket VARCHAR",
+                ]:
+                    try:
+                        conn.execute(text(col_sql))
+                    except Exception: pass
+    except Exception as e:
+        print(f"Sync Migration Notice (Heavy Automation Schema): {e}")
 
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 

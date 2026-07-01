@@ -232,3 +232,126 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
     # Save the document
     doc.save(output_path)
     return output_path
+
+
+def generate_organized_docx_report(client_name: str, report_type: str, date_str: str, grouped_data: dict, output_path: str) -> str:
+    """
+    Generates a professionally formatted DOCX report grouped by Master Heading and Sub Heading.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    doc = Document()
+    
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
+
+    # Add Title
+    title_p = doc.add_paragraph()
+    title_run = title_p.add_run(f"NEXUS NEWS BRIEFING: {report_type.upper()}")
+    title_run.font.name = 'Calibri'
+    title_run.font.size = Pt(18)
+    title_run.font.bold = True
+    title_run.font.color.rgb = RGBColor(74, 134, 232)
+    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Add Subtitle / Date
+    sub_p = doc.add_paragraph()
+    sub_run = sub_p.add_run(f"Date: {date_str} | Generated for {client_name}")
+    sub_run.font.name = 'Calibri'
+    sub_run.font.size = Pt(11)
+    sub_run.font.italic = True
+    sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Divider line
+    divider = doc.add_paragraph()
+    add_horizontal_line(divider)
+
+    if not grouped_data:
+        empty_p = doc.add_paragraph()
+        empty_run = empty_p.add_run("No relevant articles found for this briefing.")
+        empty_run.font.name = 'Calibri'
+        empty_run.font.size = Pt(11)
+        doc.save(output_path)
+        return output_path
+
+    # Iterate over Master Headings
+    for master, subs in grouped_data.items():
+        # Add Master Heading (H1)
+        m_p = doc.add_paragraph()
+        m_run = m_p.add_run(master)
+        m_run.font.name = 'Calibri'
+        m_run.font.size = Pt(14)
+        m_run.font.bold = True
+        m_run.font.color.rgb = RGBColor(74, 134, 232)
+        m_p.paragraph_format.space_before = Pt(18)
+        m_p.paragraph_format.space_after = Pt(6)
+        m_p.paragraph_format.keep_with_next = True
+
+        for sub, articles in subs.items():
+            if not articles:
+                continue
+            # Add Sub Heading (H2)
+            s_p = doc.add_paragraph()
+            s_run = s_p.add_run(sub)
+            s_run.font.name = 'Calibri'
+            s_run.font.size = Pt(12)
+            s_run.font.bold = True
+            s_run.font.color.rgb = RGBColor(102, 102, 102)
+            s_p.paragraph_format.space_before = Pt(12)
+            s_p.paragraph_format.space_after = Pt(4)
+            s_p.paragraph_format.keep_with_next = True
+
+            for i, art in enumerate(articles):
+                # Add Article Headline as clickable link
+                art_p = doc.add_paragraph()
+                art_p.paragraph_format.space_before = Pt(6)
+                art_p.paragraph_format.space_after = Pt(2)
+                
+                title_text = art.get("title", "Untitled Article")
+                url = art.get("url", "#")
+                
+                try:
+                    add_hyperlink(art_p, url, title_text, color="1155cc", underline=True)
+                except Exception:
+                    fallback_run = art_p.add_run(title_text)
+                    fallback_run.font.name = 'Calibri'
+                    fallback_run.font.size = Pt(10)
+                    fallback_run.font.bold = True
+                    fallback_run.font.color.rgb = RGBColor(17, 85, 204)
+                
+                # Add Publication, Author (if available), and Date
+                meta_p = doc.add_paragraph()
+                meta_p.paragraph_format.space_before = Pt(0)
+                meta_p.paragraph_format.space_after = Pt(8)
+                
+                pub_name = art.get("agency") or "Unknown Publication"
+                pub_author = art.get("author")
+                pub_date = art.get("published_at")
+                
+                date_text = ""
+                if pub_date:
+                    if isinstance(pub_date, str):
+                        date_text = pub_date[:10]
+                    else:
+                        date_text = pub_date.strftime("%Y-%m-%d")
+                
+                conf_score = art.get("confidence_score", 0)
+                if pub_author and str(pub_author).strip():
+                    meta_text = f"Publication: {pub_name} | Author: {str(pub_author).strip()} | Date: {date_text} | Relevance Confidence: {conf_score}/10"
+                else:
+                    meta_text = f"Publication: {pub_name} | Date: {date_text} | Relevance Confidence: {conf_score}/10"
+                
+                meta_run = meta_p.add_run(meta_text)
+                meta_run.font.name = 'Calibri'
+                meta_run.font.size = Pt(9.5)
+                meta_run.font.italic = True
+                meta_run.font.color.rgb = RGBColor(128, 128, 128)
+                
+                # Thin divider line between articles
+                if i < len(articles) - 1:
+                    add_horizontal_line(meta_p)
+                
+    doc.save(output_path)
+    return output_path

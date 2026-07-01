@@ -15,6 +15,199 @@ from scraper.search_utils import verify_boolean_relevance
 
 logger = logging.getLogger(__name__)
 
+import openpyxl
+import re
+
+def is_cell_colored(cell):
+    fill = cell.fill
+    if not fill or not fill.fill_type:
+        return False
+    fg = fill.fgColor
+    if fg and fg.type == 'rgb':
+        return fg.rgb and fg.rgb != '00000000' and fg.rgb != 'FFFFFFFF'
+    return False
+
+def is_cell_black(cell):
+    fill = cell.fill
+    if not fill or not fill.fill_type:
+        return False
+    fg = fill.fgColor
+    return fg and fg.type == 'rgb' and fg.rgb == 'FF000000'
+
+def parse_keyword_string(s):
+    if not s:
+        return []
+    s = s.replace('\u2018', '"').replace('\u2019', '"')
+    s = s.replace('\u201c', '"').replace('\u201d', '"')
+    s = s.replace('\u201b', '"').replace('\u201f', '"')
+    s = s.replace('`', '"')
+    
+    quotes = re.findall(r'"([^"]*)"', s)
+    if quotes:
+        return [q.strip() for q in quotes if q.strip()]
+    parts = []
+    for p in re.split(r'[,\n]', s):
+        p_clean = p.strip().strip('"\'')
+        if p_clean:
+            parts.append(p_clean)
+    return parts
+
+def is_valid_keyword_cell(val):
+    if not val:
+        return False
+    val_str = str(val).strip()
+    has_quotes = any(q in val_str for q in ('"', '“', '”', '\u201c', '\u201d'))
+    has_boolean = " AND " in val_str or " OR " in val_str
+    is_header_desc = "general format" in val_str.lower() or "use boolean" in val_str.lower() or "keywords industry" in val_str.lower() or "industry & competition" in val_str.lower()
+    return (has_quotes or has_boolean) and not is_header_desc
+
+def load_kws_from_excel(filepath, omit_black=False, use_only_colored=False):
+    if not os.path.exists(filepath):
+        logger.warning(f"Keywords file not found: {filepath}")
+        return []
+    try:
+        wb = openpyxl.load_workbook(filepath, data_only=True)
+        ws = wb.active
+        structure = []
+        current_master = None
+        for r in range(1, ws.max_row + 1):
+            c1 = ws.cell(r, 1)
+            c2 = ws.cell(r, 2)
+            val1 = c1.value
+            val2 = c2.value
+            if not val1 and not val2:
+                continue
+            if omit_black and (is_cell_black(c1) or is_cell_black(c2)):
+                continue
+                
+            if use_only_colored:
+                if val2 and not is_cell_colored(c2) and is_valid_keyword_cell(val2):
+                    continue
+                    
+            val2_str = str(val2) if val2 else ""
+            is_master = val1 and (not val2 or "keywords" in val2_str.lower() or "notes" in val2_str.lower() or not is_valid_keyword_cell(val2))
+            if is_master:
+                current_master = str(val1).strip()
+            else:
+                if val1 and val2 and current_master:
+                    if is_valid_keyword_cell(val2):
+                        structure.append({
+                            "master": current_master,
+                            "sub": str(val1).strip(),
+                            "raw_cell_value": str(val2).strip()
+                        })
+        return structure
+    except Exception as e:
+        logger.error(f"Error loading keywords from {filepath}: {e}")
+        return []
+
+def match_keyword_item(k, headline_lower):
+    k_lower = k.lower().strip()
+    if " and " not in k_lower and " or " not in k_lower:
+        clean_k = k_lower.strip('"\'() ')
+        return clean_k in headline_lower, len(clean_k.split())
+        
+    if " or " in k_lower:
+        parts = [p.strip().strip('"\'() ') for p in k_lower.split(" or ")]
+        for p in parts:
+            if p and p in headline_lower:
+                return True, len(p.split())
+        return False, 0
+        
+    if " and " in k_lower:
+        parts = [p.strip().strip('"\'() ') for p in re.split(r'\s+and\s+', k_lower)]
+        parts_clean = []
+        for p in parts:
+            p_clean = re.sub(r'near/\d+', '', p).strip().strip('"\'() ')
+            if p_clean:
+                parts_clean.append(p_clean)
+        if all(p in headline_lower for p in parts_clean if p):
+            words_count = sum(len(p.split()) for p in parts_clean)
+            return True, words_count
+        return False, 0
+    return False, 0
+
+def evaluate_headline_relevance(headline, keywords_list):
+    if not headline:
+        return 0, []
+    headline_lower = headline.lower()
+    matched_subs = []
+    total_score = 0
+    
+    for entry in keywords_list:
+        sub_heading = entry["sub"]
+        master_heading = entry["master"]
+        raw_cell = entry["raw_cell_value"]
+        
+        items = []
+        if "," in raw_cell and '"' in raw_cell:
+            items = parse_keyword_string(raw_cell)
+        else:
+            items = [raw_cell]
+            
+        cell_matched = False
+        cell_score = 0
+        matched_items = []
+        
+        for item in items:
+            matched, score = match_keyword_item(item, headline_lower)
+            if matched:
+                cell_matched = True
+                cell_score = max(cell_score, score)
+                matched_items.append(item)
+                
+        if cell_matched:
+            points = 2 if cell_score <= 1 else (5 if cell_score == 2 else 8)
+            total_score += points
+            matched_subs.append({
+                "master": master_heading,
+                "sub": sub_heading,
+                "score": points,
+                "matched_items": matched_items
+            })
+            
+    confidence = min(total_score, 10)
+    return confidence, matched_subs
+
+def normalize_publication_name(name):
+    if not name:
+        return ""
+    name = re.sub(r'\(.*?\)', '', name)
+    name = name.lower().strip()
+    if name.startswith("the "):
+        name = name[4:]
+    return "".join(c for c in name if c.isalnum())
+
+def load_priority_media_list(filepath):
+    if not os.path.exists(filepath):
+        logger.warning(f"Priority media list not found: {filepath}")
+        return []
+    try:
+        wb = openpyxl.load_workbook(filepath, data_only=True)
+        ws = wb.active
+        pubs = []
+        for r in range(2, ws.max_row + 1):
+            val = ws.cell(r, 2).value
+            if val:
+                val = str(val).strip()
+                c1 = ws.cell(r, 1).value
+                if c1 is not None:
+                    pubs.append(val)
+        return pubs
+    except Exception as e:
+        logger.error(f"Error loading priority media list: {e}")
+        return []
+
+def is_priority_publication(agency_name, priority_list):
+    if not agency_name or not priority_list:
+        return False
+    norm_agency = normalize_publication_name(agency_name)
+    for p in priority_list:
+        norm_p = normalize_publication_name(p)
+        if norm_p == norm_agency or norm_p in norm_agency or norm_agency in norm_p:
+            return True
+    return False
+
 PLAYWRIGHT_ONLY_DOMAINS = {"axios.com", "ndtv.com"}
 
 # Rotate across several recent Chrome UA strings to avoid fingerprinting.
@@ -1578,3 +1771,687 @@ def check_client_schedules():
                         )
             except Exception as e:
                 logger.error(f"Error checking schedule for client '{client.name}': {e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Heavy Automation Tasks
+# ──────────────────────────────────────────────────────────────────────────────
+
+@celery_app.task(name="scraper.tasks.run_heavy_automation_task", time_limit=3600, soft_time_limit=3300)
+def run_heavy_automation_task(company_id: int):
+    """
+    Main background task: fetch articles, dedup, filter, generate Master + Filtered reports.
+    Phase 2 scope: fetch → dedup → Master Report.
+    Phase 3 adds: filtering → Filtered Report.
+    """
+    from db.database import get_db_sync, HeavyCompany, HeavyRun, HeavyRunArticle, HeavyRecipient
+    from scraper.heavy_filter import exact_dedup, near_dedup, bucket_articles
+    from scraper.report_generator import generate_docx_report
+    from utils.email import send_error_alert_email
+    from datetime import date, datetime, timedelta
+    import pytz
+
+    company_name = f"Company ID {company_id}"
+    run_id = None
+
+    logger.info(f"[Heavy] Starting automation for company_id {company_id}")
+
+    # Create run record
+    with get_db_sync() as db:
+        company = db.execute(select(HeavyCompany).where(HeavyCompany.id == company_id)).scalar_one_or_none()
+        if not company:
+            logger.error(f"[Heavy] Company {company_id} not found")
+            return False
+
+        run = HeavyRun(company_id=company_id, status="running", started_at=datetime.utcnow())
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+        company_name = company.name
+        sector_match = company.sector_match
+        window_hours = company.window_hours
+
+    try:
+        def _update_progress(msg: str):
+            try:
+                with get_db_sync() as db:
+                    run_rec = db.execute(select(HeavyRun).where(HeavyRun.id == run_id)).scalar_one_or_none()
+                    if run_rec:
+                        run_rec.progress_message = (run_rec.progress_message or "") + msg + "\n"
+                        db.commit()
+            except Exception as e:
+                logger.warning(f"[Heavy] Progress update failed: {e}")
+
+        # ─ Fetch from Nexus Remote Feed ───────────────────────────────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching articles from Nexus remote feed...")
+
+        import requests as _requests
+        import time as _time
+
+        nexus_base = os.getenv("NEXUS_FEED_URL", "http://35.240.197.209")
+        nexus_key  = os.getenv("NEXUS_SERVICE_KEY", "nexus_sk_fb74eaae34cd3e53f6ac2031479337cb")
+        FETCH_TIMEOUT = int(os.getenv("NEXUS_FETCH_TIMEOUT", "60"))   # seconds per request
+        FETCH_RETRIES = int(os.getenv("NEXUS_FETCH_RETRIES", "3"))     # attempts before giving up
+        FETCH_RETRY_DELAY = 2                                           # seconds between retries
+
+        def normalize_sector(sector_str: str) -> str:
+            """Normalise a raw sector string to its canonical lowercase form."""
+            if not sector_str:
+                return "other"
+            s = sector_str.lower().strip()
+            # Strip trailing numbers / spaces so 'google 2', 'google1' → 'google'
+            import re as _re
+            base = _re.sub(r'[\s_-]*\d+$', '', s).strip()
+            return base if base else s
+
+        sectors = [s.strip() for s in sector_match.split(",") if s.strip()]
+        cutoff_dt = datetime.utcnow() - timedelta(hours=window_hours)
+        cutoff_date = cutoff_dt.date().isoformat()
+
+        # Pre-defined mapping for phonetic/spelling variations that simple wildcard matches might miss
+        SECTOR_VARIANTS = {
+            'tech': ['tech', 'Tech', 'TECH', 'Techhh', 'tech1', 'teccH', 'Tech1', 'TeccH'],
+            'stock market': ['stock market', 'Stock Market'],
+            'policies': ['policies', 'Policies'],
+            'real estate': ['real estate', 'Real Estate'],
+            'healthcare': ['healthcare', 'HEALTHCARE', 'HealthCare', 'Health'],
+            'startups': ['startups', 'StartUp'],
+            'foods and drinks': ['foods and drinks', 'FOODS AND DRINKS', 'Foods'],
+            'ai': ['ai', 'AI', 'Ai'],
+            'google': ['google', 'google 2'],
+            'travel': ['travel', 'Travell'],
+            'lifestyle': ['lifestyle', 'LifeStyle'],
+            'consultancies': ['consultancies', 'Consultancies']
+        }
+
+        # ── Dynamically discover ALL sector name variants stored in the local DB ──
+        from db.database import Article as _Article
+        from sqlalchemy import select as _select, text as _text
+        all_remote_variants: list[str] = []
+        with get_db_sync() as _db:
+            for sec in sectors:
+                sec_norm = normalize_sector(sec)
+                # 1. Start with any static explicit variants
+                explicit = SECTOR_VARIANTS.get(sec_norm, [])
+                
+                # 2. Add any wildcard prefix matches from the database (e.g. 'google 1', 'google 2')
+                rows = _db.execute(
+                    _text("SELECT DISTINCT sector FROM articles WHERE published_at >= :cutoff AND LOWER(sector) LIKE :pat"),
+                    {"cutoff": cutoff_dt, "pat": f"{sec_norm}%"}
+                ).fetchall()
+                db_matches = [r[0] for r in rows if r[0]]
+                
+                # Combine both lists and deduplicate
+                found = list(set(explicit + db_matches))
+                if not found:
+                    found = [sec]
+                all_remote_variants.extend(found)
+                _update_progress(f"  Sector '{sec}' → Resolved variants: {found}")
+
+        # De-duplicate while preserving order
+        seen_variants: set[str] = set()
+        unique_variants: list[str] = []
+        for v in all_remote_variants:
+            if v.lower() not in seen_variants:
+                seen_variants.add(v.lower())
+                unique_variants.append(v)
+
+        fetched: list[dict] = []
+        seen_ids: set = set()
+
+        def _fetch_with_retry(url: str, params: dict) -> dict | None:
+            """GET with retry-backoff. Returns parsed JSON or None on total failure."""
+            for attempt in range(1, FETCH_RETRIES + 1):
+                try:
+                    resp = _requests.get(url, params=params, timeout=FETCH_TIMEOUT)
+                    resp.raise_for_status()
+                    return resp.json()
+                except Exception as ex:
+                    if attempt < FETCH_RETRIES:
+                        _update_progress(f"  ⚠ Attempt {attempt}/{FETCH_RETRIES} failed ({ex}). Retrying in {FETCH_RETRY_DELAY}s...")
+                        _time.sleep(FETCH_RETRY_DELAY)
+                    else:
+                        _update_progress(f"  ✗ Sector fetch failed after {FETCH_RETRIES} attempts: {ex}")
+                        return None
+
+        for v in unique_variants:
+            _update_progress(f"  → Fetching sector: {v}")
+            page = 1
+            while True:
+                data = _fetch_with_retry(
+                    f"{nexus_base}/api/feed",
+                    {
+                        "api_key":   nexus_key,
+                        "sector":    v,
+                        "date_from": cutoff_date,
+                        "page":      page,
+                        "page_size": 500,
+                    },
+                )
+                if data is None:
+                    break   # all retries exhausted — move to next variant
+
+                for a in data.get("articles", []):
+                    uid = a.get("id") or a.get("url")
+                    if uid and uid not in seen_ids:
+                        seen_ids.add(uid)
+                        fetched.append({
+                            "id":           a.get("id"),
+                            "title":        a.get("title"),
+                            "url":          a.get("resolved_url") or a.get("url"),
+                            "published_at": a.get("published_at"),
+                            "full_body":    a.get("full_body"),
+                            "summary":      a.get("summary"),
+                            "agency":       a.get("agency"),
+                            "author":       a.get("author"),
+                            "source_feed":  normalize_sector(a.get("sector") or v),
+                        })
+
+                total_pages = data.get("total_pages", 1)
+                if page >= total_pages:
+                    break
+                page += 1
+
+        _update_progress(f"Fetched {len(fetched)} articles from Nexus remote feed")
+
+
+        if not fetched:
+            with get_db_sync() as db:
+                run_rec = db.execute(select(HeavyRun).where(HeavyRun.id == run_id)).scalar_one_or_none()
+                if run_rec:
+                    run_rec.status = "completed"
+                    run_rec.fetched_count = 0
+                    run_rec.deduped_count = 0
+                    run_rec.relevant_count = 0
+                    run_rec.finished_at = datetime.utcnow()
+                    db.commit()
+            logger.info(f"[Heavy] No articles fetched for {company_name}")
+            return True
+
+        # ─ Exact dedup ────────────────────────────────────────────────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Exact dedup...")
+        deduped_exact = exact_dedup(fetched)
+        _update_progress(f"After exact dedup: {len(deduped_exact)} articles")
+
+        # ─ Near-dup clustering ────────────────────────────────────────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Near-dup clustering...")
+        deduped = near_dedup(deduped_exact, threshold=0.80)
+        _update_progress(f"After near-dedup: {len(deduped)} articles")
+
+        # ─ Filter articles using Excel keywords and priority media list ──────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Filtering articles using Excel keywords and priority media list...")
+
+        # Absolute path to project root (tasks.py lives at backend/scraper/tasks.py → root is 2 dirs up)
+        _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        corp_kws_path = os.path.join(_project_root, "Google_material", "Google Corporate Keywords.xlsx")
+        google_kws_path = os.path.join(_project_root, "Google_material", "GOOGLE_KEYWORDS.xlsx")
+        media_list_path = os.path.join(_project_root, "Google_material", "[Internal] Google Online Priority Media List 2026.xlsx")
+
+        _update_progress("Loading keywords and priority publication list from Excel...")
+        corp_keywords = load_kws_from_excel(corp_kws_path, omit_black=False, use_only_colored=True)
+        google_keywords = load_kws_from_excel(google_kws_path, omit_black=True, use_only_colored=False)
+        priority_publications = load_priority_media_list(media_list_path)
+        _update_progress(f"Loaded {len(corp_keywords)} corporate categories and {len(google_keywords)} Google categories.")
+
+        corporate_articles = []
+        product_articles = []
+        relevant_map = {}
+
+        for art in deduped:
+            title = art.get("title", "")
+            agency = art.get("agency", "")
+            
+            is_priority = is_priority_publication(agency, priority_publications)
+            
+            corp_conf, corp_matches = evaluate_headline_relevance(title, corp_keywords)
+            google_conf, google_matches = evaluate_headline_relevance(title, google_keywords)
+            
+            if (is_priority and corp_conf > 6) or (corp_conf >= 7):
+                art_corp = dict(art)
+                art_corp["confidence_score"] = corp_conf
+                art_corp["matches"] = corp_matches
+                art_corp["_source_type"] = "corporate"
+                corporate_articles.append(art_corp)
+                relevant_map[art["url"]] = art
+                
+            if (is_priority and google_conf > 6) or (google_conf >= 7):
+                art_prod = dict(art)
+                art_prod["confidence_score"] = google_conf
+                art_prod["matches"] = google_matches
+                art_prod["_source_type"] = "product"
+                product_articles.append(art_prod)
+                relevant_map[art["url"]] = art
+
+        relevant = list(relevant_map.values())
+        _update_progress(f"Relevance matching: corporate matches={len(corporate_articles)}, product matches={len(product_articles)}, unique relevant={len(relevant)}")
+
+        # Build audit trail parameters on unique relevant articles
+        for art_url, art in relevant_map.items():
+            corp_matches_found = []
+            corp_c = 0
+            for a in corporate_articles:
+                if a["url"] == art_url:
+                    corp_matches_found = a["matches"]
+                    corp_c = a["confidence_score"]
+                    break
+                    
+            prod_matches_found = []
+            prod_c = 0
+            for a in product_articles:
+                if a["url"] == art_url:
+                    prod_matches_found = a["matches"]
+                    prod_c = a["confidence_score"]
+                    break
+                    
+            all_matches = corp_matches_found + prod_matches_found
+            pillars = list(set(m["master"] for m in all_matches))
+            subs = list(set(m["sub"] for m in all_matches))
+            
+            keyword_hits = []
+            for m in all_matches:
+                keyword_hits.extend(m.get("matched_items", []))
+            keyword_hits = list(set(keyword_hits))
+            
+            art["_relevance_score"] = max(corp_c, prod_c)
+            art["_pillar"] = ", ".join(pillars) if pillars else "Other"
+            art["_sub_category"] = ", ".join(subs) if subs else "General"
+            art["_keyword_hits"] = keyword_hits
+            
+            if corp_c > 0 and prod_c > 0:
+                art["_bucket"] = "both"
+            elif corp_c > 0:
+                art["_bucket"] = "corporate"
+            else:
+                art["_bucket"] = "product"
+
+        # ─ Summaries generation disabled per user request ───────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Summary generation is disabled per request. Using existing database summaries...")
+        for art in relevant:
+            art["_summary"] = art.get("summary") or art.get("full_body") or ""
+
+        # Map generated summaries back to corporate & product article lists
+        for art in corporate_articles:
+            orig = relevant_map.get(art["url"])
+            if orig:
+                art["summary"] = orig.get("_summary") or orig.get("summary") or orig.get("full_body") or ""
+                
+        for art in product_articles:
+            orig = relevant_map.get(art["url"])
+            if orig:
+                art["summary"] = orig.get("_summary") or orig.get("summary") or orig.get("full_body") or ""
+
+        # Helper to group articles for H1/H2 reports
+        def group_articles_for_report(articles_list):
+            grouped = {}
+            for a in articles_list:
+                for match in a.get("matches", []):
+                    master = match["master"]
+                    sub = match["sub"]
+                    if master not in grouped:
+                        grouped[master] = {}
+                    if sub not in grouped[master]:
+                        grouped[master][sub] = []
+                    if a["url"] not in [x["url"] for x in grouped[master][sub]]:
+                        grouped[master][sub].append(a)
+            return grouped
+
+        corp_grouped = group_articles_for_report(corporate_articles)
+        google_grouped = group_articles_for_report(product_articles)
+
+        # ─ Generate Corporate Keywords Report (as Master Document) ─────────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating Google Corporate Keywords Report DOCX...")
+        today_str = date.today().strftime("%Y-%m-%d")
+        master_filename = f"Google_Corporate_Keywords_Report_{company_name}_{today_str}_{run_id}.docx"
+        master_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports", master_filename
+        )
+        from scraper.report_generator import generate_organized_docx_report
+        generate_organized_docx_report(company_name, "Google Corporate Keywords", today_str, corp_grouped, master_path)
+        _update_progress(f"Corporate Keywords Report saved: {master_filename}")
+
+        # ─ Generate Google Keywords Report (as Filtered Document) ───────────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating Google Product/Brand Keywords Report DOCX...")
+        filtered_filename = f"Google_Keywords_Report_{company_name}_{today_str}_{run_id}.docx"
+        filtered_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports", filtered_filename
+        )
+        generate_organized_docx_report(company_name, "Google Product/Brand Keywords", today_str, google_grouped, filtered_path)
+        _update_progress(f"Google Keywords Report saved: {filtered_filename}")
+
+        # Group relevant by pillar for email
+        by_pillar_email = {}
+        for art in relevant:
+            pillar = art.get("_pillar") or "Other"
+            if pillar not in by_pillar_email:
+                by_pillar_email[pillar] = []
+            by_pillar_email[pillar].append(art)
+
+        # ─ Store per-article audit trail (Phase 5) ────────────────────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Storing audit trail for {len(relevant)} articles...")
+
+        try:
+            with get_db_sync() as db:
+                for art in relevant:
+                    pub_date = art.get("published_at")
+                    if isinstance(pub_date, str):
+                        try:
+                            pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        except Exception:
+                            try:
+                                pub_date = datetime.strptime(pub_date.split(".")[0], "%Y-%m-%d %H:%M:%S")
+                            except Exception:
+                                pub_date = datetime.utcnow()
+                    elif not pub_date:
+                        pub_date = datetime.utcnow()
+
+                    audit = HeavyRunArticle(
+                        run_id=run_id,
+                        source_article_id=art.get("id"),
+                        title=art.get("title"),
+                        url=art.get("url"),
+                        published_at=pub_date,
+                        dedup_cluster_id=art.get("cluster_id"),
+                        relevance_score=art.get("_relevance_score"),
+                        included_in_brief=True,
+                        pillar=art.get("_pillar"),
+                        sub_category=art.get("_sub_category"),
+                        matched_keywords=json.dumps(art.get("_keyword_hits", [])),
+                        bucket=art.get("_bucket", "clear_keep"),
+                    )
+                    db.add(audit)
+                db.commit()
+            _update_progress(f"Audit trail stored.")
+        except Exception as e:
+            logger.warning(f"[Heavy] Audit trail storage failed: {e}")
+
+        # Generate Executive Summary + Strategic Takeaways (Phase 4)
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating executive summary...")
+
+        from scraper.heavy_llm import generate_executive_summary, generate_strategic_takeaways
+        exec_summary = generate_executive_summary(relevant, company_name=company_name)
+        takeaways = generate_strategic_takeaways(relevant, company_name=company_name)
+
+        if exec_summary:
+            _update_progress(f"Executive Summary: {exec_summary[:100]}...")
+        if takeaways:
+            _update_progress(f"Strategic Takeaways generated.")
+
+        # Build and send email
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Sending intelligence brief email...")
+
+        from utils.email import send_report_email
+
+        # Collect email recipients by role
+        with get_db_sync() as db:
+            brief_recips = db.execute(
+                select(HeavyRecipient).where(
+                    HeavyRecipient.company_id == company_id,
+                    HeavyRecipient.role == "brief"
+                )
+            ).scalars().all()
+            master_recips = db.execute(
+                select(HeavyRecipient).where(
+                    HeavyRecipient.company_id == company_id,
+                    HeavyRecipient.role == "master_doc"
+                )
+            ).scalars().all()
+
+        brief_emails = [r.email for r in brief_recips]
+        master_emails = [r.email for r in master_recips]
+
+        email_status = "skipped"
+        if brief_emails or master_emails:
+            if company.mail_send_mode == "Immediate":
+                _update_progress(f"Sending email immediately...")
+                try:
+                    success_brief = True
+                    success_master = True
+                    
+                    if brief_emails:
+                        _update_progress(f"Sending Daily Brief email to {len(brief_emails)} recipients...")
+                        success_brief = send_report_email(
+                            recipient_emails=brief_emails,
+                            client_name=company_name,
+                            docx_path_filtered=None,
+                            docx_path_master=None,
+                            has_articles=bool(relevant),
+                            brief_content=exec_summary,
+                        )
+                        
+                    if master_emails:
+                        _update_progress(f"Sending Corporate & Keywords Reports email to {len(master_emails)} recipients...")
+                        success_master = send_report_email(
+                            recipient_emails=master_emails,
+                            client_name=company_name,
+                            docx_path_filtered=filtered_path,
+                            docx_path_master=master_path,
+                            has_articles=bool(relevant),
+                            brief_content=exec_summary,
+                        )
+                        
+                    email_status = "sent" if (success_brief and success_master) else "failed"
+                except Exception as e:
+                    logger.error(f"[Heavy] Email send failed: {e}")
+                    email_status = "failed"
+                    try:
+                        send_error_alert_email(company_name, f"Email send failed: {str(e)}")
+                    except:
+                        pass
+                _update_progress(f"Email status: {email_status}")
+            else:
+                # Scheduled mode: store send_at for Phase 5 beat task
+                _update_progress(f"Email scheduled for {company.mail_send_time} (mode: {company.mail_send_mode})")
+                email_status = "pending"
+
+        # ─ Update run record ──────────────────────────────────────────────────
+        with get_db_sync() as db:
+            run_rec = db.execute(select(HeavyRun).where(HeavyRun.id == run_id)).scalar_one_or_none()
+            if run_rec:
+                run_rec.status = "completed"
+                run_rec.fetched_count = len(fetched)
+                run_rec.deduped_count = len(deduped)
+                run_rec.relevant_count = len(relevant)
+                run_rec.master_doc_path = master_path
+                run_rec.filtered_doc_path = filtered_path
+                run_rec.email_status = email_status
+                run_rec.finished_at = datetime.utcnow()
+                db.commit()
+
+        logger.info(f"[Heavy] Task completed for {company_name}: fetched={len(fetched)}, deduped={len(deduped)}")
+        return True
+
+    except Exception as e:
+        logger.error(f"[Heavy] Task failed for {company_name}: {e}", exc_info=True)
+        try:
+            with get_db_sync() as db:
+                run_rec = db.execute(select(HeavyRun).where(HeavyRun.id == run_id)).scalar_one_or_none()
+                if run_rec:
+                    run_rec.status = "failed"
+                    run_rec.error = str(e)
+                    run_rec.finished_at = datetime.utcnow()
+                    db.commit()
+            send_error_alert_email(company_name, str(e))
+        except Exception as alert_err:
+            logger.error(f"[Heavy] Failed to update error state: {alert_err}")
+        return False
+
+
+@celery_app.task(name="scraper.tasks.check_heavy_automation_schedules")
+def check_heavy_automation_schedules():
+    """
+    Beat task: checks all enabled HeavyCompany configs every 5 min.
+    If current time matches frequency/days/fetch_time, dispatches run_heavy_automation_task.
+    """
+    from db.database import get_db_sync, HeavyCompany, HeavyRun
+    from sqlalchemy import desc
+    import pytz
+    from datetime import datetime, timedelta
+
+    logger.info("[Heavy] Checking automation schedules...")
+
+    try:
+        with get_db_sync() as db:
+            companies = db.execute(select(HeavyCompany).where(HeavyCompany.enabled == True)).scalars().all()
+
+            for company in companies:
+                try:
+                    tz = pytz.timezone(company.timezone or "Asia/Kolkata")
+                    now_tz = datetime.now(tz)
+
+                    # Parse scheduled time (HH:MM)
+                    sched_hour, sched_min = map(int, (company.fetch_time or "07:00").split(":"))
+                    target = now_tz.replace(hour=sched_hour, minute=sched_min, second=0, microsecond=0)
+
+                    # Check if we're within 10 minutes after scheduled time
+                    diff_min = (now_tz - target).total_seconds() / 60.0
+                    if not (0 <= diff_min < 10):
+                        continue
+
+                    # Check frequency/days
+                    weekday = now_tz.strftime("%A")[:3].upper()
+                    month_day = now_tz.day
+                    days_list = [] if not company.days else json.loads(company.days)
+
+                    should_run = False
+                    if company.frequency == "Daily":
+                        should_run = True
+                    elif company.frequency == "Weekly" and weekday in days_list:
+                        should_run = True
+                    elif company.frequency == "Monthly" and str(month_day) in days_list:
+                        should_run = True
+                    elif company.frequency == "Custom" and weekday in days_list:
+                        should_run = True
+
+                    if not should_run:
+                        continue
+
+                    # Check if already ran today
+                    last_run = db.execute(
+                        select(HeavyRun)
+                        .where(HeavyRun.company_id == company.id)
+                        .order_by(desc(HeavyRun.started_at))
+                        .limit(1)
+                    ).scalar_one_or_none()
+
+                    if last_run:
+                        last_run_date = (last_run.started_at or last_run.finished_at).date() if last_run.started_at or last_run.finished_at else None
+                        if last_run_date == now_tz.date():
+                            logger.info(f"[Heavy] {company.name} already ran today, skipping")
+                            continue
+
+                    logger.info(f"[Heavy] Triggering run for {company.name}")
+                    celery_app.send_task("scraper.tasks.run_heavy_automation_task", args=[company.id])
+
+                except Exception as e:
+                    logger.error(f"[Heavy] Schedule check error for {company.name}: {e}")
+
+    except Exception as e:
+        logger.error(f"[Heavy] Schedule check failed: {e}", exc_info=True)
+
+
+@celery_app.task(name="scraper.tasks.check_heavy_scheduled_sends")
+def check_heavy_scheduled_sends():
+    """
+    Phase 5: Beat task (every 5 min) — check for pending emails at their scheduled send time.
+    If current time >= mail_send_time, send the queued reports.
+    """
+    from db.database import get_db_sync, HeavyRun, HeavyCompany, HeavyRecipient
+    from utils.email import send_report_email, send_error_alert_email
+    import pytz
+
+    logger.info("[Heavy] Checking scheduled sends...")
+
+    try:
+        with get_db_sync() as db:
+            # Find runs with email_status='pending' and current time >= mail_send_time
+            pending_runs = db.execute(
+                select(HeavyRun).where(HeavyRun.email_status == "pending")
+            ).scalars().all()
+
+            for run in pending_runs:
+                try:
+                    company = db.execute(
+                        select(HeavyCompany).where(HeavyCompany.id == run.company_id)
+                    ).scalar_one_or_none()
+
+                    if not company or company.mail_send_mode != "Scheduled":
+                        continue
+
+                    # Check if current time >= mail_send_time in company's timezone
+                    tz = pytz.timezone(company.timezone or "Asia/Kolkata")
+                    now_tz = datetime.now(tz)
+                    sched_hour, sched_min = map(int, (company.mail_send_time or "08:00").split(":"))
+                    send_target = now_tz.replace(hour=sched_hour, minute=sched_min, second=0, microsecond=0)
+
+                    if now_tz < send_target:
+                        continue  # Not yet time
+
+                    # Time to send — fetch recipients and send
+                    brief_recips = db.execute(
+                        select(HeavyRecipient).where(
+                            HeavyRecipient.company_id == company.id,
+                            HeavyRecipient.role == "brief"
+                        )
+                    ).scalars().all()
+
+                    master_recips = db.execute(
+                        select(HeavyRecipient).where(
+                            HeavyRecipient.company_id == company.id,
+                            HeavyRecipient.role == "master_doc"
+                        )
+                    ).scalars().all()
+
+                    brief_emails = [r.email for r in brief_recips]
+                    master_emails = [r.email for r in master_recips]
+
+                    if not (brief_emails or master_emails):
+                        logger.info(f"[Heavy] Run {run.id}: no recipients configured")
+                        run.email_status = "skipped"
+                        db.commit()
+                        continue
+
+                    # Send the reports
+                    try:
+                        success_brief = True
+                        success_master = True
+                        
+                        if brief_emails:
+                            logger.info(f"[Heavy] Run {run.id}: Sending scheduled Daily Brief email to {len(brief_emails)} recipients...")
+                            success_brief = send_report_email(
+                                recipient_emails=brief_emails,
+                                client_name=company.name,
+                                docx_path_filtered=None,
+                                docx_path_master=None,
+                                has_articles=run.relevant_count > 0,
+                                brief_content=run.executive_summary,
+                            )
+                            
+                        if master_emails:
+                            logger.info(f"[Heavy] Run {run.id}: Sending scheduled Reports email to {len(master_emails)} recipients...")
+                            success_master = send_report_email(
+                                recipient_emails=master_emails,
+                                client_name=company.name,
+                                docx_path_filtered=run.filtered_doc_path,
+                                docx_path_master=run.master_doc_path,
+                                has_articles=run.relevant_count > 0,
+                                brief_content=run.executive_summary,
+                            )
+                            
+                        run.email_status = "sent" if (success_brief and success_master) else "failed"
+                        logger.info(f"[Heavy] Run {run.id}: email sent (status: {run.email_status})")
+                    except Exception as send_err:
+                        logger.error(f"[Heavy] Run {run.id}: email send failed: {send_err}")
+                        run.email_status = "failed"
+                        try:
+                            send_error_alert_email(company.name, f"Scheduled email send failed: {str(send_err)}")
+                        except:
+                            pass
+
+                    db.commit()
+
+                except Exception as e:
+                    logger.error(f"[Heavy] Scheduled send error for run {run.id}: {e}")
+
+    except Exception as e:
+        logger.error(f"[Heavy] Scheduled sends check failed: {e}", exc_info=True)

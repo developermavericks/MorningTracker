@@ -9,9 +9,9 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-def send_report_email(recipient_emails: list, client_name: str, docx_path_filtered: str, docx_path_master: str, google_doc_url_filtered: str = None, google_doc_url_master: str = None, has_articles: bool = True) -> bool:
+def send_report_email(recipient_emails: list, client_name: str, docx_path_filtered: str, docx_path_master: str, google_doc_url_filtered: str = None, google_doc_url_master: str = None, has_articles: bool = True, brief_content: str = None) -> bool:
     """
-    Sends the generated DOCX reports (Filtered and Master) to the specified email addresses.
+    Sends the generated DOCX reports (Filtered and Master) and the executive brief to the specified email addresses.
     """
     smtp_host = os.getenv("SMTP_HOST")
     smtp_port = os.getenv("SMTP_PORT")
@@ -33,10 +33,18 @@ def send_report_email(recipient_emails: list, client_name: str, docx_path_filter
         msg['Subject'] = f"Daily News Briefing: {client_name} - {date_str}"
         
         # Email Body
-        body = (
-            f"Hello Team,\n\n"
-            f"Please find attached the daily news monitoring briefings for {client_name} generated on {date_str}.\n\n"
-        )
+        body = f"Hello Team,\n\n"
+        
+        if brief_content:
+            body += (
+                f"📰 DAILY BRIEF SUMMARY:\n"
+                f"--------------------------------------------------\n"
+                f"{brief_content}\n"
+                f"--------------------------------------------------\n\n"
+            )
+            
+        if docx_path_filtered or docx_path_master:
+            body += f"Please find attached the daily news monitoring briefings for {client_name} generated on {date_str}.\n\n"
         
         if google_doc_url_filtered:
             body += f"📝 Filtered Report (Relevant Articles Only):\n{google_doc_url_filtered}\n\n"
