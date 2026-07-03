@@ -2108,10 +2108,20 @@ def run_heavy_automation_task(company_id: int):
         # ─ Filter articles using super-final CSV keywords + priority media list ────
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Filtering articles using Google_keywords_super_final.csv...")
 
-        # Absolute path to project root (tasks.py lives at backend/scraper/tasks.py → root is 2 dirs up)
-        _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        super_final_csv_path = os.path.join(_project_root, "Google_material", "Google_keywords_super_final.csv")
-        media_list_path = os.path.join(_project_root, "Google_material", "[Internal] Google Online Priority Media List 2026.xlsx")
+        # Resolve Google_material path robustly for both local and container environments
+        _tasks_dir = os.path.dirname(os.path.abspath(__file__))
+        _backend_dir = os.path.dirname(_tasks_dir)
+        _parent_of_backend = os.path.dirname(_backend_dir)
+        
+        # Try local dev path first
+        super_final_csv_path = os.path.join(_parent_of_backend, "Google_material", "Google_keywords_super_final.csv")
+        media_list_path = os.path.join(_parent_of_backend, "Google_material", "[Internal] Google Online Priority Media List 2026.xlsx")
+        
+        # Fallback to production container path if local path is missing
+        if not os.path.exists(super_final_csv_path):
+            super_final_csv_path = os.path.join(_backend_dir, "Google_material", "Google_keywords_super_final.csv")
+        if not os.path.exists(media_list_path):
+            media_list_path = os.path.join(_backend_dir, "Google_material", "[Internal] Google Online Priority Media List 2026.xlsx")
 
         _update_progress("Loading super-final keywords CSV and priority publication list...")
         kw_buckets = parse_super_final_csv(super_final_csv_path)

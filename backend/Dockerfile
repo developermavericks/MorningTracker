@@ -26,6 +26,10 @@ RUN playwright install-deps chromium
 # Copy backend application code
 COPY backend/ .
 
+# Copy keyword and priority media resources
+COPY Google_material/ ./Google_material/
+
+
 # Default command: Production-grade Uvicorn with workers
 # Explicit sh -c ensures Railway's $PORT environment variable is correctly expanded at runtime
 CMD ["sh", "-c", "gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120"]
