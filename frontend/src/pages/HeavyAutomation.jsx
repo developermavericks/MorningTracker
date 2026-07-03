@@ -421,6 +421,31 @@ function CompanySettings({ company, availableSectors, onSave, onDelete, onRunNow
       <div style={{ flex: 1, overflowY: "auto" }}>
         {tab === "schedule" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "6px", color: "var(--muted)" }}>Automation Status</label>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                background: form.enabled ? "rgba(16, 185, 129, 0.05)" : "rgba(239, 68, 68, 0.05)",
+                border: form.enabled ? "1px solid rgba(16, 185, 129, 0.2)" : "1px solid rgba(239, 68, 68, 0.2)",
+                borderRadius: "8px",
+                padding: "12px",
+                transition: "all 0.2s ease"
+              }}>
+                <input
+                  type="checkbox"
+                  id="enabled"
+                  checked={form.enabled ?? true}
+                  onChange={e => set("enabled", e.target.checked)}
+                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                />
+                <label htmlFor="enabled" style={{ fontSize: "13px", fontWeight: "700", cursor: "pointer", flex: 1, color: form.enabled ? "var(--success)" : "var(--danger)" }}>
+                  {form.enabled ? "✓ Automation Active" : "✗ Automation Disabled (Paused)"}
+                </label>
+              </div>
+            </div>
+
             <div style={{ display: "flex", gap: "16px" }}>
               <div>
                 <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "6px", color: "var(--muted)" }}>Fetch Time</label>
@@ -776,9 +801,15 @@ export default function HeavyAutomation() {
                 <div key={c.id} onClick={() => setSelected(c)} style={{
                   padding: "12px 16px", borderBottom: "1px solid var(--border)", cursor: "pointer",
                   background: selected?.id === c.id ? "var(--nav-active)" : "transparent",
-                  borderLeft: selected?.id === c.id ? "3px solid var(--accent)" : "3px solid transparent"
+                  borderLeft: selected?.id === c.id ? "3px solid var(--accent)" : "3px solid transparent",
+                  opacity: c.enabled ? 1 : 0.75
                 }}>
-                  <div style={{ fontWeight: 700, fontSize: "13px" }}>{c.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ fontWeight: 700, fontSize: "13px", color: c.enabled ? "var(--text)" : "var(--muted)" }}>{c.name}</div>
+                    {!c.enabled && (
+                      <span style={{ fontSize: "9px", fontWeight: 700, padding: "2px 6px", background: "rgba(239, 68, 68, 0.1)", color: "var(--danger)", borderRadius: "10px", textTransform: "uppercase" }}>Paused</span>
+                    )}
+                  </div>
                   <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px" }}>{c.sector_match}</div>
                 </div>
               ))
