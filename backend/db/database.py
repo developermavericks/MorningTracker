@@ -404,6 +404,14 @@ async def init_db():
                 await conn.execute(text("ALTER TABLE clients ADD COLUMN context TEXT"))
         except: pass
 
+        # Automated Migration: Add client summary_length if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS summary_length INTEGER DEFAULT 35"))
+            else:
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN summary_length INTEGER DEFAULT 35"))
+        except: pass
+
         # Automated Migration: Heavy Automation tables (create_all handles new tables; these are safety guards)
         try:
             if "postgresql" in engine.url.drivername:
