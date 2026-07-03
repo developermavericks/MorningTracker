@@ -370,6 +370,20 @@ export default function ClientReports() {
     window.open(url, "_blank");
   };
 
+  const handleDeleteTemplate = async (clientId) => {
+    if (!window.confirm("Are you sure you want to delete this custom template and revert to the Default System Theme?")) {
+      return;
+    }
+    try {
+      await api.delete(`clients/${clientId}/template`);
+      alert("Custom template deleted successfully!");
+      fetchClients();
+    } catch (err) {
+      console.error("Failed to delete template", err);
+      alert("Failed to delete template.");
+    }
+  };
+
   const handleDownloadReport = async (filePath) => {
     // Google Drive URL — export directly as DOCX without going through the backend
     if (filePath && filePath.startsWith("https://")) {
@@ -559,6 +573,13 @@ export default function ClientReports() {
                               onChange={(e) => handleUploadTemplate(client.id, e.target.files[0])}
                             />
                           </label>
+                          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>|</span>
+                          <span
+                            onClick={() => handleDeleteTemplate(client.id)}
+                            style={{ fontSize: "10px", color: "var(--danger)", cursor: "pointer", textDecoration: "underline" }}
+                          >
+                            Delete
+                          </span>
                         </div>
                       </div>
                     ) : (

@@ -323,6 +323,31 @@ async def download_template(
         filename=os.path.basename(client.template_path)
     )
 
+@router.delete("/{client_id}/template")
+async def delete_template(
+    client_id: int,
+    db: AsyncSession = Depends(get_db_yield),
+    current_user: TokenData = Depends(get_admin_user)
+):
+    stmt = select(Client).where(Client.id == client_id)
+    res = await db.execute(stmt)
+    client = res.scalar_one_or_none()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+        
+    if client.template_path:
+        templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
+        file_path = os.path.join(templates_dir, os.path.basename(client.template_path))
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+        client.template_path = None
+        await db.commit()
+        
+    return {"detail": "Template deleted successfully"}
+
 @router.get("/{client_id}/logs", response_model=List[RunLogResponse])
 async def get_client_run_logs(
     client_id: int,
