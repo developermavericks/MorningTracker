@@ -84,7 +84,7 @@ def add_hyperlink(paragraph, url, text, color="1155cc", underline=True):
     paragraph._p.append(hyperlink)
     return hyperlink
 
-def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: str):
+def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: str, template_path: str = None):
     """
     Combines two DOCX files.
     The new daily briefing is prepended at the top, followed by a divider, 
@@ -97,6 +97,15 @@ def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: s
     # Load existing monthly doc
     existing_doc = Document(existing_docx_path)
     
+    # Check template paragraph count to avoid duplicate template headers/footers/logos
+    N_temp = 0
+    if template_path and os.path.exists(template_path):
+        try:
+            temp_doc = Document(template_path)
+            N_temp = len(temp_doc.paragraphs)
+        except Exception as e:
+            logger.error(f"Failed to read template paragraphs: {e}")
+
     # 1. Add page break / separator at the end of combined
     sep_p = combined.add_paragraph()
     sep_run = sep_p.add_run("\n" + "="*40 + "\n")
@@ -104,7 +113,8 @@ def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: s
     sep_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
     # 2. Copy paragraphs from existing_doc to the end of combined
-    for paragraph in existing_doc.paragraphs:
+    paragraphs_to_copy = existing_doc.paragraphs[N_temp:]
+    for paragraph in paragraphs_to_copy:
         new_p = combined.add_paragraph()
         if paragraph.style:
             try:
@@ -228,7 +238,7 @@ def get_or_create_reports_folder(service, client_name: str) -> str:
         logger.error(f"Error getting/creating Google Drive folder: {e}")
         return None
 
-def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, recipients: list, doc_suffix: str = "") -> str:
+def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, recipients: list, doc_suffix: str = "", template_path: str = None) -> str:
     """
     Uploads a local DOCX file to Google Drive and converts it to a native Google Doc.
     Supports continuous daily appending into a single monthly document (e.g. Scapia - June 2026).
@@ -290,7 +300,7 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
                     f.write(fh.getvalue())
                 
                 # 2. Merge new daily report with existing month report (new on top)
-                merge_docx_files(docx_path, temp_existing_path, temp_combined_path)
+                merge_docx_files(docx_path, temp_existing_path, temp_combined_path, template_path=template_path)
                 
                 # 3. Update the existing Google Doc content
                 media = MediaFileUpload(

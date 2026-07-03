@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy import select, delete, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr
@@ -256,11 +257,14 @@ async def delete_client(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
         
-    if client.template_path and os.path.exists(client.template_path):
-        try:
-            os.remove(client.template_path)
-        except Exception:
-            pass
+    if client.template_path:
+        templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
+        resolved_path = os.path.join(templates_dir, os.path.basename(client.template_path))
+        if os.path.exists(resolved_path):
+            try:
+                os.remove(resolved_path)
+            except Exception:
+                pass
             
     await db.execute(delete(Client).where(Client.id == client_id))
     await db.commit()
@@ -279,20 +283,45 @@ async def upload_template(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
         
-    if not file.filename.endswith(".docx"):
+    if not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only .docx template files are allowed")
         
     templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
     os.makedirs(templates_dir, exist_ok=True)
     
-    file_path = os.path.join(templates_dir, f"client_{client_id}_template.docx")
+    filename = f"client_{client_id}_template.docx"
+    file_path = os.path.join(templates_dir, filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
-    client.template_path = file_path
+    client.template_path = filename
     await db.commit()
     
     return {"detail": "Template uploaded successfully", "path": file_path}
+
+@router.get("/{client_id}/template")
+async def download_template(
+    client_id: int,
+    db: AsyncSession = Depends(get_db_yield),
+    current_user: TokenData = Depends(get_admin_user)
+):
+    stmt = select(Client).where(Client.id == client_id)
+    res = await db.execute(stmt)
+    client = res.scalar_one_or_none()
+    if not client or not client.template_path:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
+    file_path = os.path.join(templates_dir, os.path.basename(client.template_path))
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Template file not found on disk")
+        
+    return FileResponse(
+        path=file_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=os.path.basename(client.template_path)
+    )
 
 @router.get("/{client_id}/logs", response_model=List[RunLogResponse])
 async def get_client_run_logs(

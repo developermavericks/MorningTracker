@@ -340,7 +340,7 @@ export default function ClientReports() {
 
   const handleUploadTemplate = async (clientId, file) => {
     if (!file) return;
-    if (!file.name.endsWith(".docx")) {
+    if (!file.name.toLowerCase().endsWith(".docx")) {
       alert("Only Microsoft Word (.docx) templates are supported.");
       return;
     }
@@ -361,6 +361,13 @@ export default function ClientReports() {
     } finally {
       setUploadingTemplateId(null);
     }
+  };
+
+  const handleDownloadTemplate = (clientId) => {
+    const token = localStorage.getItem("token");
+    const baseUrl = apiClient.defaults.baseURL || "/api/";
+    const url = `${baseUrl}${baseUrl.endsWith("/") ? "" : "/"}clients/${clientId}/template?query_token=${token}`;
+    window.open(url, "_blank");
   };
 
   const handleDownloadReport = async (filePath) => {
@@ -534,15 +541,25 @@ export default function ClientReports() {
                     {client.template_path ? (
                       <div style={{ fontSize: "13px", display: "flex", flexDirection: "column", gap: "4px" }}>
                         <span style={{ color: "var(--success)" }}>✓ Customized Template</span>
-                        <label style={{ fontSize: "10px", color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}>
-                          Replace Document
-                          <input
-                            type="file"
-                            accept=".docx"
-                            style={{ display: "none" }}
-                            onChange={(e) => handleUploadTemplate(client.id, e.target.files[0])}
-                          />
-                        </label>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <span
+                            onClick={() => handleDownloadTemplate(client.id)}
+                            style={{ fontSize: "10px", color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}
+                          >
+                            Download
+                          </span>
+                          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>|</span>
+                          <label style={{ fontSize: "10px", color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}>
+                            {uploadingTemplateId === client.id ? "Replacing..." : "Replace"}
+                            <input
+                              type="file"
+                              accept=".docx"
+                              style={{ display: "none" }}
+                              disabled={uploadingTemplateId === client.id}
+                              onChange={(e) => handleUploadTemplate(client.id, e.target.files[0])}
+                            />
+                          </label>
+                        </div>
                       </div>
                     ) : (
                       <div style={{ fontSize: "13px", display: "flex", flexDirection: "column", gap: "4px" }}>

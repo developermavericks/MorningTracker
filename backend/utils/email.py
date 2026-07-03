@@ -9,9 +9,9 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-def send_report_email(recipient_emails: list, client_name: str, docx_path_filtered: str, docx_path_master: str, google_doc_url_filtered: str = None, google_doc_url_master: str = None, has_articles: bool = True, brief_content: str = None) -> bool:
+def send_report_email(recipient_emails: list, client_name: str, docx_path_filtered: str, docx_path_master: str, google_doc_url_filtered: str = None, google_doc_url_master: str = None, has_articles: bool = True, brief_content: str = None, excel_path_filtered: str = None, excel_path_master: str = None) -> bool:
     """
-    Sends the generated DOCX reports (Filtered and Master) and the executive brief to the specified email addresses.
+    Sends the generated DOCX and Excel reports (Filtered and Master) and the executive brief to the specified email addresses.
     """
     smtp_host = os.getenv("SMTP_HOST")
     smtp_port = os.getenv("SMTP_PORT")
@@ -43,8 +43,8 @@ def send_report_email(recipient_emails: list, client_name: str, docx_path_filter
                 f"--------------------------------------------------\n\n"
             )
             
-        if docx_path_filtered or docx_path_master:
-            body += f"Please find attached the daily news monitoring briefings for {client_name} generated on {date_str}.\n\n"
+        if docx_path_filtered or docx_path_master or excel_path_filtered or excel_path_master:
+            body += f"Please find attached the daily news monitoring briefings (Word and Excel formats) for {client_name} generated on {date_str}.\n\n"
         
         if google_doc_url_filtered:
             body += f"📝 Filtered Report (Relevant Articles Only):\n{google_doc_url_filtered}\n\n"
@@ -75,6 +75,26 @@ def send_report_email(recipient_emails: list, client_name: str, docx_path_filter
                 part.set_payload(attachment.read())
                 encoders.encode_base64(part)
                 part.add_header("Content-Disposition", f"attachment; filename={filename_m}")
+                msg.attach(part)
+
+        # Attach the Filtered Excel report file
+        if excel_path_filtered and os.path.exists(excel_path_filtered):
+            filename_ef = os.path.basename(excel_path_filtered)
+            with open(excel_path_filtered, "rb") as attachment:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(attachment.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f"attachment; filename={filename_ef}")
+                msg.attach(part)
+                
+        # Attach the Master Excel report file
+        if excel_path_master and os.path.exists(excel_path_master):
+            filename_em = os.path.basename(excel_path_master)
+            with open(excel_path_master, "rb") as attachment:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(attachment.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f"attachment; filename={filename_em}")
                 msg.attach(part)
             
         # Connect to SMTP server and send email with retries and timeouts
