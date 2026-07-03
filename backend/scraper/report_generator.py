@@ -97,6 +97,16 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
             section.left_margin = Inches(1)
             section.right_margin = Inches(1)
 
+    # Determine default font name from template Normal style if possible
+    default_font_name = 'Calibri'
+    if template_path and os.path.exists(template_path):
+        try:
+            normal_font = doc.styles['Normal'].font.name
+            if normal_font:
+                default_font_name = normal_font
+        except Exception:
+            pass
+
     # 1. Add Logo at the top if it exists in the backend static folder
     logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "logo.png")
     if os.path.exists(logo_path):
@@ -124,10 +134,11 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
     # Document Header: Heading 1 style to automatically map to outline navigation tabs in Google Docs
     title_p = doc.add_paragraph(style='Heading 1')
     title_run = title_p.add_run(clean_date_str)
-    title_run.font.name = 'Calibri'
+    title_run.font.name = default_font_name
     title_run.font.size = Pt(14)
     title_run.font.bold = True
-    title_run.font.color.rgb = RGBColor(0, 0, 0)
+    if not template_path:
+        title_run.font.color.rgb = RGBColor(0, 0, 0)
     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title_p.paragraph_format.space_after = Pt(12)
 
@@ -136,19 +147,22 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
         # Section Heading styled manually (not Heading style) so it doesn't map to outline nested under the date
         section_p = doc.add_paragraph()
         section_run = section_p.add_run(section_name)
-        section_run.font.name = 'Calibri'
+        section_run.font.name = default_font_name
         section_run.font.size = Pt(10)
         section_run.font.bold = True
-        section_run.font.color.rgb = RGBColor(0, 0, 0)
+        if not template_path:
+            section_run.font.color.rgb = RGBColor(0, 0, 0)
         section_p.paragraph_format.space_before = Pt(12)
         section_p.paragraph_format.space_after = Pt(12)
 
         if not articles:
             no_art_p = doc.add_paragraph()
             no_art_run = no_art_p.add_run("No relevant articles found for this section.")
-            no_art_run.font.name = 'Calibri'
+            no_art_run.font.name = default_font_name
             no_art_run.font.size = Pt(10)
             no_art_run.font.italic = True
+            if not template_path:
+                no_art_run.font.color.rgb = RGBColor(0, 0, 0)
             no_art_p.paragraph_format.space_before = Pt(12)
             no_art_p.paragraph_format.space_after = Pt(12)
             continue
@@ -173,7 +187,7 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
             # Sub-heading for Category
             cat_p = doc.add_paragraph()
             cat_run = cat_p.add_run(f"Category {cat_name} Publications")
-            cat_run.font.name = 'Calibri'
+            cat_run.font.name = default_font_name
             cat_run.font.size = Pt(10)
             cat_run.font.bold = True
             cat_run.font.italic = True
@@ -199,7 +213,7 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
                 except Exception:
                     # Fallback to plain text if hyperlink XML injection fails
                     fallback_run = art_p.add_run(title)
-                    fallback_run.font.name = 'Calibri'
+                    fallback_run.font.name = default_font_name
                     fallback_run.font.size = Pt(10)
                     fallback_run.font.bold = True
                     fallback_run.font.color.rgb = RGBColor(17, 85, 204)
@@ -207,23 +221,25 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
                 # Paywall tag (if applicable)
                 if article.get("is_paywalled"):
                     pw_run = art_p.add_run("  🔒 Paywalled")
-                    pw_run.font.name = 'Calibri'
+                    pw_run.font.name = default_font_name
                     pw_run.font.size = Pt(9)
                     pw_run.font.bold = True
                     pw_run.font.color.rgb = RGBColor(204, 102, 0)
                 
                 # Publication name on same line (Bold, black, separated by " - ")
                 pub_run = art_p.add_run(f" - {agency}\n\n")
-                pub_run.font.name = 'Calibri'
+                pub_run.font.name = default_font_name
                 pub_run.font.size = Pt(10)
                 pub_run.font.bold = True
-                pub_run.font.color.rgb = RGBColor(0, 0, 0)
+                if not template_path:
+                    pub_run.font.color.rgb = RGBColor(0, 0, 0)
                 
                 # 2. Summary Content (Second line onwards)
                 sum_run = art_p.add_run(summary)
-                sum_run.font.name = 'Calibri'
+                sum_run.font.name = default_font_name
                 sum_run.font.size = Pt(10)
-                sum_run.font.color.rgb = RGBColor(0, 0, 0)
+                if not template_path:
+                    sum_run.font.color.rgb = RGBColor(0, 0, 0)
                 
                 # Thin divider line between articles within the category
                 if i < len(cat_list) - 1:
@@ -355,3 +371,159 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
                 
     doc.save(output_path)
     return output_path
+
+
+def generate_excel_report(client_name: str, report_type: str, date_str: str, grouped_data: dict, output_path: str) -> str:
+    """
+    Generates a clean, section-based Excel report (.xlsx) for a client run.
+    Structures headings/sub-headings as full-width divider rows rather than repeating columns.
+    Columns: Link, Title, Author, Publication, Date, Relevance Score.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Briefing Report"
+
+    # Style definitions (Steel Blue & Ice Blue theme)
+    master_fill = PatternFill(start_color="365F91", end_color="365F91", fill_type="solid")
+    master_font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
+    
+    sub_fill = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
+    sub_font = Font(name="Calibri", size=11, bold=True, color="1E3A5F")
+    
+    table_header_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    table_header_font = Font(name="Calibri", size=10, bold=True, color="000000")
+    
+    data_font = Font(name="Calibri", size=10)
+    link_font = Font(name="Calibri", size=10, color="0000FF", underline="single")
+    title_font = Font(name="Calibri", size=14, bold=True, color="365F91")
+    subtitle_font = Font(name="Calibri", size=11, italic=True)
+
+    thin_border = Border(
+        left=Side(style='thin', color='D3D3D3'),
+        right=Side(style='thin', color='D3D3D3'),
+        top=Side(style='thin', color='D3D3D3'),
+        bottom=Side(style='thin', color='D3D3D3')
+    )
+
+    # 1. Title Block
+    ws.cell(row=1, column=1, value=f"NEXUS NEWS BRIEFING: {report_type.upper()}").font = title_font
+    ws.cell(row=2, column=1, value=f"Date: {date_str} | Generated for {client_name}").font = subtitle_font
+    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[2].height = 20
+
+    current_row = 4
+
+    headers = [
+        "Link of the article",
+        "Title of the article",
+        "Author of the article",
+        "Name of publication",
+        "Time of publishing",
+        "Relevance score"
+    ]
+
+    # 2. Iterate through sections
+    for master, subs in grouped_data.items():
+        # Check if there are any articles in this master section
+        has_articles_in_master = any(len(articles) > 0 for articles in subs.values())
+        if not has_articles_in_master:
+            continue
+
+        # Add Master Heading Row (Merged A to F)
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+        c_master = ws.cell(row=current_row, column=1, value=master)
+        c_master.font = master_font
+        c_master.fill = master_fill
+        c_master.alignment = Alignment(vertical="center", indent=1)
+        ws.row_dimensions[current_row].height = 26
+        current_row += 1
+
+        for sub, articles in subs.items():
+            if not articles:
+                continue
+
+            # Add Sub Heading Row (Merged A to F)
+            ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+            c_sub = ws.cell(row=current_row, column=1, value=sub)
+            c_sub.font = sub_font
+            c_sub.fill = sub_fill
+            c_sub.alignment = Alignment(vertical="center", indent=2)
+            ws.row_dimensions[current_row].height = 22
+            current_row += 1
+
+            # Add Table Headers for the nested table
+            for col_idx, h in enumerate(headers, start=1):
+                cell = ws.cell(row=current_row, column=col_idx, value=h)
+                cell.fill = table_header_fill
+                cell.font = table_header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = thin_border
+            ws.row_dimensions[current_row].height = 20
+            current_row += 1
+
+            # Add articles
+            for art in articles:
+                title = art.get("title", "Untitled Article")
+                url = art.get("url") or art.get("resolved_url") or "#"
+                author = art.get("author") or "N/A"
+                pub_name = art.get("agency") or "Unknown Publication"
+                pub_date = art.get("published_at")
+                
+                date_text = "N/A"
+                if pub_date:
+                    if isinstance(pub_date, str):
+                        date_text = pub_date[:10]
+                    else:
+                        date_text = pub_date.strftime("%Y-%m-%d")
+                        
+                conf_score = art.get("confidence_score", 0)
+                score_text = f"{conf_score}/10"
+
+                # Write values
+                c_link = ws.cell(row=current_row, column=1, value="Link")
+                c_link.hyperlink = url
+                c_link.font = link_font
+                c_link.alignment = Alignment(horizontal="center")
+                
+                c_title = ws.cell(row=current_row, column=2, value=title)
+                c_author = ws.cell(row=current_row, column=3, value=str(author).strip())
+                c_pub = ws.cell(row=current_row, column=4, value=pub_name)
+                c_date = ws.cell(row=current_row, column=5, value=date_text)
+                
+                c_score = ws.cell(row=current_row, column=6, value=score_text)
+                c_score.alignment = Alignment(horizontal="center")
+
+                # Borders and alignment
+                for col_idx in range(1, 7):
+                    c = ws.cell(row=current_row, column=col_idx)
+                    c.border = thin_border
+                    if col_idx == 1:
+                        pass
+                    elif col_idx == 6:
+                        c.font = data_font
+                    else:
+                        c.font = data_font
+                        c.alignment = Alignment(vertical="center", wrap_text=False)
+
+                ws.row_dimensions[current_row].height = 20
+                current_row += 1
+
+            # Insert an empty row for visual breathing space after table
+            current_row += 1
+
+    # 3. Set specific widths for readability
+    ws.column_dimensions["A"].width = 15  # Link
+    ws.column_dimensions["B"].width = 50  # Title
+    ws.column_dimensions["C"].width = 25  # Author
+    ws.column_dimensions["D"].width = 25  # Publication Name
+    ws.column_dimensions["E"].width = 15  # Date
+    ws.column_dimensions["F"].width = 15  # Relevance Score
+
+    wb.save(output_path)
+    return output_path
+
