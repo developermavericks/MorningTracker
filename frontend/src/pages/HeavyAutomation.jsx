@@ -14,7 +14,8 @@ const DEFAULT_COMPANY = {
   fetch_time: "07:00",
   window_hours: 24,
   relevancy_method: "Hybrid",
-  llm_judge_enabled: true,
+  llm_judge_enabled: false,
+  search_mode: "title",
   relevance_context: "",
   relevance_threshold: 0.5,
   mail_send_mode: "Immediate",
@@ -50,7 +51,7 @@ function RecipientItem({ email, onRemove }) {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "rgba(30,58,95,.15)", borderRadius: "6px", border: "1px solid rgba(30,58,95,.3)", marginBottom: "6px" }}>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: "13px", fontWeight: 600 }}>{email}</div>
-        <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px" }}>Google Corporate & Google Keywords Reports</div>
+        <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px" }}>Google Intelligence Report</div>
       </div>
       <button onClick={onRemove} style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", fontSize: "18px", padding: "0 8px" }}>×</button>
     </div>
@@ -128,7 +129,7 @@ function parseHeavyProgressLog(progressMessage, startedAt, completedAt, status, 
       } else {
         activeIndex = 2;
       }
-    } else if (line.includes("Generating Google Corporate") || line.includes("Generating Google Product") || line.includes("Report saved")) {
+    } else if (line.includes("Generating combined Google Report") || line.includes("Report saved") || line.includes("Report DOCX saved") || line.includes("Report Excel saved")) {
       activeIndex = llmEnabled ? 4 : 3;
     } else if (line.includes("Sending intelligence brief email") || line.includes("Sending email") || line.includes("Email scheduled")) {
       activeIndex = llmEnabled ? 5 : 4;
@@ -272,12 +273,12 @@ function RunHistory({ company }) {
                       fontWeight: 600
                     }}
                   >
-                    📄 Google Corporate Keywords Report
+                    📄 Google Report
                   </button>
                 )}
-                {run.filtered_doc_path && (
+                {run.master_excel_path && (
                   <button
-                    onClick={() => handleDownloadReport(run.filtered_doc_path)}
+                    onClick={() => handleDownloadReport(run.master_excel_path)}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -291,7 +292,7 @@ function RunHistory({ company }) {
                       fontWeight: 600
                     }}
                   >
-                    📄 Google Keywords Report
+                    📊 Google Report (Excel)
                   </button>
                 )}
               </div>
@@ -481,13 +482,40 @@ function CompanySettings({ company, availableSectors, onSave, onDelete, onRunNow
                 ))}
               </div>
             </div>
+
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "6px", color: "var(--muted)" }}>Search Scope</label>
+              <div style={{ display: "flex", gap: "16px", background: "rgba(30, 58, 95, 0.03)", border: "1px solid var(--border)", borderRadius: "6px", padding: "12px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>
+                  <input
+                    type="radio"
+                    name="search_mode"
+                    value="title"
+                    checked={form.search_mode !== "full_body"}
+                    onChange={() => set("search_mode", "title")}
+                  />
+                  <span>Only Title Search</span>
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>
+                  <input
+                    type="radio"
+                    name="search_mode"
+                    value="full_body"
+                    checked={form.search_mode === "full_body"}
+                    onChange={() => set("search_mode", "full_body")}
+                  />
+                  <span>Full Body Search</span>
+                </label>
+              </div>
+            </div>
+
             <div>
               <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "6px", color: "var(--muted)" }}>Pipeline Rules & Logic</label>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(147, 51, 234, 0.05)", border: "1px solid rgba(147, 51, 234, 0.2)", borderRadius: "8px", padding: "12px" }}>
                 <input
                   type="checkbox"
                   id="llm_judge_enabled"
-                  checked={form.llm_judge_enabled ?? true}
+                  checked={form.llm_judge_enabled ?? false}
                   onChange={e => set("llm_judge_enabled", e.target.checked)}
                   style={{ width: "16px", height: "16px" }}
                 />

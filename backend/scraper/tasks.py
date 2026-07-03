@@ -101,16 +101,119 @@ def load_kws_from_excel(filepath, omit_black=False, use_only_colored=False):
         logger.error(f"Error loading keywords from {filepath}: {e}")
         return []
 
+def _is_product_section(section_name: str) -> bool:
+    """
+    Returns True if the CSV section name belongs to the 'product' bucket
+    (Product & consumer, Ads & monetization, Workspace).
+    Everything else is treated as 'corporate'.
+    """
+    name_lower = section_name.lower().strip()
+    return (
+        name_lower.startswith("product & consumer")
+        or name_lower.startswith("ads &")
+        or name_lower.startswith("workspace")
+    )
+
+
+def parse_super_final_csv(filepath: str) -> dict:
+    """
+    Parses Google_keywords_super_final.csv and returns:
+      {
+        "corporate": [{"master": ..., "sub": ..., "raw_cell_value": ...}, ...],
+        "product":   [{"master": ..., "sub": ..., "raw_cell_value": ...}, ...],
+      }
+
+    CSV structure:
+      - A 'section header' row has a non-empty col1 and an empty (or header-descriptor) col2.
+      - A 'data' row has a non-empty col1 (sub-label) AND a non-empty col2 (keyword string).
+      - Rows where both col1 and col2 are empty are separators — ignored.
+
+    The col2 keyword string is preserved verbatim as 'raw_cell_value' so that the
+    existing parse_keyword_string / evaluate_headline_relevance pipeline can consume it.
+    """
+    import csv as _csv
+
+    if not os.path.exists(filepath):
+        logger.warning(f"[Heavy] Super-final CSV not found: {filepath}")
+        return {"corporate": [], "product": []}
+
+    corporate_entries = []
+    product_entries   = []
+
+    # Header-descriptor strings that signal a master-heading row rather than a data row
+    _HEADER_HINTS = (
+        "keywords", "notes", "use boolean", "general format",
+        "keywords industry", "industry & competition",
+    )
+
+    try:
+        with open(filepath, newline="", encoding="utf-8-sig") as f:
+            reader = _csv.reader(f)
+            current_master = None
+            current_bucket = "corporate"  # default
+
+            for row in reader:
+                # Normalise: pad to at least 2 columns
+                col1 = row[0].strip() if len(row) > 0 else ""
+                col2 = row[1].strip() if len(row) > 1 else ""
+
+                # Skip fully empty rows
+                if not col1 and not col2:
+                    continue
+
+                # Determine if this is a section-header row:
+                #   col1 has content, col2 is either empty OR a descriptor hint (not actual keywords)
+                col2_lower = col2.lower()
+                is_header_desc = any(h in col2_lower for h in _HEADER_HINTS)
+                has_keyword_content = (
+                    col2
+                    and not is_header_desc
+                    and any(q in col2 for q in ('"', '\u201c', '\u201d', "'"))
+                )
+
+                if col1 and (not col2 or is_header_desc or not has_keyword_content):
+                    # This is a master section header row
+                    current_master = col1.strip()
+                    current_bucket = "product" if _is_product_section(current_master) else "corporate"
+                    continue
+
+                # Data row: col1 = sub-label, col2 = keyword string
+                if col1 and col2 and current_master and has_keyword_content:
+                    entry = {
+                        "master": current_master,
+                        "sub": col1.strip(),
+                        "raw_cell_value": col2,
+                    }
+                    if current_bucket == "product":
+                        product_entries.append(entry)
+                    else:
+                        corporate_entries.append(entry)
+
+        logger.info(
+            f"[Heavy] parse_super_final_csv: corporate={len(corporate_entries)} entries, "
+            f"product={len(product_entries)} entries from {filepath}"
+        )
+    except Exception as e:
+        logger.error(f"[Heavy] Failed to parse super-final CSV {filepath}: {e}", exc_info=True)
+
+    return {"corporate": corporate_entries, "product": product_entries}
+
+
 def match_keyword_item(k, headline_lower):
     k_lower = k.lower().strip()
+    if not k_lower:
+        return False, 0
+        
     if " and " not in k_lower and " or " not in k_lower:
         clean_k = k_lower.strip('"\'() ')
+        if not any(char.isalnum() for char in clean_k):
+            return False, 0
         return clean_k in headline_lower, len(clean_k.split())
         
     if " or " in k_lower:
         parts = [p.strip().strip('"\'() ') for p in k_lower.split(" or ")]
         for p in parts:
-            if p and p in headline_lower:
+            if p and any(c.isalnum() for c in p) and p in headline_lower:
                 return True, len(p.split())
         return False, 0
         
@@ -119,9 +222,9 @@ def match_keyword_item(k, headline_lower):
         parts_clean = []
         for p in parts:
             p_clean = re.sub(r'near/\d+', '', p).strip().strip('"\'() ')
-            if p_clean:
+            if p_clean and any(c.isalnum() for c in p_clean):
                 parts_clean.append(p_clean)
-        if all(p in headline_lower for p in parts_clean if p):
+        if parts_clean and all(p in headline_lower for p in parts_clean):
             words_count = sum(len(p.split()) for p in parts_clean)
             return True, words_count
         return False, 0
@@ -762,7 +865,14 @@ def run_client_report_task(client_id: int):
         db.refresh(run_log)
         run_log_id = run_log.id
         client_name = client.name
-        template_path = client.template_path
+        db_template_path = client.template_path
+        
+        # Resolve path dynamically to ensure environment portability
+        template_path = None
+        if db_template_path:
+            templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
+            template_path = os.path.join(templates_dir, os.path.basename(db_template_path))
+            
         client_context = client.context
         client_timezone = client.timezone or "Asia/Kolkata"
         
@@ -1565,7 +1675,8 @@ def run_client_report_task(client_id: int):
                     client_name=client_name,
                     date_str=datetime.now().strftime("%B %d, %Y"),
                     recipients=all_emails,
-                    doc_suffix=""
+                    doc_suffix="",
+                    template_path=template_path
                 )
             except Exception as e:
                 logger.error(f"Failed to upload Filtered report to Google Docs: {e}")
@@ -1579,7 +1690,8 @@ def run_client_report_task(client_id: int):
                     client_name=client_name,
                     date_str=datetime.now().strftime("%B %d, %Y"),
                     recipients=all_emails,
-                    doc_suffix=" (Master)"
+                    doc_suffix=" (Master)",
+                    template_path=template_path
                 )
             except Exception as e:
                 logger.error(f"Failed to upload Master report to Google Docs: {e}")
@@ -1811,6 +1923,7 @@ def run_heavy_automation_task(company_id: int):
         company_name = company.name
         sector_match = company.sector_match
         window_hours = company.window_hours
+        search_mode = company.search_mode if company.search_mode else "title"
 
     try:
         def _update_progress(msg: str):
@@ -1859,7 +1972,7 @@ def run_heavy_automation_task(company_id: int):
             'startups': ['startups', 'StartUp'],
             'foods and drinks': ['foods and drinks', 'FOODS AND DRINKS', 'Foods'],
             'ai': ['ai', 'AI', 'Ai'],
-            'google': ['google', 'google 2'],
+            'google': ['google', 'google 2', 'Google3'],
             'travel': ['travel', 'Travell'],
             'lifestyle': ['lifestyle', 'LifeStyle'],
             'consultancies': ['consultancies', 'Consultancies']
@@ -1979,52 +2092,69 @@ def run_heavy_automation_task(company_id: int):
         deduped = near_dedup(deduped_exact, threshold=0.80)
         _update_progress(f"After near-dedup: {len(deduped)} articles")
 
-        # ─ Filter articles using Excel keywords and priority media list ──────────
-        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Filtering articles using Excel keywords and priority media list...")
+        # ─ Filter articles using super-final CSV keywords + priority media list ────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Filtering articles using Google_keywords_super_final.csv...")
 
         # Absolute path to project root (tasks.py lives at backend/scraper/tasks.py → root is 2 dirs up)
         _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        corp_kws_path = os.path.join(_project_root, "Google_material", "Google Corporate Keywords.xlsx")
-        google_kws_path = os.path.join(_project_root, "Google_material", "GOOGLE_KEYWORDS.xlsx")
+        super_final_csv_path = os.path.join(_project_root, "Google_material", "Google_keywords_super_final.csv")
         media_list_path = os.path.join(_project_root, "Google_material", "[Internal] Google Online Priority Media List 2026.xlsx")
 
-        _update_progress("Loading keywords and priority publication list from Excel...")
-        corp_keywords = load_kws_from_excel(corp_kws_path, omit_black=False, use_only_colored=True)
-        google_keywords = load_kws_from_excel(google_kws_path, omit_black=True, use_only_colored=False)
+        _update_progress("Loading super-final keywords CSV and priority publication list...")
+        kw_buckets = parse_super_final_csv(super_final_csv_path)
+        corp_keywords    = kw_buckets["corporate"]
+        product_keywords = kw_buckets["product"]
         priority_publications = load_priority_media_list(media_list_path)
-        _update_progress(f"Loaded {len(corp_keywords)} corporate categories and {len(google_keywords)} Google categories.")
+        _update_progress(
+            f"Loaded {len(corp_keywords)} corporate keyword entries and "
+            f"{len(product_keywords)} product keyword entries from CSV."
+        )
 
         corporate_articles = []
-        product_articles = []
-        relevant_map = {}
+        product_articles   = []
+        relevant_map       = {}
+
+        _update_progress(f"Running relevancy match in mode: {search_mode}")
 
         for art in deduped:
-            title = art.get("title", "")
-            agency = art.get("agency", "")
-            
+            title  = art.get("title", "") or ""
+            agency = art.get("agency", "") or ""
+
+            # Check based on search_mode
+            if search_mode == "full_body":
+                body = art.get("summary") or art.get("full_body") or ""
+                query_text = f"{title}\n{body}"
+            else:
+                query_text = title
+
             is_priority = is_priority_publication(agency, priority_publications)
-            
-            corp_conf, corp_matches = evaluate_headline_relevance(title, corp_keywords)
-            google_conf, google_matches = evaluate_headline_relevance(title, google_keywords)
-            
+
+            corp_conf,    corp_matches    = evaluate_headline_relevance(query_text, corp_keywords)
+            product_conf, product_matches = evaluate_headline_relevance(query_text, product_keywords)
+
+            # Corporate bucket
             if (is_priority and corp_conf > 6) or (corp_conf >= 7):
                 art_corp = dict(art)
                 art_corp["confidence_score"] = corp_conf
-                art_corp["matches"] = corp_matches
-                art_corp["_source_type"] = "corporate"
+                art_corp["matches"]          = corp_matches
+                art_corp["_source_type"]     = "corporate"
                 corporate_articles.append(art_corp)
                 relevant_map[art["url"]] = art
-                
-            if (is_priority and google_conf > 6) or (google_conf >= 7):
+
+            # Product bucket
+            if (is_priority and product_conf > 6) or (product_conf >= 7):
                 art_prod = dict(art)
-                art_prod["confidence_score"] = google_conf
-                art_prod["matches"] = google_matches
-                art_prod["_source_type"] = "product"
+                art_prod["confidence_score"] = product_conf
+                art_prod["matches"]          = product_matches
+                art_prod["_source_type"]     = "product"
                 product_articles.append(art_prod)
                 relevant_map[art["url"]] = art
 
         relevant = list(relevant_map.values())
-        _update_progress(f"Relevance matching: corporate matches={len(corporate_articles)}, product matches={len(product_articles)}, unique relevant={len(relevant)}")
+        _update_progress(
+            f"Relevance matching: corporate matches={len(corporate_articles)}, "
+            f"product matches={len(product_articles)}, unique relevant={len(relevant)}"
+        )
 
         # Build audit trail parameters on unique relevant articles
         for art_url, art in relevant_map.items():
@@ -2035,7 +2165,7 @@ def run_heavy_automation_task(company_id: int):
                     corp_matches_found = a["matches"]
                     corp_c = a["confidence_score"]
                     break
-                    
+
             prod_matches_found = []
             prod_c = 0
             for a in product_articles:
@@ -2043,21 +2173,21 @@ def run_heavy_automation_task(company_id: int):
                     prod_matches_found = a["matches"]
                     prod_c = a["confidence_score"]
                     break
-                    
-            all_matches = corp_matches_found + prod_matches_found
-            pillars = list(set(m["master"] for m in all_matches))
-            subs = list(set(m["sub"] for m in all_matches))
-            
-            keyword_hits = []
-            for m in all_matches:
-                keyword_hits.extend(m.get("matched_items", []))
-            keyword_hits = list(set(keyword_hits))
-            
+
+            all_matches  = corp_matches_found + prod_matches_found
+            pillars      = list(set(m["master"] for m in all_matches))
+            subs         = list(set(m["sub"]    for m in all_matches))
+            keyword_hits = list(set(
+                item
+                for m in all_matches
+                for item in m.get("matched_items", [])
+            ))
+
             art["_relevance_score"] = max(corp_c, prod_c)
-            art["_pillar"] = ", ".join(pillars) if pillars else "Other"
-            art["_sub_category"] = ", ".join(subs) if subs else "General"
-            art["_keyword_hits"] = keyword_hits
-            
+            art["_pillar"]          = ", ".join(pillars) if pillars else "Other"
+            art["_sub_category"]    = ", ".join(subs)    if subs    else "General"
+            art["_keyword_hits"]    = keyword_hits
+
             if corp_c > 0 and prod_c > 0:
                 art["_bucket"] = "both"
             elif corp_c > 0:
@@ -2065,59 +2195,81 @@ def run_heavy_automation_task(company_id: int):
             else:
                 art["_bucket"] = "product"
 
-        # ─ Summaries generation disabled per user request ───────
-        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Summary generation is disabled per request. Using existing database summaries...")
+        # ─ Summaries: use existing DB summaries (generation disabled) ─────────────
+        _update_progress(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Summary generation is disabled per request. "
+            f"Using existing database summaries..."
+        )
         for art in relevant:
             art["_summary"] = art.get("summary") or art.get("full_body") or ""
 
-        # Map generated summaries back to corporate & product article lists
+        # Map summaries back to the per-bucket article lists
         for art in corporate_articles:
             orig = relevant_map.get(art["url"])
             if orig:
                 art["summary"] = orig.get("_summary") or orig.get("summary") or orig.get("full_body") or ""
-                
+
         for art in product_articles:
             orig = relevant_map.get(art["url"])
             if orig:
                 art["summary"] = orig.get("_summary") or orig.get("summary") or orig.get("full_body") or ""
 
-        # Helper to group articles for H1/H2 reports
+        # ─ Group articles by master/sub heading for the report ────────────────────
         def group_articles_for_report(articles_list):
             grouped = {}
             for a in articles_list:
                 for match in a.get("matches", []):
                     master = match["master"]
-                    sub = match["sub"]
-                    if master not in grouped:
-                        grouped[master] = {}
-                    if sub not in grouped[master]:
-                        grouped[master][sub] = []
+                    sub    = match["sub"]
+                    grouped.setdefault(master, {}).setdefault(sub, [])
                     if a["url"] not in [x["url"] for x in grouped[master][sub]]:
                         grouped[master][sub].append(a)
             return grouped
 
-        corp_grouped = group_articles_for_report(corporate_articles)
-        google_grouped = group_articles_for_report(product_articles)
+        corp_grouped    = group_articles_for_report(corporate_articles)
+        product_grouped = group_articles_for_report(product_articles)
 
-        # ─ Generate Corporate Keywords Report (as Master Document) ─────────────────
-        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating Google Corporate Keywords Report DOCX...")
+        # Merge both buckets into a single combined dict (corporate sections first,
+        # then product sections) to produce ONE unified report file.
+        all_grouped: dict = {}
+        for src in (corp_grouped, product_grouped):
+            for master, subs in src.items():
+                if master not in all_grouped:
+                    all_grouped[master] = {}
+                for sub, arts in subs.items():
+                    if sub not in all_grouped[master]:
+                        all_grouped[master][sub] = []
+                    # Deduplicate by URL when merging
+                    existing_urls = {x["url"] for x in all_grouped[master][sub]}
+                    for a in arts:
+                        if a["url"] not in existing_urls:
+                            all_grouped[master][sub].append(a)
+                            existing_urls.add(a["url"])
+
+        # ─ Generate single combined DOCX report ───────────────────────────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating combined Google Report DOCX...")
         today_str = date.today().strftime("%Y-%m-%d")
-        master_filename = f"Google_Corporate_Keywords_Report_{company_name}_{today_str}_{run_id}.docx"
+        google_doc_filename = f"Google_{company_name}_{today_str}_{run_id}.docx"
         master_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports", master_filename
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports", google_doc_filename
         )
         from scraper.report_generator import generate_organized_docx_report
-        generate_organized_docx_report(company_name, "Google Corporate Keywords", today_str, corp_grouped, master_path)
-        _update_progress(f"Corporate Keywords Report saved: {master_filename}")
+        generate_organized_docx_report(company_name, "Google Intelligence Report", today_str, all_grouped, master_path)
+        _update_progress(f"Combined Google Report DOCX saved: {google_doc_filename}")
 
-        # ─ Generate Google Keywords Report (as Filtered Document) ───────────────────
-        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating Google Product/Brand Keywords Report DOCX...")
-        filtered_filename = f"Google_Keywords_Report_{company_name}_{today_str}_{run_id}.docx"
-        filtered_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports", filtered_filename
+        # ─ Generate single combined Excel report ──────────────────────────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating combined Google Report Excel...")
+        google_excel_filename = f"Google_{company_name}_{today_str}_{run_id}.xlsx"
+        master_excel_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports", google_excel_filename
         )
-        generate_organized_docx_report(company_name, "Google Product/Brand Keywords", today_str, google_grouped, filtered_path)
-        _update_progress(f"Google Keywords Report saved: {filtered_filename}")
+        from scraper.report_generator import generate_excel_report
+        generate_excel_report(company_name, "Google Intelligence Report", today_str, all_grouped, master_excel_path)
+        _update_progress(f"Combined Google Report Excel saved: {google_excel_filename}")
+
+        # Aliases so the rest of the task (email, run record) stays consistent
+        filtered_path       = None              # no separate filtered doc anymore
+        filtered_excel_path = None              # no separate filtered excel anymore
 
         # Group relevant by pillar for email
         by_pillar_email = {}
@@ -2208,17 +2360,18 @@ def run_heavy_automation_task(company_id: int):
                     success_brief = True
                     success_master = True
                     
-                    if brief_emails:
-                        _update_progress(f"Sending Daily Brief email to {len(brief_emails)} recipients...")
-                        success_brief = send_report_email(
-                            recipient_emails=brief_emails,
-                            client_name=company_name,
-                            docx_path_filtered=None,
-                            docx_path_master=None,
-                            has_articles=bool(relevant),
-                            brief_content=exec_summary,
-                        )
-                        
+                    # ── Daily Brief email (commented out) ───────────────────
+                    # if brief_emails:
+                    #     _update_progress(f"Sending Daily Brief email to {len(brief_emails)} recipients...")
+                    #     success_brief = send_report_email(
+                    #         recipient_emails=brief_emails,
+                    #         client_name=company_name,
+                    #         docx_path_filtered=None,
+                    #         docx_path_master=None,
+                    #         has_articles=bool(relevant),
+                    #         brief_content=exec_summary,
+                    #     )
+
                     if master_emails:
                         _update_progress(f"Sending Corporate & Keywords Reports email to {len(master_emails)} recipients...")
                         success_master = send_report_email(
@@ -2228,6 +2381,8 @@ def run_heavy_automation_task(company_id: int):
                             docx_path_master=master_path,
                             has_articles=bool(relevant),
                             brief_content=exec_summary,
+                            excel_path_filtered=filtered_excel_path,
+                            excel_path_master=master_excel_path,
                         )
                         
                     email_status = "sent" if (success_brief and success_master) else "failed"
@@ -2254,6 +2409,8 @@ def run_heavy_automation_task(company_id: int):
                 run_rec.relevant_count = len(relevant)
                 run_rec.master_doc_path = master_path
                 run_rec.filtered_doc_path = filtered_path
+                run_rec.master_excel_path = master_excel_path
+                run_rec.filtered_excel_path = filtered_excel_path
                 run_rec.email_status = email_status
                 run_rec.finished_at = datetime.utcnow()
                 db.commit()

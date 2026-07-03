@@ -41,7 +41,8 @@ class CompanyCreate(BaseModel):
     relevancy_method: str = "Hybrid"
     relevance_context: Optional[str] = None
     relevance_threshold: float = 0.5
-    llm_judge_enabled: bool = True
+    llm_judge_enabled: bool = False
+    search_mode: str = "title"
     mail_send_mode: str = "Immediate"
     mail_send_time: Optional[str] = None
     frequency: str = "Daily"
@@ -65,6 +66,7 @@ class CompanyOut(BaseModel):
     relevance_context: Optional[str]
     relevance_threshold: float
     llm_judge_enabled: bool
+    search_mode: str
     mail_send_mode: str
     mail_send_time: Optional[str]
     frequency: str
@@ -82,6 +84,8 @@ class RunOut(BaseModel):
     relevant_count: int
     master_doc_path: Optional[str]
     filtered_doc_path: Optional[str]
+    master_excel_path: Optional[str]
+    filtered_excel_path: Optional[str]
     email_status: Optional[str]
     progress_message: Optional[str]
     error: Optional[str]
@@ -130,6 +134,7 @@ async def _build_company_out(company: HeavyCompany, db: AsyncSession) -> Company
         relevance_context=company.relevance_context,
         relevance_threshold=company.relevance_threshold,
         llm_judge_enabled=company.llm_judge_enabled,
+        search_mode=company.search_mode if company.search_mode else "title",
         mail_send_mode=company.mail_send_mode,
         mail_send_time=company.mail_send_time,
         frequency=company.frequency,
@@ -173,6 +178,7 @@ async def create_company(
         relevance_context=payload.relevance_context,
         relevance_threshold=payload.relevance_threshold,
         llm_judge_enabled=payload.llm_judge_enabled,
+        search_mode=payload.search_mode,
         mail_send_mode=payload.mail_send_mode,
         mail_send_time=payload.mail_send_time,
         frequency=payload.frequency,
@@ -211,6 +217,7 @@ async def update_company(
     company.relevance_context = payload.relevance_context
     company.relevance_threshold = payload.relevance_threshold
     company.llm_judge_enabled = payload.llm_judge_enabled
+    company.search_mode = payload.search_mode
     company.mail_send_mode = payload.mail_send_mode
     company.mail_send_time = payload.mail_send_time
     company.frequency = payload.frequency
@@ -282,6 +289,8 @@ async def get_runs(
             relevant_count=r.relevant_count,
             master_doc_path=os.path.basename(r.master_doc_path) if r.master_doc_path else None,
             filtered_doc_path=os.path.basename(r.filtered_doc_path) if r.filtered_doc_path else None,
+            master_excel_path=os.path.basename(r.master_excel_path) if r.master_excel_path else None,
+            filtered_excel_path=os.path.basename(r.filtered_excel_path) if r.filtered_excel_path else None,
             email_status=r.email_status,
             progress_message=r.progress_message,
             error=r.error,
@@ -426,9 +435,15 @@ async def download_report(
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
+    media_type = "application/octet-stream"
+    if filename.endswith(".docx"):
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif filename.endswith(".xlsx"):
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
     return FileResponse(
         file_path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        media_type=media_type,
         filename=filename,
     )
 
@@ -442,7 +457,7 @@ SECTOR_VARIANTS = {
     'startups': ['startups', 'StartUp'],
     'foods and drinks': ['foods and drinks', 'FOODS AND DRINKS', 'Foods'],
     'ai': ['ai', 'AI', 'Ai'],
-    'google': ['google', 'google 2'],
+    'google': ['google', 'google 2', 'Google3'],
     'travel': ['travel', 'Travell'],
     'lifestyle': ['lifestyle', 'LifeStyle'],
     'consultancies': ['consultancies', 'Consultancies']

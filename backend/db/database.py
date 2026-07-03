@@ -262,7 +262,8 @@ class HeavyCompany(Base):
     relevancy_method: Mapped[str] = mapped_column(String, default="Hybrid")  # Keyword|Hybrid|LLM-judge
     relevance_context: Mapped[Optional[str]] = mapped_column(Text)
     relevance_threshold: Mapped[float] = mapped_column(Float, default=0.5)
-    llm_judge_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    llm_judge_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    search_mode: Mapped[str] = mapped_column(String, default="title", server_default="title")
     mail_send_mode: Mapped[str] = mapped_column(String, default="Immediate")  # Immediate|Scheduled
     mail_send_time: Mapped[Optional[str]] = mapped_column(String)
     frequency: Mapped[str] = mapped_column(String, default="Daily")  # Daily|Weekly|Monthly|Custom
@@ -288,6 +289,8 @@ class HeavyRun(Base):
     relevant_count: Mapped[int] = mapped_column(Integer, default=0)
     master_doc_path: Mapped[Optional[str]] = mapped_column(Text)
     filtered_doc_path: Mapped[Optional[str]] = mapped_column(Text)
+    master_excel_path: Mapped[Optional[str]] = mapped_column(Text)
+    filtered_excel_path: Mapped[Optional[str]] = mapped_column(Text)
     email_status: Mapped[Optional[str]] = mapped_column(String)  # sent|failed|pending|skipped
     progress_message: Mapped[Optional[str]] = mapped_column(Text)
     error: Mapped[Optional[str]] = mapped_column(Text)
@@ -403,21 +406,33 @@ async def init_db():
         # Automated Migration: Heavy Automation tables (create_all handles new tables; these are safety guards)
         try:
             if "postgresql" in engine.url.drivername:
-                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS search_mode VARCHAR DEFAULT 'title'"))
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
+                await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS master_excel_path TEXT"))
+                await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS filtered_excel_path TEXT"))
                 await conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN IF NOT EXISTS bucket VARCHAR"))
             else:
                 try:
                     await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN updated_at DATETIME"))
                 except Exception: pass
                 try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN search_mode VARCHAR DEFAULT 'title'"))
+                except Exception: pass
+                try:
                     await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN email_status VARCHAR"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN master_excel_path TEXT"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN filtered_excel_path TEXT"))
                 except Exception: pass
                 try:
                     await conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN bucket VARCHAR"))
                 except Exception: pass
         except Exception as e:
             print(f"Migration Notice (Heavy Automation Schema): {e}")
+
 
         # Automated Cleanup: Duplicate Brands
         try:
