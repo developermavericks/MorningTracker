@@ -120,11 +120,13 @@ def clean_conversational_prefix(text: str) -> str:
     return cleaned
 
 # Compatibility wrapper for existing callers
-def validate_summary(summary: str, title: str) -> bool:
+def validate_summary(summary: str, title: str, summary_length: int = 35) -> bool:
     if not summary:
         return False
     words = summary.strip().split()
-    if not (20 <= len(words) <= 45):
+    min_limit = max(10, summary_length - 15)
+    max_limit = summary_length + 15
+    if not (min_limit <= len(words) <= max_limit):
         return False
     clean_summary = summary.lower().strip().replace(".", "").replace(",", "").strip()
     clean_title = title.lower().strip().replace(".", "").replace(",", "").strip()
@@ -134,27 +136,30 @@ def validate_summary(summary: str, title: str) -> bool:
         return False
     return True
 
-def _call_groq_summary_api(text: str, is_strict: bool = False) -> Optional[str]:
+def _call_groq_summary_api(text: str, is_strict: bool = False, summary_length: int = 35) -> Optional[str]:
     is_placeholder = any("your_groq_api_key" in k.lower() for k in GROQ_API_KEYS)
     if not GROQ_API_KEYS or is_placeholder:
         return None
         
     url = "https://api.groq.com/openai/v1/chat/completions"
     
+    min_words = max(5, summary_length - 5)
+    max_words = summary_length
     system_content = (
         "You are a news analyst. Summarize this article. RULES: You MUST output strictly a single paragraph. "
-        "You MUST NOT use bullet points, lists, or line breaks. The summary MUST be between 30 to 35 words in length."
+        f"You MUST NOT use bullet points, lists, or line breaks. The summary MUST be between {min_words} to {max_words} words in length."
     )
     if is_strict:
         system_content += " IMPORTANT: Do NOT copy the article title. Write a fresh, independent summary."
         
+    max_tokens = max(150, summary_length * 2)
     payload = {
         "model": GROQ_PRIMARY_MODEL,
         "messages": [
             {"role": "system", "content": system_content},
             {"role": "user", "content": text[:4000]},
         ],
-        "max_tokens": 100,
+        "max_tokens": max_tokens,
         "temperature": 0.1
     }
 
@@ -177,22 +182,25 @@ def _call_groq_summary_api(text: str, is_strict: bool = False) -> Optional[str]:
                 pass
     return None
 
-def _call_groq_summary_120b(text: str) -> Optional[str]:
+def _call_groq_summary_120b(text: str, summary_length: int = 35) -> Optional[str]:
     is_placeholder = any("your_groq_api_key" in k.lower() for k in GROQ_API_KEYS)
     if not GROQ_API_KEYS or is_placeholder:
         return None
         
     url = "https://api.groq.com/openai/v1/chat/completions"
+    min_words = max(5, summary_length - 5)
+    max_words = summary_length
+    max_tokens = max(150, summary_length * 2)
     payload = {
         "model": GROQ_SECONDARY_MODEL,
         "messages": [
             {
                 "role": "system", 
-                "content": "You are a news analyst. Summarize this article. RULES: You MUST output strictly a single paragraph. The summary MUST be between 30 to 35 words in length."
+                "content": f"You are a news analyst. Summarize this article. RULES: You MUST output strictly a single paragraph. The summary MUST be between {min_words} to {max_words} words in length."
             },
             {"role": "user", "content": text[:4000]},
         ],
-        "max_tokens": 100,
+        "max_tokens": max_tokens,
         "temperature": 0.1
     }
 
@@ -216,22 +224,22 @@ def _call_groq_summary_120b(text: str) -> Optional[str]:
     return None
 
 # Compatibility wrapper for existing callers
-def summarize_with_groq_sync(text: str, title: str = "") -> Optional[str]:
+def summarize_with_groq_sync(text: str, title: str = "", summary_length: int = 35) -> Optional[str]:
     # 1. Try Groq (llama-3.3-70b-versatile)
-    summary1 = _call_groq_summary_api(text, is_strict=False)
-    if validate_summary(summary1, title):
+    summary1 = _call_groq_summary_api(text, is_strict=False, summary_length=summary_length)
+    if validate_summary(summary1, title, summary_length):
         return summary1
 
     # 2. Retry with stricter prompt
     log("Cheap model summary validation failed. Retrying with strict prompt...")
-    summary2 = _call_groq_summary_api(text, is_strict=True)
-    if validate_summary(summary2, title):
+    summary2 = _call_groq_summary_api(text, is_strict=True, summary_length=summary_length)
+    if validate_summary(summary2, title, summary_length):
         return summary2
 
     # 3. Fallback to 120B model block on Groq (using llama-3.3-70b-versatile)
     log("Falling back to secondary summary check...")
-    summary3 = _call_groq_summary_120b(text)
-    if validate_summary(summary3, title):
+    summary3 = _call_groq_summary_120b(text, summary_length=summary_length)
+    if validate_summary(summary3, title, summary_length):
         return summary3
 
     # If any summary was successfully generated by the API, return it even if it didn't pass strict validation.
@@ -247,24 +255,24 @@ def summarize_with_groq_sync(text: str, title: str = "") -> Optional[str]:
                 candidate_cleaned += "."
             return candidate_cleaned
 
-    # Absolute fallback: construct a clean sentence-based summary matching 30 to 35 words
+    # Absolute fallback: construct a clean sentence-based summary matching summary_length
     sentences = [s.strip() for s in text.replace("\n", " ").split(".") if s.strip()]
     cleaned_fallback = []
     word_count = 0
     for s in sentences:
         s_words = s.split()
-        if word_count + len(s_words) <= 35:
+        if word_count + len(s_words) <= summary_length:
             cleaned_fallback.append(s)
             word_count += len(s_words)
         else:
-            needed = 35 - word_count
+            needed = summary_length - word_count
             if needed > 5:
                 cleaned_fallback.append(" ".join(s_words[:needed]))
             break
             
     fallback_text = ". ".join(cleaned_fallback).strip()
     if not fallback_text:
-        fallback_text = " ".join(text.split()[:32])
+        fallback_text = " ".join(text.split()[:summary_length])
     if not fallback_text.endswith("."):
         fallback_text += "."
     return fallback_text
@@ -640,7 +648,7 @@ def extract_metadata_with_groq_sync(body: str, url: str = "", context_agency: st
     log("Groq Metadata Extraction failed completely. Falling back to local parsed suggestions.")
     return {"author": (author_metadata or {}).get("name"), "agency": context_agency or domain, "body": body}
 
-def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str, context_agency: str = "", extra_metadata: Dict = None) -> Dict[str, Any]:
+def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str, context_agency: str = "", extra_metadata: Dict = None, summary_length: int = 35) -> Dict[str, Any]:
     results = {"summary": None, "author": None, "agency": None, "tags": None, "sentiment": "neutral"}
     if not body or len(body) < 100: return results
     
@@ -661,7 +669,7 @@ def perform_full_enrichment_sync(body: str, title: str, url: str, sector: str, c
         results["author"] = f"{results['author']} (@{meta['handle']})" if results["author"] else f"@{meta['handle']}"
     
     results["agency"] = meta.get("agency")
-    results["summary"] = summarize_with_groq_sync(body, title=title)
+    results["summary"] = summarize_with_groq_sync(body, title=title, summary_length=summary_length)
     
     # Simple sentiment checks (Separate checks to avoid elution)
     body_low = body.lower()[:1000]

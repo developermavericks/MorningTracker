@@ -34,6 +34,7 @@ class ClientCreate(BaseModel):
     recipients: List[EmailStr]
     sections: List[SectionCreate]
     context: Optional[str] = None
+    summary_length: int = 35
 
 class SectionResponse(BaseModel):
     id: int
@@ -51,6 +52,7 @@ class ClientResponse(BaseModel):
     sections: List[SectionResponse]
     last_run_at: Optional[str] = None
     context: Optional[str] = None
+    summary_length: int = 35
 
 class RunLogResponse(BaseModel):
     id: int
@@ -108,7 +110,8 @@ async def list_clients(
                 recipients=recipients,
                 sections=sections_data,
                 last_run_at=client.last_run_at.isoformat() + ("Z" if client.last_run_at.tzinfo is None else "") if client.last_run_at else None,
-                context=client.context
+                context=client.context,
+                summary_length=client.summary_length or 35
             )
         )
     return response_data
@@ -129,7 +132,8 @@ async def create_client(
         scheduled_time=payload.scheduled_time,
         timezone=payload.timezone,
         is_active=payload.is_active,
-        context=payload.context
+        context=payload.context,
+        summary_length=payload.summary_length
     )
     db.add(new_client)
     await db.commit()
@@ -173,7 +177,8 @@ async def create_client(
         recipients=payload.recipients,
         sections=sections_response,
         last_run_at=None,
-        context=new_client.context
+        context=new_client.context,
+        summary_length=new_client.summary_length
     )
 
 @router.put("/{client_id}", response_model=ClientResponse)
@@ -194,6 +199,7 @@ async def update_client(
     client.timezone = payload.timezone
     client.is_active = payload.is_active
     client.context = payload.context
+    client.summary_length = payload.summary_length
     
     # Update recipients (clear old first)
     await db.execute(delete(ClientRecipient).where(ClientRecipient.client_id == client_id))
@@ -242,7 +248,8 @@ async def update_client(
         recipients=payload.recipients,
         sections=sections_response,
         last_run_at=client.last_run_at.isoformat() + ("Z" if client.last_run_at.tzinfo is None else "") if client.last_run_at else None,
-        context=client.context
+        context=client.context,
+        summary_length=client.summary_length or 35
     )
 
 @router.delete("/{client_id}")

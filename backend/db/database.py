@@ -173,6 +173,7 @@ class Client(Base):
     template_path: Mapped[Optional[str]] = mapped_column(String)
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     context: Mapped[Optional[str]] = mapped_column(Text)
+    summary_length: Mapped[int] = mapped_column(Integer, default=35, server_default="35")
 
 class ClientSection(Base):
     __tablename__ = "client_sections"
@@ -530,6 +531,17 @@ def init_db_sync():
                 conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS context TEXT"))
             else:
                 conn.execute(text("ALTER TABLE clients ADD COLUMN context TEXT"))
+    except: pass
+
+    # Automated migration: Add client summary_length if missing
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS summary_length INTEGER DEFAULT 35"))
+            else:
+                try:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN summary_length INTEGER DEFAULT 35"))
+                except Exception: pass
     except: pass
 
     # Automated migration: Add audit columns to irrelevant_articles table

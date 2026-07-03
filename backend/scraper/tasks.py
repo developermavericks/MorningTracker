@@ -686,6 +686,7 @@ def enrich_article_node(self, article_id):
             
             # Retrieve client context guidelines if applicable
             client_context = ""
+            client_summary_length = 35
             client_name = article.sector
             if " - " in client_name:
                 client_name = client_name.split(" - ")[0]
@@ -694,6 +695,7 @@ def enrich_article_node(self, article_id):
             ).scalars().first()
             if client_obj:
                 client_context = client_obj.context or ""
+                client_summary_length = client_obj.summary_length or 35
             
             # --- Similarity Pre-Filter ---
             from scraper.similarity import evaluate_similarity_pre_filter, SIM_DROP_THRESHOLD
@@ -740,7 +742,8 @@ def enrich_article_node(self, article_id):
                 article.resolved_url or article.url, 
                 article.sector,
                 context_agency=article.agency,
-                extra_metadata=article.extra_metadata
+                extra_metadata=article.extra_metadata,
+                summary_length=client_summary_length
             )
             
             article.summary = enriched_data.get("summary")

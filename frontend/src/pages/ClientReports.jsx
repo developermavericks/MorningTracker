@@ -187,6 +187,7 @@ export default function ClientReports() {
   const [recipients, setRecipients] = useState("");
   const [sections, setSections] = useState([{ name: "Brand Mentions", keywords: "" }]);
   const [context, setContext] = useState("");
+  const [summaryLength, setSummaryLength] = useState(35);
   
   // File Upload states
   const [uploadingTemplateId, setUploadingTemplateId] = useState(null);
@@ -234,6 +235,7 @@ export default function ClientReports() {
       setRecipients(client.recipients.join(", "));
       setSections(client.sections.map(s => ({ name: s.name, keywords: s.keywords.join(", ") })));
       setContext(client.context || "");
+      setSummaryLength(client.summary_length ?? 35);
     } else {
       setSelectedClient(null);
       setClientName("");
@@ -243,6 +245,7 @@ export default function ClientReports() {
       setRecipients("");
       setSections([{ name: "Brand Mentions", keywords: "" }]);
       setContext("");
+      setSummaryLength(35);
     }
     setIsModalOpen(true);
   };
@@ -286,7 +289,8 @@ export default function ClientReports() {
       is_active: isActive,
       recipients: recipientsList,
       sections: sectionsList,
-      context: context.trim()
+      context: context.trim(),
+      summary_length: parseInt(summaryLength) || 35
     };
 
     try {
@@ -1088,6 +1092,23 @@ export default function ClientReports() {
                   style={{ resize: "vertical", fontFamily: "inherit", padding: "8px" }}
                 />
                 <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>This detailed context is used by the AI to filter out noise and only keep relevant articles.</span>
+              </div>
+
+              {/* Summary Word Count Limit */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label className="form-label">Summary Length Constraint (Word Count)</label>
+                <select
+                  value={summaryLength}
+                  onChange={(e) => setSummaryLength(parseInt(e.target.value) || 35)}
+                  className="form-control"
+                  style={{ height: "38px" }}
+                >
+                  <option value="35">Short Briefing (30 - 35 words)</option>
+                  <option value="60">Medium Briefing (50 - 60 words)</option>
+                  <option value="100">Long Summary (90 - 100 words)</option>
+                  <option value="150">Detailed Breakdown (140 - 150 words)</option>
+                </select>
+                <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>This dynamically changes the LLM instructions for summary output length.</span>
               </div>
 
               {/* Active Toggle */}
