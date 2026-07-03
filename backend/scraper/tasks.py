@@ -1722,6 +1722,15 @@ def run_client_report_task(client_id: int):
             has_articles=has_articles
         )
         
+        # Read the generated report file into binary data to save in the database
+        report_file_data = None
+        if docx_path_filtered and os.path.exists(docx_path_filtered):
+            try:
+                with open(docx_path_filtered, "rb") as f:
+                    report_file_data = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read generated report file: {e}")
+
         if not email_sent:
             logger.warning("Report generated but email notification failed to send (SMTP connection error).")
             with get_db_sync() as db:
@@ -1736,6 +1745,7 @@ def run_client_report_task(client_id: int):
                     .values(
                         status="completed",
                         generated_file_path=google_doc_url_filtered or docx_path_filtered,
+                        generated_file_data=report_file_data,
                         progress_message=updated_log,
                         error_message="Email notification failed to send (SMTP connection timeout).",
                         completed_at=datetime.utcnow()
@@ -1762,6 +1772,7 @@ def run_client_report_task(client_id: int):
                 .values(
                     status="completed",
                     generated_file_path=google_doc_url_filtered or docx_path_filtered,
+                    generated_file_data=report_file_data,
                     progress_message=updated_log,
                     completed_at=datetime.utcnow()
                 )
@@ -2422,6 +2433,39 @@ def run_heavy_automation_task(company_id: int):
                 _update_progress(f"Email scheduled for {company.mail_send_time} (mode: {company.mail_send_mode})")
                 email_status = "pending"
 
+        # Read the generated report files into binary data to save in the database
+        master_doc_data = None
+        if master_path and os.path.exists(master_path):
+            try:
+                with open(master_path, "rb") as f:
+                    master_doc_data = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read master doc report: {e}")
+
+        filtered_doc_data = None
+        if filtered_path and os.path.exists(filtered_path):
+            try:
+                with open(filtered_path, "rb") as f:
+                    filtered_doc_data = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read filtered doc report: {e}")
+
+        master_excel_data = None
+        if master_excel_path and os.path.exists(master_excel_path):
+            try:
+                with open(master_excel_path, "rb") as f:
+                    master_excel_data = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read master excel report: {e}")
+
+        filtered_excel_data = None
+        if filtered_excel_path and os.path.exists(filtered_excel_path):
+            try:
+                with open(filtered_excel_path, "rb") as f:
+                    filtered_excel_data = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read filtered excel report: {e}")
+
         # ─ Update run record ──────────────────────────────────────────────────
         with get_db_sync() as db:
             run_rec = db.execute(select(HeavyRun).where(HeavyRun.id == run_id)).scalar_one_or_none()
@@ -2434,6 +2478,10 @@ def run_heavy_automation_task(company_id: int):
                 run_rec.filtered_doc_path = filtered_path
                 run_rec.master_excel_path = master_excel_path
                 run_rec.filtered_excel_path = filtered_excel_path
+                run_rec.master_doc_data = master_doc_data
+                run_rec.filtered_doc_data = filtered_doc_data
+                run_rec.master_excel_data = master_excel_data
+                run_rec.filtered_excel_data = filtered_excel_data
                 run_rec.email_status = email_status
                 run_rec.finished_at = datetime.utcnow()
                 db.commit()

@@ -435,6 +435,23 @@ async def download_report(
         raise HTTPException(status_code=403, detail="Access denied")
         
     if not os.path.exists(file_path):
+        # Dynamically restore from DB if missing on disk
+        async for session in get_db_yield():
+            res = await session.execute(
+                select(ClientRunLog).where(ClientRunLog.generated_file_path.like(f"%{filename}%"))
+            )
+            run_log = res.scalar_one_or_none()
+            if run_log and run_log.generated_file_data:
+                try:
+                    os.makedirs(reports_dir, exist_ok=True)
+                    with open(file_path, "wb") as buffer:
+                        buffer.write(run_log.generated_file_data)
+                    logger.info(f"Dynamically restored client report from DB: {file_path}")
+                except Exception as ex:
+                    logger.error(f"Failed to restore client report from DB: {ex}")
+            break
+
+    if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
         
     return FileResponse(

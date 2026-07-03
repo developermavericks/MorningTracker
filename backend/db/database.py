@@ -202,6 +202,7 @@ class ClientRunLog(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text)
     progress_message: Mapped[Optional[str]] = mapped_column(Text)
     generated_file_path: Mapped[Optional[str]] = mapped_column(Text)
+    generated_file_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
@@ -293,6 +294,10 @@ class HeavyRun(Base):
     filtered_doc_path: Mapped[Optional[str]] = mapped_column(Text)
     master_excel_path: Mapped[Optional[str]] = mapped_column(Text)
     filtered_excel_path: Mapped[Optional[str]] = mapped_column(Text)
+    master_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    filtered_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    master_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    filtered_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     email_status: Mapped[Optional[str]] = mapped_column(String)  # sent|failed|pending|skipped
     progress_message: Mapped[Optional[str]] = mapped_column(Text)
     error: Mapped[Optional[str]] = mapped_column(Text)
@@ -420,6 +425,23 @@ async def init_db():
             else:
                 await conn.execute(text("ALTER TABLE clients ADD COLUMN template_data BLOB"))
         except: pass
+
+        # Automated Migration: Add ClientRunLog generated_file_data if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS generated_file_data BYTEA"))
+            else:
+                await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN generated_file_data BLOB"))
+        except: pass
+
+        # Automated Migration: Add HeavyRun file data columns if missing
+        for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data"]:
+            try:
+                if "postgresql" in engine.url.drivername:
+                    await conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS {col} BYTEA"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN {col} BLOB"))
+            except: pass
 
         # Automated Migration: Heavy Automation tables (create_all handles new tables; these are safety guards)
         try:
@@ -571,6 +593,29 @@ def init_db_sync():
                     conn.execute(text("ALTER TABLE clients ADD COLUMN template_data BLOB"))
                 except Exception: pass
     except: pass
+
+    # Automated migration: Add ClientRunLog generated_file_data if missing
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS generated_file_data BYTEA"))
+            else:
+                try:
+                    conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN generated_file_data BLOB"))
+                except Exception: pass
+    except: pass
+
+    # Automated migration: Add HeavyRun file data columns if missing
+    for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data"]:
+        try:
+            with engine_sync.begin() as conn:
+                if "postgresql" in engine_sync.url.drivername:
+                    conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS {col} BYTEA"))
+                else:
+                    try:
+                        conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN {col} BLOB"))
+                    except Exception: pass
+        except: pass
 
     # Automated migration: Add audit columns to irrelevant_articles table
     try:

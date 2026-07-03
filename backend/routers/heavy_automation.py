@@ -421,6 +421,7 @@ async def preview_threshold(
 @router.get("/reports/{filename}")
 async def download_report(
     filename: str,
+    db: AsyncSession = Depends(get_db_yield),
     _: TokenData = Depends(get_admin_user),
 ):
     reports_dir = os.path.join(
@@ -431,6 +432,36 @@ async def download_report(
     # Path traversal guard
     if not os.path.realpath(file_path).startswith(os.path.realpath(reports_dir)):
         raise HTTPException(status_code=403, detail="Access denied")
+
+    if not os.path.exists(file_path):
+        # Dynamically restore from DB
+        stmt = select(HeavyRun).where(
+            (HeavyRun.master_doc_path.like(f"%{filename}%")) |
+            (HeavyRun.filtered_doc_path.like(f"%{filename}%")) |
+            (HeavyRun.master_excel_path.like(f"%{filename}%")) |
+            (HeavyRun.filtered_excel_path.like(f"%{filename}%"))
+        )
+        res = await db.execute(stmt)
+        run_rec = res.scalar_one_or_none()
+        if run_rec:
+            # Determine which column matches
+            data_bytes = None
+            if run_rec.master_doc_path and filename in run_rec.master_doc_path:
+                data_bytes = run_rec.master_doc_data
+            elif run_rec.filtered_doc_path and filename in run_rec.filtered_doc_path:
+                data_bytes = run_rec.filtered_doc_data
+            elif run_rec.master_excel_path and filename in run_rec.master_excel_path:
+                data_bytes = run_rec.master_excel_data
+            elif run_rec.filtered_excel_path and filename in run_rec.filtered_excel_path:
+                data_bytes = run_rec.filtered_excel_data
+
+            if data_bytes:
+                try:
+                    os.makedirs(reports_dir, exist_ok=True)
+                    with open(file_path, "wb") as buffer:
+                        buffer.write(data_bytes)
+                except Exception:
+                    pass
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
