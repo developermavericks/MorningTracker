@@ -6,6 +6,9 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import os
 import shutil
+import logging
+
+logger = logging.getLogger("clients")
 
 from db.database import (
     get_db_yield, Client, ClientSection, ClientKeyword, 
@@ -298,10 +301,16 @@ async def upload_template(
     
     filename = f"client_{client_id}_template.docx"
     file_path = os.path.join(templates_dir, filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
+    
+    # Read file bytes and save to database
+    file_bytes = await file.read()
+    client.template_data = file_bytes
     client.template_path = filename
+    
+    # Write to local cache path
+    with open(file_path, "wb") as buffer:
+        buffer.write(file_bytes)
+        
     await db.commit()
     
     return {"detail": "Template uploaded successfully", "path": file_path}
@@ -319,8 +328,17 @@ async def download_template(
         raise HTTPException(status_code=404, detail="Template not found")
         
     templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
+    os.makedirs(templates_dir, exist_ok=True)
     file_path = os.path.join(templates_dir, os.path.basename(client.template_path))
     
+    # Restore from database if missing on disk (critical for container rebuilding/ephemeral storage)
+    if client.template_data and not os.path.exists(file_path):
+        try:
+            with open(file_path, "wb") as buffer:
+                buffer.write(client.template_data)
+        except Exception as e:
+            logger.error(f"Failed to restore template from database: {e}")
+            
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Template file not found on disk")
         

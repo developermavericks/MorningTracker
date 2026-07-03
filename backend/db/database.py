@@ -4,7 +4,7 @@ from datetime import datetime, date
 from typing import Optional, List, Any, Dict
 from contextlib import asynccontextmanager
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Date, Float, ForeignKey, Index, select, update, delete, Table, JSON, create_engine, text
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Date, Float, ForeignKey, Index, select, update, delete, Table, JSON, create_engine, text, LargeBinary
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -171,6 +171,7 @@ class Client(Base):
     timezone: Mapped[str] = mapped_column(String, default="Asia/Kolkata")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     template_path: Mapped[Optional[str]] = mapped_column(String)
+    template_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     context: Mapped[Optional[str]] = mapped_column(Text)
     summary_length: Mapped[int] = mapped_column(Integer, default=35, server_default="35")
@@ -412,6 +413,14 @@ async def init_db():
                 await conn.execute(text("ALTER TABLE clients ADD COLUMN summary_length INTEGER DEFAULT 35"))
         except: pass
 
+        # Automated Migration: Add client template_data if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS template_data BYTEA"))
+            else:
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN template_data BLOB"))
+        except: pass
+
         # Automated Migration: Heavy Automation tables (create_all handles new tables; these are safety guards)
         try:
             if "postgresql" in engine.url.drivername:
@@ -549,6 +558,17 @@ def init_db_sync():
             else:
                 try:
                     conn.execute(text("ALTER TABLE clients ADD COLUMN summary_length INTEGER DEFAULT 35"))
+                except Exception: pass
+    except: pass
+
+    # Automated migration: Add client template_data if missing
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS template_data BYTEA"))
+            else:
+                try:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN template_data BLOB"))
                 except Exception: pass
     except: pass
 

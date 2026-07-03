@@ -874,7 +874,17 @@ def run_client_report_task(client_id: int):
         template_path = None
         if db_template_path:
             templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates")
+            os.makedirs(templates_dir, exist_ok=True)
             template_path = os.path.join(templates_dir, os.path.basename(db_template_path))
+            
+            # Restore from database if missing on disk (critical for container rebuilding/ephemeral storage)
+            if getattr(client, "template_data", None) and not os.path.exists(template_path):
+                try:
+                    with open(template_path, "wb") as buffer:
+                        buffer.write(client.template_data)
+                    logger.info(f"Dynamically restored template file from database: {template_path}")
+                except Exception as e:
+                    logger.error(f"Failed to restore template from database for client {client.id}: {e}")
             
         client_context = client.context
         client_timezone = client.timezone or "Asia/Kolkata"
