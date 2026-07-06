@@ -2653,7 +2653,14 @@ def check_heavy_automation_schedules():
                     ).scalar_one_or_none()
 
                     if last_run:
-                        last_run_date = (last_run.started_at or last_run.finished_at).date() if last_run.started_at or last_run.finished_at else None
+                        run_start = last_run.started_at or last_run.finished_at
+                        if run_start:
+                            # database time is UTC, convert it to company's local timezone to compare dates correctly
+                            run_start_local = run_start.replace(tzinfo=pytz.utc).astimezone(tz)
+                            last_run_date = run_start_local.date()
+                        else:
+                            last_run_date = None
+
                         if last_run_date == now_tz.date():
                             logger.info(f"[Heavy] {company.name} already ran today, skipping")
                             continue
