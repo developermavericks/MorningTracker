@@ -168,53 +168,162 @@ Respond with ONLY the summary, no quotes or markdown."""
     )
 
 
+_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or ""
+_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
+
+def _call_claude(messages: List[dict], system_prompt: Optional[str] = None, max_tokens: int = 1000, temperature: float = 0.2) -> Optional[str]:
+    """
+    Make an Anthropic Messages API call. Returns the assistant's text response.
+    """
+    if not _ANTHROPIC_API_KEY:
+        logger.warning("[Heavy LLM] No Anthropic API key configured. Falling back to other models.")
+        return None
+
+    try:
+        headers = {
+            "x-api-key": _ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        payload = {
+            "model": _ANTHROPIC_MODEL,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        with httpx.Client(timeout=45) as client:
+            resp = client.post(_ANTHROPIC_URL, headers=headers, json=payload)
+            if resp.status_code == 200:
+                return resp.json()["content"][0]["text"].strip()
+            else:
+                logger.error(f"[Heavy LLM] Anthropic API error {resp.status_code}: {resp.text[:500]}")
+                return None
+    except Exception as e:
+        logger.error(f"[Heavy LLM] Anthropic call failed: {e}")
+        return None
+
+
 def generate_executive_summary(articles: List[dict], company_name: str = "Google") -> Optional[str]:
     """
-    Generate a 3-4 sentence executive summary from top 5 articles.
+    Generate a formatted executive summary using Claude, prioritizing priority media publications.
     """
     if not articles:
         return None
 
-    top_articles = articles[:5]
-    article_text = "\n\n".join([
-        f"Title: {a.get('title')}\nSummary: {a.get('_summary', a.get('summary'))}"
-        for a in top_articles
-    ])
+    # Sort articles: priority media first
+    sorted_articles = sorted(articles, key=lambda x: 1 if x.get("_is_priority") else 0, reverse=True)[:25]
 
-    prompt = f"""You are a news intelligence analyst. Write a 3-4 sentence executive summary for a daily {company_name} India briefing based on these top articles:
+    article_text_list = []
+    for idx, a in enumerate(sorted_articles, start=1):
+        is_p = "[PRIORITY MEDIA]" if a.get("_is_priority") else "[NORMAL MEDIA]"
+        pub = a.get("agency") or a.get("publication") or "Unknown Publication"
+        title = a.get("title")
+        summary = a.get("_summary", a.get("summary") or "")
+        article_text_list.append(
+            f"Article #{idx} {is_p}\n"
+            f"Publication: {pub}\n"
+            f"Title: {title}\n"
+            f"Summary: {summary}\n"
+        )
+    article_text = "\n".join(article_text_list)
 
+    system_prompt = (
+        "You are a premium news intelligence editor. Write a concise, client-presentable, executive briefing summary "
+        f"for the daily {company_name} news tracker."
+    )
+
+    prompt = f"""Based on the following relevant news articles, generate exactly six headline developments.
+Prefer articles from [PRIORITY MEDIA] sources whenever possible.
+
+Articles list:
 {article_text}
 
-Focus on: major news, implications, strategic importance. Respond with ONLY the summary, no quotes or markdown."""
+FORMAT REQUIREMENTS:
+- Your response MUST start exactly with the line:
+"Six headline developments shaping {company_name} India's strategic landscape today:"
+- Followed by exactly six news cards.
+- Each card MUST have a capitalized short label (e.g. "DATA CENTRE", "$40B DEAL", "MILITARY AI", "SEOUL CAMPUS", "AD SPEND", "CYBER ALERT") representing the topic.
+- Followed by a concise 1-2 sentence description summarizing the core development and its relevance/implication.
+- Separate cards by an empty line.
 
-    return _call_llm(
-        [{"role": "user", "content": prompt}],
-        max_tokens=150,
-        temperature=0.3,
-    )
+Example structure:
+Six headline developments shaping {company_name} India's strategic landscape today:
+
+DATA CENTRE
+AP Pollution Control Board grants Consent to Establishment for 2 Google Data Centre sites in Vizag (Rambilli & Tarluvada). CM Naidu to lay foundation stone.
+
+$40B DEAL
+Google / Alphabet commits $10B immediately and up to $40B total in Anthropic at $350B valuation, deepening AI partnership.
+
+Return ONLY the formatted text without any introductory conversational prefixes or markdown formatting."""
+
+    resp = _call_claude([{"role": "user", "content": prompt}], system_prompt=system_prompt, max_tokens=1000)
+
+    if not resp:
+        logger.warning("[Heavy LLM] Claude call failed or not configured, falling back to standard LLM.")
+        resp = _call_llm([{"role": "user", "content": prompt}], max_tokens=600)
+
+    return resp
 
 
 def generate_strategic_takeaways(articles: List[dict], company_name: str = "Google") -> Optional[str]:
     """
-    Generate 3-4 bullet points of strategic/regulatory takeaways from policy articles.
+    Generate key takeaways using Claude, prioritizing priority media publications.
     """
-    policy_articles = [a for a in articles if a.get("_pillar") == "Policy / Regulation / Legal"]
-    if not policy_articles:
+    if not articles:
         return None
 
-    article_text = "\n".join([
-        f"- {a.get('title')}: {a.get('_summary', a.get('summary'))}"
-        for a in policy_articles[:5]
-    ])
+    # Sort articles: priority media first
+    sorted_articles = sorted(articles, key=lambda x: 1 if x.get("_is_priority") else 0, reverse=True)[:25]
 
-    prompt = f"""Extract 3-4 key strategic/regulatory takeaways for {company_name} from these policy-related articles:
+    article_text_list = []
+    for idx, a in enumerate(sorted_articles, start=1):
+        is_p = "[PRIORITY MEDIA]" if a.get("_is_priority") else "[NORMAL MEDIA]"
+        pub = a.get("agency") or a.get("publication") or "Unknown Publication"
+        title = a.get("title")
+        summary = a.get("_summary", a.get("summary") or "")
+        article_text_list.append(
+            f"Article #{idx} {is_p}\n"
+            f"Publication: {pub}\n"
+            f"Title: {title}\n"
+            f"Summary: {summary}\n"
+        )
+    article_text = "\n".join(article_text_list)
 
+    system_prompt = (
+        "You are a premium strategic intelligence advisor. Extract key strategic takeaways "
+        f"for {company_name} from the daily news coverage."
+    )
+
+    prompt = f"""Based on the following news articles, formulate exactly six key strategic takeaways/insights for {company_name}.
+Prefer articles from [PRIORITY MEDIA] sources whenever possible.
+
+Articles list:
 {article_text}
 
-Format as bullet points. Respond with ONLY the bullets, no quotes or markdown."""
+FORMAT REQUIREMENTS:
+- Your response MUST consist of exactly six bullet points/takeaways.
+- Each takeaway must start with a bold key concept title, followed by a dash (—) or colon (:), and then a 1-2 sentence analytical insight explaining the strategic/regulatory/market implication for {company_name}.
+- Do NOT include any intro or outro text, return ONLY the six takeaways.
 
-    return _call_llm(
-        [{"role": "user", "content": prompt}],
-        max_tokens=200,
-        temperature=0.2,
-    )
+Example format:
+Vizag Data Centre Momentum — Regulatory & Political
+With APPCB granting CTE orders for two of three sites, and CM Naidu personally committing to the foundation-laying on April 28, Google's 1-GW AI Data Centre Hub in Visakhapatnam is now firmly in execution phase.
+
+The Anthropic Bet — $40B at $350B Valuation
+Google's commitment of up to $40 billion in Anthropic (with $10B now in cash and $30B performance-linked) represents the largest single AI-infrastructure bet by a tech major in 2026.
+
+Return ONLY the formatted takeaways."""
+
+    resp = _call_claude([{"role": "user", "content": prompt}], system_prompt=system_prompt, max_tokens=1000)
+
+    if not resp:
+        logger.warning("[Heavy LLM] Claude call failed or not configured, falling back to standard LLM.")
+        resp = _call_llm([{"role": "user", "content": prompt}], max_tokens=800)
+
+    return resp

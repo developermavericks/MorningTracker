@@ -180,16 +180,15 @@ def _render_exec(brief: Mapping[str, Any]) -> str:
 def _byline_html(a: Mapping[str, Any]) -> str:
     journalist = _first(a, "journalist", "author", "byline", "reporter")
     pubs = _pub_list(a)
-    pub = pubs[0] if pubs else ""
+    pub = pubs[0] if pubs else "wire"
     if journalist:
         inner = (
             f'<span style="font-weight:bold;color:{BLUE};">{esc(pub)}</span>'
             f'<span style="color:{_MUTED};"> | {esc(journalist)}</span>'
         )
     else:
-        joined = ", ".join(pubs) if pubs else "wire"
         inner = (f'<span style="font-style:italic;color:{_MUTED};">'
-                 f'Syndicated via {esc(joined)}</span>')
+                 f'Syndicated by {esc(pub)}</span>')
     return f'<div style="font-size:10px;margin-bottom:4px;">{inner}</div>'
 
 
@@ -238,8 +237,9 @@ def _render_section(section: Mapping[str, Any]) -> str:
     if not articles:
         return ""
     body = "".join(_render_article(a) for a in articles)
+    anchor_id = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
     return f"""
-      <tr><td style="padding:6px 24px 0;">
+      <tr><td id="{anchor_id}" style="padding:6px 24px 0;">
         {_section_heading(name, accent)}
         {body}
       </td></tr>"""
@@ -335,6 +335,29 @@ def _render_footer(brief: Mapping[str, Any]) -> str:
 # --------------------------------------------------------------------------- #
 # Master renderers                                                             #
 # --------------------------------------------------------------------------- #
+def _render_bookmarks_bar(sections: Sequence) -> str:
+    if not sections:
+        return ""
+    links = []
+    for s in sections:
+        name = s.get("name", "")
+        if not name:
+            continue
+        anchor_id = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
+        links.append(f'<a href="#{anchor_id}" style="color:{BLUE}; text-decoration:none; font-weight:bold; font-size:10px;">{esc(name)}</a>')
+    
+    if not links:
+        return ""
+        
+    cells = " &nbsp;|&nbsp; ".join(links)
+    return f"""
+      <tr><td align="center" style="background:#f3f4f6; padding:8px 24px; border-bottom:1px solid {_HAIRLINE};">
+        <div style="font-size:10px; color:{_MUTED}; line-height:1.5;">
+          {cells}
+        </div>
+      </td></tr>"""
+
+
 def render_brief_html(brief: Mapping[str, Any]) -> str:
     sections_html = "".join(_render_section(s) for s in (brief.get("sections") or []))
     return f"""<!DOCTYPE html>
@@ -348,6 +371,7 @@ def render_brief_html(brief: Mapping[str, Any]) -> str:
              style="max-width:{_MAX_W}px;width:100%;background:#ffffff;
              font-family:{_FONT};">
         {_render_header(brief)}
+        {_render_bookmarks_bar(brief.get("sections") or [])}
         {_render_category_bar(brief.get("category_bar") or [])}
         {_render_exec(brief)}
         {sections_html}

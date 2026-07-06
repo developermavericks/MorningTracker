@@ -311,6 +311,74 @@ def is_priority_publication(agency_name, priority_list):
             return True
     return False
 
+def group_articles_by_sections(articles: list[dict], company_name: str) -> dict[str, list[dict]]:
+    TARGET_SECTIONS = [
+        "Competition Brand Keywords, Company Keywords, Competition Keywords, Brand Names, Competition Brand keywords, Company keywords",
+        "Company Keywords, Google Pay keywords, Brand Names",
+        "Competition Brand keywords, Company Keywords, Brand Names",
+        "Industry keywords",
+        "Industry Keywords",
+        "Youtube keywords, Competition Keywords, Mobile OS & Hardware, Competition Brand Keywords",
+        "Company keywords, Brand Names, Company Keywords",
+        "Company Keywords, Brand Names, Google Maps keywords",
+        "Mobile OS & Hardware",
+        "Brand Names"
+    ]
+    by_pillar = {}
+    if "google" in company_name.lower():
+        # Initialize all target sections to preserve the correct order
+        for sec in TARGET_SECTIONS:
+            by_pillar[sec] = []
+        for art in articles:
+            sub_category_str = art.get("_sub_category") or ""
+            subs = [s.strip().lower() for s in sub_category_str.split(",") if s.strip()]
+            
+            mapped_section = None
+            if "google pay keywords" in subs:
+                mapped_section = "Company Keywords, Google Pay keywords, Brand Names"
+            elif "google maps keywords" in subs:
+                mapped_section = "Company Keywords, Brand Names, Google Maps keywords"
+            elif "youtube keywords" in subs:
+                mapped_section = "Youtube keywords, Competition Keywords, Mobile OS & Hardware, Competition Brand Keywords"
+            elif "mobile os & hardware" in subs:
+                mapped_section = "Mobile OS & Hardware"
+            elif "competition brand keywords" in subs or "competition brand keywords" in subs:
+                if any(x in subs for x in ["google - gemini app", "openai", "chatgpt", "claude", "deepmind"]):
+                    mapped_section = "Competition Brand keywords, Company Keywords, Brand Names"
+                else:
+                    mapped_section = "Competition Brand Keywords, Company Keywords, Competition Keywords, Brand Names, Competition Brand keywords, Company keywords"
+            elif "industry keywords" in subs:
+                mapped_section = "Industry Keywords"
+            elif "company keywords" in subs or "company keywords" in subs:
+                mapped_section = "Company keywords, Brand Names, Company Keywords"
+            elif "brand names" in subs:
+                mapped_section = "Brand Names"
+            else:
+                if any(x in subs for x in ["google watch", "google earbuds", "wearables"]):
+                    mapped_section = "Mobile OS & Hardware"
+                elif any(x in subs for x in ["google - gemini app", "openai", "chatgpt", "claude", "deepmind"]):
+                    mapped_section = "Competition Brand keywords, Company Keywords, Brand Names"
+                elif any(x in subs for x in ["youtube"]):
+                    mapped_section = "Youtube keywords, Competition Keywords, Mobile OS & Hardware, Competition Brand Keywords"
+                else:
+                    mapped_section = "Competition Brand Keywords, Company Keywords, Competition Keywords, Brand Names, Competition Brand keywords, Company keywords"
+            
+            if mapped_section:
+                by_pillar[mapped_section].append(art)
+            else:
+                by_pillar["Brand Names"].append(art)
+                
+        # Filter out empty sections
+        by_pillar = {k: v for k, v in by_pillar.items() if v}
+    else:
+        for art in articles:
+            pillar = art.get("_pillar") or "Other"
+            if pillar not in by_pillar:
+                by_pillar[pillar] = []
+            by_pillar[pillar].append(art)
+            
+    return by_pillar
+
 PLAYWRIGHT_ONLY_DOMAINS = {"axios.com", "ndtv.com"}
 
 # Rotate across several recent Chrome UA strings to avoid fingerprinting.
@@ -2163,6 +2231,7 @@ def run_heavy_automation_task(company_id: int):
                 query_text = title
 
             is_priority = is_priority_publication(agency, priority_publications)
+            art["_is_priority"] = is_priority
 
             if pooja_algo_enabled and not is_priority:
                 continue
@@ -2311,13 +2380,8 @@ def run_heavy_automation_task(company_id: int):
         filtered_path       = None              # no separate filtered doc anymore
         filtered_excel_path = None              # no separate filtered excel anymore
 
-        # Group relevant by pillar for email
-        by_pillar_email = {}
-        for art in relevant:
-            pillar = art.get("_pillar") or "Other"
-            if pillar not in by_pillar_email:
-                by_pillar_email[pillar] = []
-            by_pillar_email[pillar].append(art)
+        # Group relevant by sections for email
+        by_pillar_email = group_articles_by_sections(relevant, company_name)
 
         # ─ Store per-article audit trail (Phase 5) ────────────────────────────
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Storing audit trail for {len(relevant)} articles...")
@@ -2749,7 +2813,6 @@ def check_heavy_scheduled_sends():
                             ).scalars().all()
                             
                             relevant_list = []
-                            by_pillar_email_reconstructed = {}
                             unique_subs = []
                             
                             for ra in run_arts:
@@ -2782,10 +2845,7 @@ def check_heavy_scheduled_sends():
                                 if ra.sub_category and ra.sub_category not in unique_subs:
                                     unique_subs.append(ra.sub_category)
 
-                                pillar = ra.pillar or "Other"
-                                if pillar not in by_pillar_email_reconstructed:
-                                    by_pillar_email_reconstructed[pillar] = []
-                                by_pillar_email_reconstructed[pillar].append(art_dict)
+                            by_pillar_email_reconstructed = group_articles_by_sections(relevant_list, company.name)
 
                             BLUE   = "#4285F4"
                             RED    = "#EA4335"
