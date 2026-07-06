@@ -194,7 +194,7 @@ Respond with ONLY the summary, no quotes or markdown."""
 
 
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or ""
-_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8")
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
@@ -216,8 +216,9 @@ def _call_claude(messages: List[dict], system_prompt: Optional[str] = None, max_
             "model": _ANTHROPIC_MODEL,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": temperature,
         }
+        if "opus" not in _ANTHROPIC_MODEL.lower():
+            payload["temperature"] = temperature
         if system_prompt:
             payload["system"] = system_prompt
 
