@@ -2359,6 +2359,22 @@ def run_heavy_automation_task(company_id: int):
                             all_grouped[master][sub].append(a)
                             existing_urls.add(a["url"])
 
+        # Ensure database schema is up-to-date with google_doc_url and mailer_doc_path
+        try:
+            from sqlalchemy import text
+            with get_db_sync() as db:
+                db.execute(text("ALTER TABLE heavy_runs ADD COLUMN google_doc_url TEXT"))
+                db.commit()
+        except Exception:
+            pass
+        try:
+            from sqlalchemy import text
+            with get_db_sync() as db:
+                db.execute(text("ALTER TABLE heavy_runs ADD COLUMN mailer_doc_path TEXT"))
+                db.commit()
+        except Exception:
+            pass
+
         # ─ Generate single combined DOCX report ───────────────────────────────────
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating combined Google Report DOCX...")
         today_str = date.today().strftime("%Y-%m-%d")
@@ -2436,6 +2452,66 @@ def run_heavy_automation_task(company_id: int):
             _update_progress(f"Executive Summary: {exec_summary[:100]}...")
         if takeaways:
             _update_progress(f"Strategic Takeaways generated.")
+
+        # Generate Mailer DOCX (Phase 4 Extension)
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating Mailer DOCX...")
+        google_mailer_filename = f"Mailer_Doc_{company_name}_{today_str}_{run_id}.docx"
+        mailer_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports", google_mailer_filename
+        )
+        from scraper.report_generator import generate_mailer_docx_report
+        generate_mailer_docx_report(company_name, "Google Daily Brief", today_str, exec_summary, takeaways, all_grouped, mailer_path)
+        _update_progress(f"Mailer DOCX saved: {google_mailer_filename}")
+
+        # Collect email recipients by role to use for sharing the Google Doc
+        with get_db_sync() as db:
+            brief_recips = db.execute(
+                select(HeavyRecipient).where(
+                    HeavyRecipient.company_id == company_id,
+                    HeavyRecipient.role == "brief"
+                )
+            ).scalars().all()
+            master_recips = db.execute(
+                select(HeavyRecipient).where(
+                    HeavyRecipient.company_id == company_id,
+                    HeavyRecipient.role == "master_doc"
+                )
+            ).scalars().all()
+        brief_emails = [r.email for r in brief_recips]
+        master_emails = [r.email for r in master_recips]
+        all_recipient_emails = list(set(brief_emails + master_emails))
+
+        # Upload Mailer Doc to Google Docs (Google Drive)
+        google_doc_url = None
+        if os.environ.get("GOOGLE_CREDENTIALS_JSON") and all_recipient_emails:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Uploading Mailer Doc to Google Drive as Google Doc...")
+            try:
+                from utils.google_docs import upload_docx_to_google_doc
+                google_doc_url = upload_docx_to_google_doc(
+                    docx_path=mailer_path,
+                    client_name=company_name,
+                    date_str=today_str,
+                    recipients=all_recipient_emails,
+                    doc_suffix="Mailer"
+                )
+                _update_progress(f"Google Doc link: {google_doc_url}")
+            except Exception as upload_err:
+                logger.error(f"[Heavy] Failed to upload Mailer Doc: {upload_err}")
+                _update_progress(f"Warning: Google Doc upload failed: {upload_err}")
+        else:
+            _update_progress("Google Drive credentials not set or no recipients, skipping Google Docs upload.")
+
+        # Save paths and summaries to database
+        with get_db_sync() as db:
+            run_rec = db.execute(select(HeavyRun).where(HeavyRun.id == run_id)).scalar_one_or_none()
+            if run_rec:
+                run_rec.master_doc_path = master_path
+                run_rec.master_excel_path = master_excel_path
+                run_rec.google_doc_url = google_doc_url
+                run_rec.mailer_doc_path = mailer_path
+                run_rec.executive_summary = exec_summary
+                run_rec.takeaways = takeaways
+                db.commit()
 
         # Build and send email
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Sending intelligence brief email...")
@@ -2520,24 +2596,6 @@ def run_heavy_automation_task(company_id: int):
                 logger.error(f"[Heavy] Failed to render HTML brief: {render_err}", exc_info=True)
                 _update_progress(f"Warning: HTML mailer rendering failed: {render_err}")
 
-        # Collect email recipients by role
-        with get_db_sync() as db:
-            brief_recips = db.execute(
-                select(HeavyRecipient).where(
-                    HeavyRecipient.company_id == company_id,
-                    HeavyRecipient.role == "brief"
-                )
-            ).scalars().all()
-            master_recips = db.execute(
-                select(HeavyRecipient).where(
-                    HeavyRecipient.company_id == company_id,
-                    HeavyRecipient.role == "master_doc"
-                )
-            ).scalars().all()
-
-        brief_emails = [r.email for r in brief_recips]
-        master_emails = [r.email for r in master_recips]
-
         email_status = "skipped"
         if brief_emails or master_emails:
             if company.mail_send_mode == "Immediate":
@@ -2552,10 +2610,11 @@ def run_heavy_automation_task(company_id: int):
                         success_brief = send_report_email(
                             recipient_emails=brief_emails,
                             client_name=company_name,
-                            docx_path_filtered=None,
+                            docx_path_filtered=mailer_path,
                             docx_path_master=None,
                             has_articles=bool(relevant),
                             brief_content=exec_summary,
+                            google_doc_url_filtered=google_doc_url,
                             html_body=html_body if send_html else None,
                         )
 
@@ -2566,12 +2625,13 @@ def run_heavy_automation_task(company_id: int):
                         success_master = send_report_email(
                             recipient_emails=master_emails,
                             client_name=company_name,
-                            docx_path_filtered=filtered_path,
+                            docx_path_filtered=mailer_path,
                             docx_path_master=docx_master,
                             has_articles=bool(relevant),
                             brief_content=exec_summary,
                             excel_path_filtered=filtered_excel_path,
                             excel_path_master=excel_master,
+                            google_doc_url_filtered=google_doc_url,
                             html_body=html_body if send_html else None,
                         )
                         

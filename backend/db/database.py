@@ -297,6 +297,8 @@ class HeavyRun(Base):
     filtered_doc_path: Mapped[Optional[str]] = mapped_column(Text)
     master_excel_path: Mapped[Optional[str]] = mapped_column(Text)
     filtered_excel_path: Mapped[Optional[str]] = mapped_column(Text)
+    google_doc_url: Mapped[Optional[str]] = mapped_column(Text)
+    mailer_doc_path: Mapped[Optional[str]] = mapped_column(Text)
     master_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     filtered_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     master_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
@@ -467,6 +469,8 @@ async def init_db():
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS master_excel_path TEXT"))
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS filtered_excel_path TEXT"))
+                await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS google_doc_url TEXT"))
+                await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS mailer_doc_path TEXT"))
                 await conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN IF NOT EXISTS bucket VARCHAR"))
             else:
                 try:
@@ -492,6 +496,12 @@ async def init_db():
                 except Exception: pass
                 try:
                     await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN filtered_excel_path TEXT"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN google_doc_url TEXT"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN mailer_doc_path TEXT"))
                 except Exception: pass
                 try:
                     await conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN bucket VARCHAR"))

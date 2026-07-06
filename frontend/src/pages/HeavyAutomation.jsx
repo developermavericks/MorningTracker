@@ -298,6 +298,48 @@ function RunHistory({ company }) {
                     📊 Google Report (Excel)
                   </button>
                 )}
+                {run.mailer_doc_path && (
+                  <button
+                    onClick={() => handleDownloadReport(run.mailer_doc_path)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      background: "rgba(66,133,244,0.12)",
+                      border: "1px solid rgba(66,133,244,0.35)",
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      color: "#4285F4",
+                      cursor: "pointer",
+                      fontWeight: 600
+                    }}
+                  >
+                    📧 Download Mailer Doc
+                  </button>
+                )}
+                {run.google_doc_url && (
+                  <a
+                    href={run.google_doc_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      background: "rgba(52,168,83,0.12)",
+                      border: "1px solid rgba(52,168,83,0.35)",
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      color: "#34A853",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                      fontSize: "13px"
+                    }}
+                  >
+                    🔗 Open Mailer Google Doc
+                  </a>
+                )}
               </div>
 
               {/* Progress parser & dynamic loader */}

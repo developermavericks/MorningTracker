@@ -531,3 +531,173 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
     wb.save(output_path)
     return output_path
 
+
+def generate_mailer_docx_report(client_name: str, report_type: str, date_str: str, exec_summary: str, takeaways: str, grouped_data: dict, output_path: str) -> str:
+    """
+    Generates a professionally formatted DOCX report representing the entire briefing mailer:
+    Title -> Executive Summary -> Strategic Takeaways -> Grouped Articles.
+    """
+    import re
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    doc = Document()
+    
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
+
+    # Title
+    title_p = doc.add_paragraph()
+    title_run = title_p.add_run(f"NEXUS NEWS BRIEFING: {report_type.upper()}")
+    title_run.font.name = 'Calibri'
+    title_run.font.size = Pt(18)
+    title_run.font.bold = True
+    title_run.font.color.rgb = RGBColor(74, 134, 232)
+    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Subtitle / Date
+    sub_p = doc.add_paragraph()
+    sub_run = sub_p.add_run(f"Date: {date_str} | Generated for {client_name}")
+    sub_run.font.name = 'Calibri'
+    sub_run.font.size = Pt(11)
+    sub_run.font.italic = True
+    sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Divider line
+    divider = doc.add_paragraph()
+    add_horizontal_line(divider)
+
+    # 1. Add Executive Summary
+    if exec_summary:
+        es_h = doc.add_paragraph()
+        es_hrun = es_h.add_run("EXECUTIVE SUMMARY")
+        es_hrun.font.name = 'Calibri'
+        es_hrun.font.size = Pt(14)
+        es_hrun.font.bold = True
+        es_hrun.font.color.rgb = RGBColor(74, 134, 232)
+        es_h.paragraph_format.space_before = Pt(14)
+        es_h.paragraph_format.space_after = Pt(6)
+
+        # Parse and write lines
+        for line in exec_summary.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            p = doc.add_paragraph()
+            p.paragraph_format.space_after = Pt(4)
+            if line.isupper() and len(line) < 30:
+                # Label!
+                run = p.add_run(line)
+                run.font.name = 'Calibri'
+                run.font.bold = True
+                run.font.size = Pt(11)
+                run.font.color.rgb = RGBColor(66, 133, 244) # Blue accent
+            else:
+                run = p.add_run(line)
+                run.font.name = 'Calibri'
+                run.font.size = Pt(10.5)
+
+        # Divider
+        divider2 = doc.add_paragraph()
+        add_horizontal_line(divider2)
+
+    # 2. Add Strategic Takeaways
+    if takeaways:
+        st_h = doc.add_paragraph()
+        st_hrun = st_h.add_run("STRATEGIC TAKEAWAYS")
+        st_hrun.font.name = 'Calibri'
+        st_hrun.font.size = Pt(14)
+        st_hrun.font.bold = True
+        st_hrun.font.color.rgb = RGBColor(74, 134, 232)
+        st_h.paragraph_format.space_before = Pt(14)
+        st_h.paragraph_format.space_after = Pt(6)
+
+        for line in takeaways.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            p = doc.add_paragraph()
+            p.paragraph_format.space_after = Pt(4)
+            run = p.add_run(line)
+            run.font.name = 'Calibri'
+            run.font.size = Pt(10.5)
+
+        # Divider
+        divider3 = doc.add_paragraph()
+        add_horizontal_line(divider3)
+
+    # 3. Add Grouped Categories & Articles
+    if grouped_data:
+        for master, subs in grouped_data.items():
+            # Add Master Heading (H1)
+            m_p = doc.add_paragraph()
+            m_run = m_p.add_run(master)
+            m_run.font.name = 'Calibri'
+            m_run.font.size = Pt(14)
+            m_run.font.bold = True
+            m_run.font.color.rgb = RGBColor(74, 134, 232)
+            m_p.paragraph_format.space_before = Pt(18)
+            m_p.paragraph_format.space_after = Pt(6)
+            m_p.paragraph_format.keep_with_next = True
+
+            for sub, articles in subs.items():
+                if not articles:
+                    continue
+                # Add Sub Heading (H2)
+                s_p = doc.add_paragraph()
+                s_run = s_p.add_run(sub)
+                s_run.font.name = 'Calibri'
+                s_run.font.size = Pt(12)
+                s_run.font.bold = True
+                s_run.font.color.rgb = RGBColor(102, 102, 102)
+                s_p.paragraph_format.space_before = Pt(12)
+                s_p.paragraph_format.space_after = Pt(4)
+                s_p.paragraph_format.keep_with_next = True
+
+                for art in articles:
+                    # Add Headline link
+                    art_p = doc.add_paragraph()
+                    art_p.paragraph_format.space_before = Pt(6)
+                    art_p.paragraph_format.space_after = Pt(2)
+                    title_text = art.get("title", "Untitled Article")
+                    url = art.get("url", "#")
+                    try:
+                        add_hyperlink(art_p, url, title_text, color="1155cc", underline=True)
+                    except Exception:
+                        fallback_run = art_p.add_run(title_text)
+                        fallback_run.font.name = 'Calibri'
+                        fallback_run.font.size = Pt(10)
+                        fallback_run.font.bold = True
+                        fallback_run.font.color.rgb = RGBColor(17, 85, 204)
+
+                    # Add Publication & Journalist Byline
+                    meta_p = doc.add_paragraph()
+                    meta_p.paragraph_format.space_before = Pt(0)
+                    meta_p.paragraph_format.space_after = Pt(6)
+                    
+                    pub_name = art.get("agency") or "Unknown Publication"
+                    pub_author = art.get("author") or art.get("journalist")
+                    if pub_author:
+                        byline_str = f"{pub_name} | {pub_author}"
+                    else:
+                        byline_str = f"Syndicated by {pub_name}"
+                        
+                    meta_run = meta_p.add_run(byline_str)
+                    meta_run.font.name = 'Calibri'
+                    meta_run.font.size = Pt(9.5)
+                    meta_run.font.color.rgb = RGBColor(128, 128, 128)
+
+                    # Add Summary
+                    sum_p = doc.add_paragraph()
+                    sum_p.paragraph_format.space_before = Pt(0)
+                    sum_p.paragraph_format.space_after = Pt(10)
+                    sum_text = art.get("summary") or art.get("full_body") or ""
+                    sum_run = sum_p.add_run(sum_text)
+                    sum_run.font.name = 'Calibri'
+                    sum_run.font.size = Pt(10)
+                    sum_run.font.color.rgb = RGBColor(60, 60, 60)
+
+    doc.save(output_path)
+    return output_path
+
