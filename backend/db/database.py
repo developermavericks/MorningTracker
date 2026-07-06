@@ -643,6 +643,61 @@ def init_db_sync():
                     except Exception: pass
         except: pass
 
+        # Automated Migration: Add HeavyRun executive summary & takeaways if missing
+        for col in ["executive_summary", "takeaways"]:
+            try:
+                with engine_sync.begin() as conn:
+                    if "postgresql" in engine_sync.url.drivername:
+                        conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS {col} TEXT"))
+                    else:
+                        try:
+                            conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN {col} TEXT"))
+                        except Exception: pass
+            except: pass
+
+        # Automated Migration: Heavy Automation tables schema updates
+        try:
+            with engine_sync.begin() as conn:
+                if "postgresql" in engine_sync.url.drivername:
+                    conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS search_mode VARCHAR DEFAULT 'title'"))
+                    conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS pooja_algo_enabled BOOLEAN DEFAULT FALSE"))
+                    conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS email_send_reports BOOLEAN DEFAULT TRUE"))
+                    conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS email_send_html BOOLEAN DEFAULT FALSE"))
+                    conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
+                    conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS master_excel_path TEXT"))
+                    conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS filtered_excel_path TEXT"))
+                    conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN IF NOT EXISTS bucket VARCHAR"))
+                else:
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN updated_at DATETIME"))
+                    except Exception: pass
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN search_mode VARCHAR DEFAULT 'title'"))
+                    except Exception: pass
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN pooja_algo_enabled BOOLEAN DEFAULT FALSE"))
+                    except Exception: pass
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN email_send_reports BOOLEAN DEFAULT TRUE"))
+                    except Exception: pass
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN email_send_html BOOLEAN DEFAULT FALSE"))
+                    except Exception: pass
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN email_status VARCHAR"))
+                    except Exception: pass
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN master_excel_path TEXT"))
+                    except Exception: pass
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN filtered_excel_path TEXT"))
+                    except Exception: pass
+                    try:
+                        conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN bucket VARCHAR"))
+                    except Exception: pass
+        except Exception as e:
+            print(f"Sync Migration Notice (Heavy Automation Schema): {e}")
+
     # Automated migration: Add audit columns to irrelevant_articles table
     try:
         with engine_sync.begin() as conn:
