@@ -99,13 +99,28 @@ def _call_hf(messages: List[dict], max_tokens: int = 150, temperature: float = 0
         return None
 
 
-def _call_llm(messages: List[dict], max_tokens: int = 150, temperature: float = 0.2) -> Optional[str]:
+def _call_llm(messages: List[dict], max_tokens: int = 150, temperature: float = 0.2, system_prompt: Optional[str] = None) -> Optional[str]:
     """
-    Call LLM. Uses Hugging Face. Groq fallback is disabled per user request.
+    Call LLM. Tries Claude first. If Claude fails or is not configured, falls back to Hugging Face.
     """
+    # 1. Try Claude first
+    if _ANTHROPIC_API_KEY:
+        try:
+            resp = _call_claude(messages, system_prompt=system_prompt, max_tokens=max_tokens, temperature=temperature)
+            if resp:
+                return resp
+            logger.warning("[Heavy LLM] Claude call returned empty, trying Hugging Face fallback...")
+        except Exception as e:
+            logger.error(f"[Heavy LLM] Claude call failed: {e}. Trying Hugging Face fallback...")
+
+    # 2. Try Hugging Face fallback
     if _HF_TOKEN:
-        return _call_hf(messages, max_tokens, temperature)
-    logger.warning("[Heavy LLM] Groq API fallback is disabled in heavy automation.")
+        hf_messages = list(messages)
+        if system_prompt:
+            hf_messages.insert(0, {"role": "system", "content": system_prompt})
+        return _call_hf(hf_messages, max_tokens, temperature)
+
+    logger.warning("[Heavy LLM] Neither Claude nor Hugging Face is configured or succeeded.")
     return None
 
 
@@ -266,13 +281,11 @@ Google / Alphabet commits $10B immediately and up to $40B total in Anthropic at 
 
 Return ONLY the formatted text without any introductory conversational prefixes or markdown formatting."""
 
-    resp = _call_claude([{"role": "user", "content": prompt}], system_prompt=system_prompt, max_tokens=1000)
-
-    if not resp:
-        logger.warning("[Heavy LLM] Claude call failed or not configured, falling back to standard LLM.")
-        resp = _call_llm([{"role": "user", "content": prompt}], max_tokens=600)
-
-    return resp
+    return _call_llm(
+        [{"role": "user", "content": prompt}],
+        system_prompt=system_prompt,
+        max_tokens=1000
+    )
 
 
 def generate_strategic_takeaways(articles: List[dict], company_name: str = "Google") -> Optional[str]:
@@ -328,10 +341,8 @@ Google's commitment of up to $40 billion in Anthropic (with $10B now in cash and
 
 Return ONLY the formatted takeaways."""
 
-    resp = _call_claude([{"role": "user", "content": prompt}], system_prompt=system_prompt, max_tokens=1000)
-
-    if not resp:
-        logger.warning("[Heavy LLM] Claude call failed or not configured, falling back to standard LLM.")
-        resp = _call_llm([{"role": "user", "content": prompt}], max_tokens=800)
-
-    return resp
+    return _call_llm(
+        [{"role": "user", "content": prompt}],
+        system_prompt=system_prompt,
+        max_tokens=1000
+    )
