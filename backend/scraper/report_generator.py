@@ -132,7 +132,11 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
             pass
 
     # Document Header: Heading 1 style to automatically map to outline navigation tabs in Google Docs
-    title_p = doc.add_paragraph(style='Heading 1')
+    try:
+        title_p = doc.add_paragraph(style='Heading 1')
+    except (KeyError, ValueError):
+        # Fallback if the custom template lacks a 'Heading 1' style definition
+        title_p = doc.add_paragraph()
     title_run = title_p.add_run(clean_date_str)
     title_run.font.name = default_font_name
     title_run.font.size = Pt(14)
