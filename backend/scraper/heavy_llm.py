@@ -145,7 +145,7 @@ If keep=true, suggest which pillar (e.g., "Policy / Regulation / Legal", "Google
 
 If keep=false, pillar should be null."""
 
-    resp = _call_llm(
+    resp = _call_hf(
         [{"role": "user", "content": prompt}],
         max_tokens=100,
         temperature=0.1,
