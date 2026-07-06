@@ -1996,7 +1996,7 @@ def run_heavy_automation_task(company_id: int):
             'startups': ['startups', 'StartUp'],
             'foods and drinks': ['foods and drinks', 'FOODS AND DRINKS', 'Foods'],
             'ai': ['ai', 'AI', 'Ai'],
-            'google': ['google', 'google 2', 'Google3'],
+            'google': ['google', 'google 2', 'google 3'],
             'travel': ['travel', 'Travell'],
             'lifestyle': ['lifestyle', 'LifeStyle'],
             'consultancies': ['consultancies', 'Consultancies']
