@@ -216,7 +216,7 @@ def generate_executive_summary(articles: List[dict], company_name: str = "Google
         return None
 
     # Sort articles: priority media first
-    sorted_articles = sorted(articles, key=lambda x: 1 if x.get("_is_priority") else 0, reverse=True)[:25]
+    sorted_articles = sorted(articles, key=lambda x: 1 if x.get("_is_priority") else 0, reverse=True)
 
     article_text_list = []
     for idx, a in enumerate(sorted_articles, start=1):
@@ -224,6 +224,10 @@ def generate_executive_summary(articles: List[dict], company_name: str = "Google
         pub = a.get("agency") or a.get("publication") or "Unknown Publication"
         title = a.get("title")
         summary = a.get("_summary", a.get("summary") or "")
+        # Token optimization: truncate summary to max 400 characters to keep payload cost-effective
+        if len(summary) > 400:
+            summary = summary[:400].strip() + "..."
+
         article_text_list.append(
             f"Article #{idx} {is_p}\n"
             f"Publication: {pub}\n"
@@ -279,7 +283,7 @@ def generate_strategic_takeaways(articles: List[dict], company_name: str = "Goog
         return None
 
     # Sort articles: priority media first
-    sorted_articles = sorted(articles, key=lambda x: 1 if x.get("_is_priority") else 0, reverse=True)[:25]
+    sorted_articles = sorted(articles, key=lambda x: 1 if x.get("_is_priority") else 0, reverse=True)
 
     article_text_list = []
     for idx, a in enumerate(sorted_articles, start=1):
@@ -287,6 +291,10 @@ def generate_strategic_takeaways(articles: List[dict], company_name: str = "Goog
         pub = a.get("agency") or a.get("publication") or "Unknown Publication"
         title = a.get("title")
         summary = a.get("_summary", a.get("summary") or "")
+        # Token optimization: truncate summary to max 400 characters to keep payload cost-effective
+        if len(summary) > 400:
+            summary = summary[:400].strip() + "..."
+
         article_text_list.append(
             f"Article #{idx} {is_p}\n"
             f"Publication: {pub}\n"
