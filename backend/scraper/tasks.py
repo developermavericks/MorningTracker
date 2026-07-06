@@ -2170,8 +2170,10 @@ def run_heavy_automation_task(company_id: int):
             corp_conf,    corp_matches    = evaluate_headline_relevance(query_text, corp_keywords)
             product_conf, product_matches = evaluate_headline_relevance(query_text, product_keywords)
 
+            min_conf = 5 if pooja_algo_enabled else 7
+
             # Corporate bucket
-            if (is_priority and corp_conf > 6) or (corp_conf >= 7):
+            if (is_priority and corp_conf >= min_conf) or (corp_conf >= 7):
                 art_corp = dict(art)
                 art_corp["confidence_score"] = corp_conf
                 art_corp["matches"]          = corp_matches
@@ -2180,7 +2182,7 @@ def run_heavy_automation_task(company_id: int):
                 relevant_map[art["url"]] = art
 
             # Product bucket
-            if (is_priority and product_conf > 6) or (product_conf >= 7):
+            if (is_priority and product_conf >= min_conf) or (product_conf >= 7):
                 art_prod = dict(art)
                 art_prod["confidence_score"] = product_conf
                 art_prod["matches"]          = product_matches
