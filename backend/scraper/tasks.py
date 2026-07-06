@@ -2304,13 +2304,17 @@ def run_heavy_automation_task(company_id: int):
             else:
                 art["_bucket"] = "product"
 
-        # ─ Summaries: use existing DB summaries (generation disabled) ─────────────
-        _update_progress(
-            f"[{datetime.now().strftime('%H:%M:%S')}] Summary generation is disabled per request. "
-            f"Using existing database summaries..."
-        )
-        for art in relevant:
-            art["_summary"] = art.get("summary") or art.get("full_body") or ""
+        # ─ Summaries: generate fresh 30-40 word summaries using Groq ─────────────
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating 30-40 word summaries using Groq...")
+        from scraper.heavy_llm import summarize_article
+        for idx, art in enumerate(relevant, start=1):
+            title = art.get("title") or ""
+            body = art.get("full_body") or art.get("summary") or ""
+            summary_text = summarize_article(title, body)
+            if not summary_text:
+                summary_text = art.get("summary") or body or ""
+            art["_summary"] = summary_text
+            art["summary"] = summary_text
 
         # Map summaries back to the per-bucket article lists
         for art in corporate_articles:
