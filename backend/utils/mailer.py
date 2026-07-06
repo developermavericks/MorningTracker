@@ -218,16 +218,13 @@ def _render_article(a: Mapping[str, Any]) -> str:
         link_block = ""
 
     return f"""
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-             style="width:100%;margin-bottom:8px;">
-        <tr><td style="border:1px solid {_HAIRLINE};padding:9px 12px;">
-          {_byline_html(a)}
-          <div style="margin:0 0 4px;">{head}</div>
-          {link_block}
-          <div style="font-size:12px;color:{_BODY};line-height:1.55;">{esc(summary)}</div>
-          {extra}
-        </td></tr>
-      </table>"""
+      <div style="border:1px solid {_HAIRLINE};padding:9px 12px;margin-bottom:8px;background:#ffffff;">
+        {_byline_html(a)}
+        <div style="margin:0 0 4px;">{head}</div>
+        {link_block}
+        <div style="font-size:12px;color:{_BODY};line-height:1.55;">{esc(summary)}</div>
+        {extra}
+      </div>"""
 
 
 def _render_section(section: Mapping[str, Any]) -> str:
@@ -239,7 +236,8 @@ def _render_section(section: Mapping[str, Any]) -> str:
     body = "".join(_render_article(a) for a in articles)
     anchor_id = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
     return f"""
-      <tr><td id="{anchor_id}" style="padding:6px 24px 0;">
+      <tr><td style="padding:6px 24px 0;">
+        <a name="{anchor_id}"></a>
         {_section_heading(name, accent)}
         {body}
       </td></tr>"""
@@ -374,8 +372,8 @@ def render_brief_html(brief: Mapping[str, Any]) -> str:
         {_render_bookmarks_bar(brief.get("sections") or [])}
         {_render_category_bar(brief.get("category_bar") or [])}
         {_render_exec(brief)}
-        {sections_html}
         {_render_takeaways(brief)}
+        {sections_html}
         {_render_footer(brief)}
       </table>
     </td></tr>
