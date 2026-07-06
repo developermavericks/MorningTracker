@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Groq API setup (reuse from scraper/llm.py patterns)
 _GROQ_API_KEYS = [k.strip() for k in (os.getenv("GROQ_API_KEY") or "").split(",") if k.strip()]
-_GROQ_HAIKU_MODEL = "llama-3.3-70b-versatile"  # Cheap, fast model (Groq compatible)
+_GROQ_HAIKU_MODEL = os.getenv("GROQ_PRIMARY_MODEL") or "openai/gpt-oss-120b"  # Model used in Client Automation
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Hugging Face Setup
@@ -178,7 +178,7 @@ Respond with ONLY the summary, no quotes or markdown."""
 
     resp = _call_groq(
         [{"role": "user", "content": prompt}],
-        max_tokens=100,
+        max_tokens=800,
         temperature=0.3,
     )
 
