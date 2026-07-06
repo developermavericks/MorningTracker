@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Groq API setup (reuse from scraper/llm.py patterns)
 _GROQ_API_KEYS = [k.strip() for k in (os.getenv("GROQ_API_KEY") or "").split(",") if k.strip()]
-_GROQ_HAIKU_MODEL = "openai/gpt-oss-20b"  # Cheap, fast model (Groq compatible)
+_GROQ_HAIKU_MODEL = "llama-3.3-70b-versatile"  # Cheap, fast model (Groq compatible)
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Hugging Face Setup
@@ -165,9 +165,9 @@ If keep=false, pillar should be null."""
 
 def summarize_article(title: str, body: str) -> Optional[str]:
     """
-    Generate a 1-2 sentence summary + "so what" for an article.
+    Generate a 30-40 words summary for an article using Groq (fallback to standard LLM).
     """
-    prompt = f"""Summarize this news article in 1-2 sentences. Include "so what" insight at the end.
+    prompt = f"""Summarize this news article in 30-40 words.
 
 Title: {title}
 
@@ -176,11 +176,21 @@ Body:
 
 Respond with ONLY the summary, no quotes or markdown."""
 
-    return _call_llm(
+    resp = _call_groq(
         [{"role": "user", "content": prompt}],
         max_tokens=100,
         temperature=0.3,
     )
+
+    if not resp:
+        logger.warning("[Heavy LLM] Groq summary failed or not configured, falling back to standard LLM.")
+        resp = _call_llm(
+            [{"role": "user", "content": prompt}],
+            max_tokens=100,
+            temperature=0.3,
+        )
+
+    return resp
 
 
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or ""
