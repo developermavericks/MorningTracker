@@ -266,6 +266,9 @@ class HeavyCompany(Base):
     relevance_context: Mapped[Optional[str]] = mapped_column(Text)
     relevance_threshold: Mapped[float] = mapped_column(Float, default=0.5)
     llm_judge_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    pooja_algo_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    email_send_reports: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    email_send_html: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     search_mode: Mapped[str] = mapped_column(String, default="title", server_default="title")
     mail_send_mode: Mapped[str] = mapped_column(String, default="Immediate")  # Immediate|Scheduled
     mail_send_time: Mapped[Optional[str]] = mapped_column(String)
@@ -301,6 +304,8 @@ class HeavyRun(Base):
     email_status: Mapped[Optional[str]] = mapped_column(String)  # sent|failed|pending|skipped
     progress_message: Mapped[Optional[str]] = mapped_column(Text)
     error: Mapped[Optional[str]] = mapped_column(Text)
+    executive_summary: Mapped[Optional[str]] = mapped_column(Text)
+    takeaways: Mapped[Optional[str]] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
@@ -443,10 +448,22 @@ async def init_db():
                     await conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN {col} BLOB"))
             except: pass
 
+        # Automated Migration: Add HeavyRun executive summary & takeaways if missing
+        for col in ["executive_summary", "takeaways"]:
+            try:
+                if "postgresql" in engine.url.drivername:
+                    await conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS {col} TEXT"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN {col} TEXT"))
+            except: pass
+
         # Automated Migration: Heavy Automation tables (create_all handles new tables; these are safety guards)
         try:
             if "postgresql" in engine.url.drivername:
                 await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS search_mode VARCHAR DEFAULT 'title'"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS pooja_algo_enabled BOOLEAN DEFAULT FALSE"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS email_send_reports BOOLEAN DEFAULT TRUE"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS email_send_html BOOLEAN DEFAULT FALSE"))
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS master_excel_path TEXT"))
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS filtered_excel_path TEXT"))
@@ -457,6 +474,15 @@ async def init_db():
                 except Exception: pass
                 try:
                     await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN search_mode VARCHAR DEFAULT 'title'"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN pooja_algo_enabled BOOLEAN DEFAULT FALSE"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN email_send_reports BOOLEAN DEFAULT TRUE"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN email_send_html BOOLEAN DEFAULT FALSE"))
                 except Exception: pass
                 try:
                     await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN email_status VARCHAR"))

@@ -132,6 +132,8 @@ The heavy pipeline runs periodically via Celery Beat or manual trigger to genera
    ▼ (Near Dup Check) ──── Groups articles using Cosine Similarity on TF-IDF Vectors (Threshold 0.80).
 [280+ Cluster Survivors]
    │
+   ▼ (Pooja Algo - Optional) ── Filters list to retain only priority publication matches (if enabled).
+   │
    ▼ (Keyword Filter) ──── Aho-Corasick dictionary matches 592 concepts, matching Boolean rules.
 [Bucketing Division] ─── 分 Split into:
    ├── Clear Discard (0 relevance keywords matched)
@@ -171,7 +173,7 @@ Defined in [database.py](file:///e:/MAVERICKS/zMorning_Tracker_Synced_Git/backen
 
 #### `heavy_companies`
 *   **Purpose**: Configuration rules for corporate briefing targets.
-*   **Key Fields**: `id`, `name` (e.g. Google India), `sector_match`, `enabled`, `timezone`, `fetch_time` (e.g., "07:00"), `window_hours` (e.g. 24h), `relevancy_method`, `relevance_threshold` (0.0 - 1.0), `llm_judge_enabled`, `mail_send_mode`, `mail_send_time`, `frequency` (Daily/Weekly), `days` (JSON list).
+*   **Key Fields**: `id`, `name` (e.g. Google India), `sector_match`, `enabled`, `timezone`, `fetch_time` (e.g., "07:00"), `window_hours` (e.g. 24h), `relevancy_method`, `relevance_threshold` (0.0 - 1.0), `llm_judge_enabled`, `pooja_algo_enabled` (boolean flag), `email_send_reports` (boolean flag), `email_send_html` (boolean flag), `mail_send_mode`, `mail_send_time`, `frequency` (Daily/Weekly), `days` (JSON list).
 
 #### `heavy_recipients`
 *   **Purpose**: Subscriber email settings per client configuration.
@@ -179,7 +181,7 @@ Defined in [database.py](file:///e:/MAVERICKS/zMorning_Tracker_Synced_Git/backen
 
 #### `heavy_runs`
 *   **Purpose**: Run-history database storing report assets.
-*   **Key Fields**: `id`, `company_id`, `status` (`completed`/`failed`), `fetched_count`, `deduped_count`, `relevant_count`, `master_doc_path`, `filtered_doc_path`, `email_status` (`sent`|`pending`|`failed`), `progress_message` (Detailed execution log), `started_at`, `finished_at`.
+*   **Key Fields**: `id`, `company_id`, `status` (`completed`/`failed`), `fetched_count`, `deduped_count`, `relevant_count`, `master_doc_path`, `filtered_doc_path`, `email_status` (`sent`|`pending`|`failed`), `progress_message` (Detailed execution log), `executive_summary` (LLM-generated briefing summary), `takeaways` (LLM-generated policy insights), `started_at`, `finished_at`.
 
 #### `heavy_run_articles`
 *   **Purpose**: Fully auditable pipeline log detailing filter outputs per article.

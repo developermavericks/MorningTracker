@@ -1948,6 +1948,7 @@ def run_heavy_automation_task(company_id: int):
         sector_match = company.sector_match
         window_hours = company.window_hours
         search_mode = company.search_mode if company.search_mode else "title"
+        pooja_algo_enabled = getattr(company, "pooja_algo_enabled", False)
 
     try:
         def _update_progress(msg: str):
@@ -2163,6 +2164,9 @@ def run_heavy_automation_task(company_id: int):
 
             is_priority = is_priority_publication(agency, priority_publications)
 
+            if pooja_algo_enabled and not is_priority:
+                continue
+
             corp_conf,    corp_matches    = evaluate_headline_relevance(query_text, corp_keywords)
             product_conf, product_matches = evaluate_headline_relevance(query_text, product_keywords)
 
@@ -2368,6 +2372,84 @@ def run_heavy_automation_task(company_id: int):
 
         from utils.email import send_report_email
 
+        # 1. Read send configurations
+        send_reports = getattr(company, "email_send_reports", True)
+        send_html = getattr(company, "email_send_html", False)
+
+        # 2. Render HTML body if enabled
+        html_body = None
+        if send_html and relevant:
+            try:
+                BLUE   = "#4285F4"
+                RED    = "#EA4335"
+                YELLOW = "#FBBC04"
+                GREEN  = "#34A853"
+
+                unique_subs = list(set(art.get("_sub_category") for art in relevant if art.get("_sub_category")))
+                if "General" in unique_subs and len(unique_subs) > 1:
+                    unique_subs.remove("General")
+                top_tags = [sub for sub in unique_subs[:10]]
+
+                exec_cards = []
+                card_colors = [BLUE, GREEN, RED, YELLOW]
+                for idx, art in enumerate(relevant[:6]):
+                    exec_cards.append({
+                        "label": (art.get("_sub_category") or "ALERT").upper().split(",")[0].strip(),
+                        "color": card_colors[idx % len(card_colors)],
+                        "text": art.get("title")
+                    })
+
+                sections = []
+                accent_colors = [BLUE, RED, YELLOW, GREEN]
+                for idx, (pillar, arts) in enumerate(by_pillar_email.items()):
+                    color = accent_colors[idx % len(accent_colors)]
+                    sections.append({
+                        "name": pillar.upper(),
+                        "accent": color,
+                        "articles": arts
+                    })
+
+                takeaway_items = []
+                if takeaways:
+                    lines = [l.strip().lstrip("-*•").strip() for l in takeaways.split("\n") if l.strip()]
+                    for line in lines:
+                        parts = line.split("—", 1)
+                        if len(parts) == 2:
+                            title_part, text_part = parts[0].strip(), parts[1].strip()
+                        else:
+                            parts = line.split(":", 1)
+                            if len(parts) == 2:
+                                title_part, text_part = parts[0].strip(), parts[1].strip()
+                            else:
+                                title_part, text_part = "Key Takeaway", line
+                        takeaway_items.append({
+                            "title": title_part,
+                            "text": text_part
+                        })
+
+                brief_data = {
+                    "brand": company_name,
+                    "subtitle": "DAILY INTELLIGENCE BRIEF",
+                    "date_str": date.today().strftime("%d %B %Y").upper(),
+                    "top_tags": top_tags,
+                    "exec_intro": f"{len(relevant)} headline developments shaping {company_name}'s strategic landscape today:",
+                    "exec_cards": exec_cards,
+                    "sections": sections,
+                    "takeaways_intro": "Key intelligence insights from today's coverage:",
+                    "takeaways": takeaway_items,
+                    "signoff_name": f"{company_name} Intelligence Desk",
+                    "signoff_sub": f"Daily News Coverage — {date.today().strftime('%d %B %Y')}",
+                    "sections_covered": " | ".join(by_pillar_email.keys()),
+                    "disclaimer": f"This daily intelligence brief has been compiled from publicly available media sources for informational purposes only. The content herein represents the views of the cited third-party publications and does not constitute the official position of {company_name} or Alphabet Inc. All brand names and trademarks remain the property of their respective owners.",
+                    "topic_tags": [f"#{t.replace(' ', '')}" for t in unique_subs[:10]],
+                }
+                from utils.mailer import render_brief_html
+                html_body = render_brief_html(brief_data)
+                _update_progress("HTML mailer rendered successfully.")
+            except Exception as render_err:
+                logger.error(f"[Heavy] Failed to render HTML brief: {render_err}", exc_info=True)
+                _update_progress(f"Warning: HTML mailer rendering failed: {render_err}")
+
         # Collect email recipients by role
         with get_db_sync() as db:
             brief_recips = db.execute(
@@ -2394,29 +2476,33 @@ def run_heavy_automation_task(company_id: int):
                     success_brief = True
                     success_master = True
                     
-                    # ── Daily Brief email (commented out) ───────────────────
-                    # if brief_emails:
-                    #     _update_progress(f"Sending Daily Brief email to {len(brief_emails)} recipients...")
-                    #     success_brief = send_report_email(
-                    #         recipient_emails=brief_emails,
-                    #         client_name=company_name,
-                    #         docx_path_filtered=None,
-                    #         docx_path_master=None,
-                    #         has_articles=bool(relevant),
-                    #         brief_content=exec_summary,
-                    #     )
+                    # ── Daily Brief email (now can send HTML or plain text) ──
+                    if brief_emails:
+                        _update_progress(f"Sending Daily Brief email to {len(brief_emails)} recipients...")
+                        success_brief = send_report_email(
+                            recipient_emails=brief_emails,
+                            client_name=company_name,
+                            docx_path_filtered=None,
+                            docx_path_master=None,
+                            has_articles=bool(relevant),
+                            brief_content=exec_summary,
+                            html_body=html_body if send_html else None,
+                        )
 
                     if master_emails:
                         _update_progress(f"Sending Corporate & Keywords Reports email to {len(master_emails)} recipients...")
+                        docx_master = master_path if send_reports else None
+                        excel_master = master_excel_path if send_reports else None
                         success_master = send_report_email(
                             recipient_emails=master_emails,
                             client_name=company_name,
                             docx_path_filtered=filtered_path,
-                            docx_path_master=master_path,
+                            docx_path_master=docx_master,
                             has_articles=bool(relevant),
                             brief_content=exec_summary,
                             excel_path_filtered=filtered_excel_path,
-                            excel_path_master=master_excel_path,
+                            excel_path_master=excel_master,
+                            html_body=html_body if send_html else None,
                         )
                         
                     email_status = "sent" if (success_brief and success_master) else "failed"
@@ -2483,6 +2569,8 @@ def run_heavy_automation_task(company_id: int):
                 run_rec.master_excel_data = master_excel_data
                 run_rec.filtered_excel_data = filtered_excel_data
                 run_rec.email_status = email_status
+                run_rec.executive_summary = exec_summary
+                run_rec.takeaways = takeaways
                 run_rec.finished_at = datetime.utcnow()
                 db.commit()
 
@@ -2584,7 +2672,7 @@ def check_heavy_scheduled_sends():
     Phase 5: Beat task (every 5 min) — check for pending emails at their scheduled send time.
     If current time >= mail_send_time, send the queued reports.
     """
-    from db.database import get_db_sync, HeavyRun, HeavyCompany, HeavyRecipient
+    from db.database import get_db_sync, HeavyRun, HeavyCompany, HeavyRecipient, HeavyRunArticle
     from utils.email import send_report_email, send_error_alert_email
     import pytz
 
@@ -2639,6 +2727,125 @@ def check_heavy_scheduled_sends():
                         db.commit()
                         continue
 
+                    # Extract configurations
+                    send_reports = getattr(company, "email_send_reports", True)
+                    send_html = getattr(company, "email_send_html", False)
+
+                    # Reconstruct HTML briefing if enabled
+                    html_body = None
+                    if send_html:
+                        try:
+                            run_arts = db.execute(
+                                select(HeavyRunArticle).where(HeavyRunArticle.run_id == run.id)
+                            ).scalars().all()
+                            
+                            relevant_list = []
+                            by_pillar_email_reconstructed = {}
+                            unique_subs = []
+                            
+                            for ra in run_arts:
+                                art_dict = {
+                                    "title": ra.title,
+                                    "url": ra.url,
+                                    "published_at": ra.published_at,
+                                    "summary": ra.llm_summary or "",
+                                    "_summary": ra.llm_summary or "",
+                                    "publication": "wire",
+                                    "source": "wire",
+                                    "scope": "DOMESTIC",
+                                    "_pillar": ra.pillar or "Other",
+                                    "_sub_category": ra.sub_category or "General"
+                                }
+                                
+                                # Resolve original publication/agency metadata from Article table
+                                from db.database import Article as _Article
+                                if ra.source_article_id:
+                                    orig_art = db.execute(
+                                        select(_Article).where(_Article.id == ra.source_article_id)
+                                    ).scalar_one_or_none()
+                                    if orig_art:
+                                        art_dict["agency"] = orig_art.agency
+                                        art_dict["author"] = orig_art.author
+                                        art_dict["publication"] = orig_art.agency
+                                        art_dict["source"] = orig_art.agency
+
+                                relevant_list.append(art_dict)
+                                if ra.sub_category and ra.sub_category not in unique_subs:
+                                    unique_subs.append(ra.sub_category)
+
+                                pillar = ra.pillar or "Other"
+                                if pillar not in by_pillar_email_reconstructed:
+                                    by_pillar_email_reconstructed[pillar] = []
+                                by_pillar_email_reconstructed[pillar].append(art_dict)
+
+                            BLUE   = "#4285F4"
+                            RED    = "#EA4335"
+                            YELLOW = "#FBBC04"
+                            GREEN  = "#34A853"
+
+                            if "General" in unique_subs and len(unique_subs) > 1:
+                                unique_subs.remove("General")
+                            top_tags = [sub for sub in unique_subs[:10]]
+
+                            exec_cards = []
+                            card_colors = [BLUE, GREEN, RED, YELLOW]
+                            for idx, art in enumerate(relevant_list[:6]):
+                                exec_cards.append({
+                                    "label": (art.get("_sub_category") or "ALERT").upper().split(",")[0].strip(),
+                                    "color": card_colors[idx % len(card_colors)],
+                                    "text": art.get("title")
+                                })
+
+                            sections = []
+                            accent_colors = [BLUE, RED, YELLOW, GREEN]
+                            for idx, (pillar, arts) in enumerate(by_pillar_email_reconstructed.items()):
+                                color = accent_colors[idx % len(accent_colors)]
+                                sections.append({
+                                    "name": pillar.upper(),
+                                    "accent": color,
+                                    "articles": arts
+                                })
+
+                            takeaway_items = []
+                            run_takeaways = run.takeaways or ""
+                            if run_takeaways:
+                                lines = [l.strip().lstrip("-*•").strip() for l in run_takeaways.split("\n") if l.strip()]
+                                for line in lines:
+                                    parts = line.split("—", 1)
+                                    if len(parts) == 2:
+                                        title_part, text_part = parts[0].strip(), parts[1].strip()
+                                    else:
+                                        parts = line.split(":", 1)
+                                        if len(parts) == 2:
+                                            title_part, text_part = parts[0].strip(), parts[1].strip()
+                                        else:
+                                            title_part, text_part = "Key Takeaway", line
+                                    takeaway_items.append({
+                                        "title": title_part,
+                                        "text": text_part
+                                    })
+
+                            brief_data = {
+                                "brand": company.name,
+                                "subtitle": "DAILY INTELLIGENCE BRIEF",
+                                "date_str": run.started_at.strftime("%d %B %Y").upper(),
+                                "top_tags": top_tags,
+                                "exec_intro": f"{run.relevant_count} headline developments shaping {company.name}'s strategic landscape today:",
+                                "exec_cards": exec_cards,
+                                "sections": sections,
+                                "takeaways_intro": "Key intelligence insights from today's coverage:",
+                                "takeaways": takeaway_items,
+                                "signoff_name": f"{company.name} Intelligence Desk",
+                                "signoff_sub": f"Daily News Coverage — {run.started_at.strftime('%d %B %Y')}",
+                                "sections_covered": " | ".join(by_pillar_email_reconstructed.keys()),
+                                "disclaimer": f"This daily intelligence brief has been compiled from publicly available media sources for informational purposes only. The content herein represents the views of the cited third-party publications and does not constitute the official position of {company.name} or Alphabet Inc. All brand names and trademarks remain the property of their respective owners.",
+                                "topic_tags": [f"#{t.replace(' ', '')}" for t in unique_subs[:10]],
+                            }
+                            from utils.mailer import render_brief_html
+                            html_body = render_brief_html(brief_data)
+                        except Exception as render_err:
+                            logger.error(f"[Heavy] Failed to render scheduled HTML brief for run {run.id}: {render_err}", exc_info=True)
+
                     # Send the reports
                     try:
                         success_brief = True
@@ -2653,17 +2860,23 @@ def check_heavy_scheduled_sends():
                                 docx_path_master=None,
                                 has_articles=run.relevant_count > 0,
                                 brief_content=run.executive_summary,
+                                html_body=html_body if send_html else None,
                             )
                             
                         if master_emails:
                             logger.info(f"[Heavy] Run {run.id}: Sending scheduled Reports email to {len(master_emails)} recipients...")
+                            docx_path = run.master_doc_path if send_reports else None
+                            excel_path = run.master_excel_path if send_reports else None
                             success_master = send_report_email(
                                 recipient_emails=master_emails,
                                 client_name=company.name,
-                                docx_path_filtered=run.filtered_doc_path,
-                                docx_path_master=run.master_doc_path,
+                                docx_path_filtered=None,
+                                docx_path_master=docx_path,
                                 has_articles=run.relevant_count > 0,
                                 brief_content=run.executive_summary,
+                                excel_path_filtered=None,
+                                excel_path_master=excel_path,
+                                html_body=html_body if send_html else None,
                             )
                             
                         run.email_status = "sent" if (success_brief and success_master) else "failed"

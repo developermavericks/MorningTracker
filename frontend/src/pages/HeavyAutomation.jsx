@@ -15,6 +15,9 @@ const DEFAULT_COMPANY = {
   window_hours: 24,
   relevancy_method: "Hybrid",
   llm_judge_enabled: false,
+  pooja_algo_enabled: false,
+  email_send_reports: true,
+  email_send_html: false,
   search_mode: "title",
   relevance_context: "",
   relevance_threshold: 0.5,
@@ -536,17 +539,37 @@ function CompanySettings({ company, availableSectors, onSave, onDelete, onRunNow
 
             <div>
               <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "6px", color: "var(--muted)" }}>Pipeline Rules & Logic</label>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(147, 51, 234, 0.05)", border: "1px solid rgba(147, 51, 234, 0.2)", borderRadius: "8px", padding: "12px" }}>
-                <input
-                  type="checkbox"
-                  id="llm_judge_enabled"
-                  checked={form.llm_judge_enabled ?? false}
-                  onChange={e => set("llm_judge_enabled", e.target.checked)}
-                  style={{ width: "16px", height: "16px" }}
-                />
-                <label htmlFor="llm_judge_enabled" style={{ fontSize: "13px", fontWeight: "700", cursor: "pointer", flex: 1 }}>
-                  Enable LLM Judge (Pass ambiguous articles through AI verification)
-                </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(147, 51, 234, 0.05)", border: "1px solid rgba(147, 51, 234, 0.2)", borderRadius: "8px", padding: "12px" }}>
+                  <input
+                    type="checkbox"
+                    id="llm_judge_enabled"
+                    checked={form.llm_judge_enabled ?? false}
+                    onChange={e => set("llm_judge_enabled", e.target.checked)}
+                    style={{ width: "16px", height: "16px" }}
+                  />
+                  <label htmlFor="llm_judge_enabled" style={{ fontSize: "13px", fontWeight: "700", cursor: "pointer", flex: 1 }}>
+                    Enable LLM Judge (Pass ambiguous articles through AI verification)
+                  </label>
+                </div>
+                
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: "8px", padding: "12px" }}>
+                  <input
+                    type="checkbox"
+                    id="pooja_algo_enabled"
+                    checked={form.pooja_algo_enabled ?? false}
+                    onChange={e => set("pooja_algo_enabled", e.target.checked)}
+                    style={{ width: "16px", height: "16px", marginTop: "3px" }}
+                  />
+                  <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                    <label htmlFor="pooja_algo_enabled" style={{ fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>
+                      Enable Pooja Algo
+                    </label>
+                    <span style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px", lineHeight: "1.4" }}>
+                      <strong>Info Tag:</strong> First filters all fetched articles to keep only priority publication matches (dropping non-priority sources). Then, runs the keyword matching/scoring logic on those priority survivors.
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -558,7 +581,31 @@ function CompanySettings({ company, availableSectors, onSave, onDelete, onRunNow
         )}
 
         {tab === "recipients" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "8px", color: "var(--muted)" }}>Send Configurations</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", background: "rgba(30, 58, 95, 0.03)", border: "1px solid var(--border)", borderRadius: "8px", padding: "14px", marginBottom: "8px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "13px", fontWeight: "600" }}>
+                  <input
+                    type="checkbox"
+                    checked={form.email_send_reports ?? true}
+                    onChange={e => set("email_send_reports", e.target.checked)}
+                    style={{ width: "16px", height: "16px" }}
+                  />
+                  <span>Send Reports (Attach Word & Excel Briefings)</span>
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "13px", fontWeight: "600" }}>
+                  <input
+                    type="checkbox"
+                    checked={form.email_send_html ?? false}
+                    onChange={e => set("email_send_html", e.target.checked)}
+                    style={{ width: "16px", height: "16px" }}
+                  />
+                  <span>Send HTML Mailer (Inline Email Briefing)</span>
+                </label>
+              </div>
+            </div>
+
             <div>
               <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "12px", color: "var(--muted)" }}>Email Recipients</label>
               {(form.recipients || []).map((r, i) => (

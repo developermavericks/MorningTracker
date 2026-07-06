@@ -42,6 +42,9 @@ class CompanyCreate(BaseModel):
     relevance_context: Optional[str] = None
     relevance_threshold: float = 0.5
     llm_judge_enabled: bool = False
+    pooja_algo_enabled: bool = False
+    email_send_reports: bool = True
+    email_send_html: bool = False
     search_mode: str = "title"
     mail_send_mode: str = "Immediate"
     mail_send_time: Optional[str] = None
@@ -66,6 +69,9 @@ class CompanyOut(BaseModel):
     relevance_context: Optional[str]
     relevance_threshold: float
     llm_judge_enabled: bool
+    pooja_algo_enabled: bool
+    email_send_reports: bool
+    email_send_html: bool
     search_mode: str
     mail_send_mode: str
     mail_send_time: Optional[str]
@@ -134,6 +140,9 @@ async def _build_company_out(company: HeavyCompany, db: AsyncSession) -> Company
         relevance_context=company.relevance_context,
         relevance_threshold=company.relevance_threshold,
         llm_judge_enabled=company.llm_judge_enabled,
+        pooja_algo_enabled=getattr(company, 'pooja_algo_enabled', False),
+        email_send_reports=getattr(company, 'email_send_reports', True),
+        email_send_html=getattr(company, 'email_send_html', False),
         search_mode=company.search_mode if company.search_mode else "title",
         mail_send_mode=company.mail_send_mode,
         mail_send_time=company.mail_send_time,
@@ -178,6 +187,9 @@ async def create_company(
         relevance_context=payload.relevance_context,
         relevance_threshold=payload.relevance_threshold,
         llm_judge_enabled=payload.llm_judge_enabled,
+        pooja_algo_enabled=payload.pooja_algo_enabled,
+        email_send_reports=payload.email_send_reports,
+        email_send_html=payload.email_send_html,
         search_mode=payload.search_mode,
         mail_send_mode=payload.mail_send_mode,
         mail_send_time=payload.mail_send_time,
@@ -217,6 +229,9 @@ async def update_company(
     company.relevance_context = payload.relevance_context
     company.relevance_threshold = payload.relevance_threshold
     company.llm_judge_enabled = payload.llm_judge_enabled
+    company.pooja_algo_enabled = payload.pooja_algo_enabled
+    company.email_send_reports = payload.email_send_reports
+    company.email_send_html = payload.email_send_html
     company.search_mode = payload.search_mode
     company.mail_send_mode = payload.mail_send_mode
     company.mail_send_time = payload.mail_send_time

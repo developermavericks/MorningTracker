@@ -9,7 +9,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-def send_report_email(recipient_emails: list, client_name: str, docx_path_filtered: str, docx_path_master: str, google_doc_url_filtered: str = None, google_doc_url_master: str = None, has_articles: bool = True, brief_content: str = None, excel_path_filtered: str = None, excel_path_master: str = None) -> bool:
+def send_report_email(recipient_emails: list, client_name: str, docx_path_filtered: str, docx_path_master: str, google_doc_url_filtered: str = None, google_doc_url_master: str = None, has_articles: bool = True, brief_content: str = None, excel_path_filtered: str = None, excel_path_master: str = None, html_body: str = None) -> bool:
     """
     Sends the generated DOCX and Excel reports (Filtered and Master) and the executive brief to the specified email addresses.
     """
@@ -55,7 +55,11 @@ def send_report_email(recipient_emails: list, client_name: str, docx_path_filter
             f"Best regards,\n"
             f"NEXUS Global News Intelligence"
         )
-        msg.attach(MIMEText(body, 'plain'))
+        if html_body:
+            msg.attach(MIMEText(body, 'plain'))
+            msg.attach(MIMEText(html_body, 'html'))
+        else:
+            msg.attach(MIMEText(body, 'plain'))
         
         # Attach the Filtered report file
         if docx_path_filtered and os.path.exists(docx_path_filtered):
