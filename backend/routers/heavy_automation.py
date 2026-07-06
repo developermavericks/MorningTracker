@@ -92,6 +92,8 @@ class RunOut(BaseModel):
     filtered_doc_path: Optional[str]
     master_excel_path: Optional[str]
     filtered_excel_path: Optional[str]
+    google_doc_url: Optional[str] = None
+    mailer_doc_path: Optional[str] = None
     email_status: Optional[str]
     progress_message: Optional[str]
     error: Optional[str]
@@ -306,6 +308,8 @@ async def get_runs(
             filtered_doc_path=os.path.basename(r.filtered_doc_path) if r.filtered_doc_path else None,
             master_excel_path=os.path.basename(r.master_excel_path) if r.master_excel_path else None,
             filtered_excel_path=os.path.basename(r.filtered_excel_path) if r.filtered_excel_path else None,
+            google_doc_url=getattr(r, 'google_doc_url', None),
+            mailer_doc_path=os.path.basename(r.mailer_doc_path) if getattr(r, 'mailer_doc_path', None) else None,
             email_status=r.email_status,
             progress_message=r.progress_message,
             error=r.error,
@@ -454,7 +458,8 @@ async def download_report(
             (HeavyRun.master_doc_path.like(f"%{filename}%")) |
             (HeavyRun.filtered_doc_path.like(f"%{filename}%")) |
             (HeavyRun.master_excel_path.like(f"%{filename}%")) |
-            (HeavyRun.filtered_excel_path.like(f"%{filename}%"))
+            (HeavyRun.filtered_excel_path.like(f"%{filename}%")) |
+            (HeavyRun.mailer_doc_path.like(f"%{filename}%"))
         )
         res = await db.execute(stmt)
         run_rec = res.scalar_one_or_none()
@@ -469,6 +474,7 @@ async def download_report(
                 data_bytes = run_rec.master_excel_data
             elif run_rec.filtered_excel_path and filename in run_rec.filtered_excel_path:
                 data_bytes = run_rec.filtered_excel_data
+            # mailer_doc has no separate blob store; it lives on disk only
 
             if data_bytes:
                 try:
