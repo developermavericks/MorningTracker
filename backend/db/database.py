@@ -448,6 +448,52 @@ async def init_db():
                 await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN generated_file_data BLOB"))
         except: pass
 
+        # Automated Migration: Add client priority_media_list, region_filter, intl_exceptions if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS priority_media_list TEXT"))
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS region_filter VARCHAR DEFAULT 'All'"))
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS intl_exceptions TEXT"))
+            else:
+                try:
+                    await conn.execute(text("ALTER TABLE clients ADD COLUMN priority_media_list TEXT"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE clients ADD COLUMN region_filter VARCHAR DEFAULT 'All'"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE clients ADD COLUMN intl_exceptions TEXT"))
+                except Exception: pass
+        except: pass
+
+        # Automated Migration: Add client_run_logs generated_excel_path, generated_excel_data if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS generated_excel_path TEXT"))
+                await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS generated_excel_data BYTEA"))
+            else:
+                try:
+                    await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN generated_excel_path TEXT"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN generated_excel_data BLOB"))
+                except Exception: pass
+        except: pass
+
+        # Automated Migration: Add heavy_companies pooja_priority_conf, pooja_non_priority_conf if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS pooja_priority_conf INTEGER DEFAULT 5"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS pooja_non_priority_conf INTEGER DEFAULT 7"))
+            else:
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN pooja_priority_conf INTEGER DEFAULT 5"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN pooja_non_priority_conf INTEGER DEFAULT 7"))
+                except Exception: pass
+        except: pass
+
         # Automated Migration: Add HeavyRun file data columns if missing
         for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data"]:
             try:
@@ -850,77 +896,6 @@ def init_db_sync():
                     except Exception: pass
     except Exception as e:
         print(f"Sync Migration Notice (Heavy Automation Schema): {e}")
-
-    # Seed default Client Scapia if table is empty
-    try:
-        with SessionLocalSync() as db_session:
-            client_count = db_session.execute(text("SELECT COUNT(*) FROM clients")).scalar()
-            if client_count == 0:
-                scapia = Client(
-                    name='Scapia',
-                    scheduled_time='07:00',
-                    timezone='Asia/Kolkata',
-                    is_active=True,
-                    context='Scapia travel co-branded credit card. Focus on travel card launches, forex fees.',
-                    summary_length=35,
-                    region_filter='All'
-                )
-                db_session.add(scapia)
-                db_session.commit()
-                
-                # Seed Scapia recipient
-                recipient = ClientRecipient(client_id=scapia.id, email='developerteam@themavericksindia.com')
-                db_session.add(recipient)
-                
-                # Seed Scapia sections and keywords
-                sections_seed = [
-                    ("Company Keywords", ["Anil Goteti", "Scapia"]),
-                    ("Competitors", ["OneCard", "CRED", "Super.money", "Niyo", "Fi Money", "Uni Card", "Slice Card"]),
-                    ("Sector Keywords", ["co-branded credit cards", "travel fintech", "zero forex markup"])
-                ]
-                for sec_name, keywords in sections_seed:
-                    sec = ClientSection(client_id=scapia.id, name=sec_name)
-                    db_session.add(sec)
-                    db_session.commit()
-                    
-                    for kw in keywords:
-                        db_session.add(ClientKeyword(section_id=sec.id, keyword=kw))
-                db_session.commit()
-                print("Sync Database: Seeded default client 'Scapia'.")
-    except Exception as e:
-        print(f"Sync Migration Notice (Seed Client Scapia): {e}")
-
-    # Seed default HeavyCompany Google if table is empty
-    try:
-        with SessionLocalSync() as db_session:
-            company_count = db_session.execute(text("SELECT COUNT(*) FROM heavy_companies")).scalar()
-            if company_count == 0:
-                google = HeavyCompany(
-                    name='Google',
-                    sector_match='google',
-                    enabled=True,
-                    timezone='Asia/Kolkata',
-                    fetch_time='07:00',
-                    window_hours=24,
-                    relevancy_method='Hybrid',
-                    relevance_context='Google India corporate developments, technology updates, regulatory and policy changes, and legal filings.',
-                    relevance_threshold=0.5,
-                    search_mode='title',
-                    created_at=datetime.now(),
-                    updated_at=datetime.now()
-                )
-                db_session.add(google)
-                db_session.commit()
-                
-                recipient = HeavyRecipient(
-                    company_id=google.id,
-                    email='developerteam@themavericksindia.com'
-                )
-                db_session.add(recipient)
-                db_session.commit()
-                print("Sync Database: Seeded default company 'Google'.")
-    except Exception as e:
-        print(f"Sync Migration Notice (Seed Company Google): {e}")
 
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 
