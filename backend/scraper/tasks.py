@@ -2337,16 +2337,21 @@ def run_heavy_automation_task(company_id: int):
             is_priority = is_priority_publication(agency, priority_publications)
             art["_is_priority"] = is_priority
 
-            if pooja_algo_enabled and not is_priority:
-                continue
-
             corp_conf,    corp_matches    = evaluate_headline_relevance(query_text, corp_keywords)
             product_conf, product_matches = evaluate_headline_relevance(query_text, product_keywords)
 
-            min_conf = pooja_priority_conf if pooja_algo_enabled else pooja_non_priority_conf
+            # When Pooja Algo is enabled: priority pubs use a lower bar (pooja_priority_conf),
+            # non-priority pubs use a stricter bar (pooja_non_priority_conf).
+            # When disabled: all articles use pooja_non_priority_conf uniformly.
+            if pooja_algo_enabled:
+                corp_min    = pooja_priority_conf    if is_priority else pooja_non_priority_conf
+                product_min = pooja_priority_conf    if is_priority else pooja_non_priority_conf
+            else:
+                corp_min    = pooja_non_priority_conf
+                product_min = pooja_non_priority_conf
 
             # Corporate bucket
-            if (is_priority and corp_conf >= min_conf) or (corp_conf >= pooja_non_priority_conf):
+            if corp_conf >= corp_min:
                 art_corp = dict(art)
                 art_corp["confidence_score"] = corp_conf
                 art_corp["matches"]          = corp_matches
@@ -2355,7 +2360,7 @@ def run_heavy_automation_task(company_id: int):
                 relevant_map[art["url"]] = art
 
             # Product bucket
-            if (is_priority and product_conf >= min_conf) or (product_conf >= pooja_non_priority_conf):
+            if product_conf >= product_min:
                 art_prod = dict(art)
                 art_prod["confidence_score"] = product_conf
                 art_prod["matches"]          = product_matches
