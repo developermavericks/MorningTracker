@@ -175,6 +175,9 @@ class Client(Base):
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     context: Mapped[Optional[str]] = mapped_column(Text)
     summary_length: Mapped[int] = mapped_column(Integer, default=35, server_default="35")
+    priority_media_list: Mapped[Optional[str]] = mapped_column(Text)
+    region_filter: Mapped[str] = mapped_column(String, default="All", server_default="All")
+    intl_exceptions: Mapped[Optional[str]] = mapped_column(Text)
 
 class ClientSection(Base):
     __tablename__ = "client_sections"
@@ -203,6 +206,8 @@ class ClientRunLog(Base):
     progress_message: Mapped[Optional[str]] = mapped_column(Text)
     generated_file_path: Mapped[Optional[str]] = mapped_column(Text)
     generated_file_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    generated_excel_path: Mapped[Optional[str]] = mapped_column(Text)
+    generated_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
@@ -267,6 +272,8 @@ class HeavyCompany(Base):
     relevance_threshold: Mapped[float] = mapped_column(Float, default=0.5)
     llm_judge_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     pooja_algo_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    pooja_priority_conf: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
+    pooja_non_priority_conf: Mapped[int] = mapped_column(Integer, default=7, server_default="7")
     email_send_reports: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     email_send_html: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     search_mode: Mapped[str] = mapped_column(String, default="title", server_default="title")
@@ -606,6 +613,40 @@ def init_db_sync():
                 conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS context TEXT"))
             else:
                 conn.execute(text("ALTER TABLE clients ADD COLUMN context TEXT"))
+    except: pass
+
+    # Automated migration: Add client priority_media_list, region_filter, intl_exceptions if missing
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS priority_media_list TEXT"))
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS region_filter VARCHAR DEFAULT 'All'"))
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS intl_exceptions TEXT"))
+            else:
+                try:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN priority_media_list TEXT"))
+                except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN region_filter VARCHAR DEFAULT 'All'"))
+                except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN intl_exceptions TEXT"))
+                except Exception: pass
+    except: pass
+
+    # Automated migration: Add client_run_logs generated_excel_path, generated_excel_data if missing
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS generated_excel_path TEXT"))
+                conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS generated_excel_data BYTEA"))
+            else:
+                try:
+                    conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN generated_excel_path TEXT"))
+                except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN generated_excel_data BLOB"))
+                except Exception: pass
     except: pass
 
     # Automated migration: Add client summary_length if missing

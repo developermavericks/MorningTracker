@@ -188,6 +188,9 @@ export default function ClientReports() {
   const [sections, setSections] = useState([{ name: "Brand Mentions", keywords: "" }]);
   const [context, setContext] = useState("");
   const [summaryLength, setSummaryLength] = useState(35);
+  const [priorityMediaList, setPriorityMediaList] = useState("");
+  const [regionFilter, setRegionFilter] = useState("All");
+  const [intlExceptions, setIntlExceptions] = useState("");
   
   // File Upload states
   const [uploadingTemplateId, setUploadingTemplateId] = useState(null);
@@ -236,6 +239,9 @@ export default function ClientReports() {
       setSections(client.sections.map(s => ({ name: s.name, keywords: s.keywords.join(", ") })));
       setContext(client.context || "");
       setSummaryLength(client.summary_length ?? 35);
+      setPriorityMediaList(client.priority_media_list || "");
+      setRegionFilter(client.region_filter || "All");
+      setIntlExceptions(client.intl_exceptions || "");
     } else {
       setSelectedClient(null);
       setClientName("");
@@ -246,6 +252,9 @@ export default function ClientReports() {
       setSections([{ name: "Brand Mentions", keywords: "" }]);
       setContext("");
       setSummaryLength(35);
+      setPriorityMediaList("");
+      setRegionFilter("All");
+      setIntlExceptions("");
     }
     setIsModalOpen(true);
   };
@@ -290,7 +299,10 @@ export default function ClientReports() {
       recipients: recipientsList,
       sections: sectionsList,
       context: context.trim(),
-      summary_length: parseInt(summaryLength) || 35
+      summary_length: parseInt(summaryLength) || 35,
+      priority_media_list: priorityMediaList.trim(),
+      region_filter: regionFilter,
+      intl_exceptions: intlExceptions.trim()
     };
 
     try {
@@ -988,6 +1000,37 @@ export default function ClientReports() {
                       💾 Download DOCX Briefing
                     </button>
                   )}
+
+                  {log.generated_excel_path && (
+                    <button
+                      onClick={() => handleDownloadReport(log.generated_excel_path)}
+                      className="btn btn-secondary"
+                      style={{ 
+                        width: "100%", 
+                        padding: "8px", 
+                        fontSize: "12px", 
+                        textAlign: "center",
+                        background: "rgba(16, 185, 129, 0.15)",
+                        border: "1px solid rgba(16, 185, 129, 0.35)",
+                        color: "#fff",
+                        fontWeight: "600",
+                        borderRadius: "8px",
+                        cursor: "pointer",
+                        transition: "all 0.25s",
+                        marginTop: "8px"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(16, 185, 129, 0.25)";
+                        e.currentTarget.style.borderColor = "var(--success)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(16, 185, 129, 0.15)";
+                        e.currentTarget.style.borderColor = "rgba(16, 185, 129, 0.35)";
+                      }}
+                    >
+                      📊 Download Excel Briefing
+                    </button>
+                  )}
                 </div>
               ))
             )}
@@ -1110,6 +1153,50 @@ export default function ClientReports() {
                 </select>
                 <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>This dynamically changes the LLM instructions for summary output length.</span>
               </div>
+
+              {/* Priority Media List */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label className="form-label">Priority Media List (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Times of India, Economic Times, Livemint"
+                  value={priorityMediaList}
+                  onChange={(e) => setPriorityMediaList(e.target.value)}
+                  className="form-control"
+                />
+                <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>If configured, articles will only be kept in the final filtered report if their publication matches this comma-separated list.</span>
+              </div>
+
+              {/* Region Filter Scope */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label className="form-label">Region Filter Scope</label>
+                <select
+                  value={regionFilter}
+                  onChange={(e) => setRegionFilter(e.target.value)}
+                  className="form-control"
+                  style={{ height: "38px" }}
+                >
+                  <option value="All">All Articles (Indian & International)</option>
+                  <option value="Indian">Only Indian Articles</option>
+                  <option value="International">Only International Articles</option>
+                </select>
+                <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>Specify geographic boundary target to search.</span>
+              </div>
+
+              {/* International Exceptions */}
+              {regionFilter === "Indian" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <label className="form-label">International Exceptions (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. TechCrunch, Bloomberg, Reuters"
+                    value={intlExceptions}
+                    onChange={(e) => setIntlExceptions(e.target.value)}
+                    className="form-control"
+                  />
+                  <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>Allow international articles *only* if they are published by these comma-separated sources.</span>
+                </div>
+              )}
 
               {/* Active Toggle */}
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

@@ -34,7 +34,7 @@ def test_check_relevance_with_groq_primary_uncertain_escalates_and_keeps():
         assert is_relevant is True
         assert verdict == "relevant"
         assert score == 0.8
-        assert "120b verdict: relevant" in reason
+        assert "120b confirmed relevant" in reason
         assert mock_oss.call_count == 2
 
 def test_check_relevance_with_groq_primary_uncertain_escalates_and_rejects():
@@ -51,7 +51,7 @@ def test_check_relevance_with_groq_primary_uncertain_escalates_and_rejects():
         assert is_relevant is False
         assert verdict == "not_relevant"
         assert score == 0.15
-        assert "120b confirmed not_relevant" in reason
+        assert "120b verdict: not_relevant" in reason
         assert mock_oss.call_count == 2
 
 def test_zero_result_query_logging():

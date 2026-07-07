@@ -61,14 +61,13 @@ def _truncate_words(text: str, max_words: int = MAX_SUMMARY_WORDS) -> str:
 
 
 def _byline(a: Mapping[str, Any]) -> str:
-    """'Publication | Journalist'  or  'Syndicated via Publication'."""
+    """'Publication | Journalist' or 'syndicated by the {publication}'."""
     journalist = _first(a, "journalist", "author", "byline", "reporter")
     pubs = _pub_list(a)
-    pub = pubs[0] if pubs else ""
-    if journalist:
+    pub = pubs[0] if pubs else "wire"
+    if journalist and journalist.strip().upper() not in ("N/A", "NONE", "NULL", ""):
         return f"{pub} | {journalist}" if pub else journalist
-    joined = ", ".join(pubs) if pubs else "wire"
-    return f"Syndicated via {joined}"
+    return f"syndicated by the {pub}"
 
 
 def _scope(a: Mapping[str, Any]) -> str:
@@ -181,14 +180,14 @@ def _byline_html(a: Mapping[str, Any]) -> str:
     journalist = _first(a, "journalist", "author", "byline", "reporter")
     pubs = _pub_list(a)
     pub = pubs[0] if pubs else "wire"
-    if journalist:
+    if journalist and journalist.strip().upper() not in ("N/A", "NONE", "NULL", ""):
         inner = (
             f'<span style="font-weight:bold;color:{BLUE};">{esc(pub)}</span>'
             f'<span style="color:{_MUTED};"> | {esc(journalist)}</span>'
         )
     else:
         inner = (f'<span style="font-style:italic;color:{_MUTED};">'
-                 f'Syndicated by {esc(pub)}</span>')
+                 f'syndicated by the {esc(pub)}</span>')
     return f'<div style="font-size:10px;margin-bottom:4px;">{inner}</div>'
 
 

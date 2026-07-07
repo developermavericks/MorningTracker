@@ -16,6 +16,8 @@ const DEFAULT_COMPANY = {
   relevancy_method: "Hybrid",
   llm_judge_enabled: false,
   pooja_algo_enabled: false,
+  pooja_priority_conf: 5,
+  pooja_non_priority_conf: 7,
   email_send_reports: true,
   email_send_html: false,
   search_mode: "title",
@@ -610,6 +612,39 @@ function CompanySettings({ company, availableSectors, onSave, onDelete, onRunNow
                     <span style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px", lineHeight: "1.4" }}>
                       <strong>Info Tag:</strong> First filters all fetched articles to keep only priority publication matches (dropping non-priority sources). Then, runs the keyword matching/scoring logic on those priority survivors.
                     </span>
+                    
+                    {form.pooja_algo_enabled && (
+                      <div style={{ display: "flex", gap: "16px", marginTop: "12px", background: "rgba(255,255,255,0.6)", padding: "10px", borderRadius: "6px", border: "1px dashed rgba(16, 185, 129, 0.3)" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          <label htmlFor="pooja_priority_conf" style={{ fontSize: "11px", fontWeight: "600", color: "var(--muted)" }}>
+                            Priority Media Threshold (0-10)
+                          </label>
+                          <input
+                            type="number"
+                            id="pooja_priority_conf"
+                            min="0"
+                            max="10"
+                            value={form.pooja_priority_conf ?? 5}
+                            onChange={e => set("pooja_priority_conf", parseInt(e.target.value) || 0)}
+                            style={{ width: "80px", padding: "4px 8px", border: "1px solid var(--border)", borderRadius: "4px", fontSize: "12px" }}
+                          />
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          <label htmlFor="pooja_non_priority_conf" style={{ fontSize: "11px", fontWeight: "600", color: "var(--muted)" }}>
+                            Non-Priority Threshold (0-10)
+                          </label>
+                          <input
+                            type="number"
+                            id="pooja_non_priority_conf"
+                            min="0"
+                            max="10"
+                            value={form.pooja_non_priority_conf ?? 7}
+                            onChange={e => set("pooja_non_priority_conf", parseInt(e.target.value) || 0)}
+                            style={{ width: "80px", padding: "4px 8px", border: "1px solid var(--border)", borderRadius: "4px", fontSize: "12px" }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

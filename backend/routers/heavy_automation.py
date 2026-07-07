@@ -43,6 +43,8 @@ class CompanyCreate(BaseModel):
     relevance_threshold: float = 0.5
     llm_judge_enabled: bool = False
     pooja_algo_enabled: bool = False
+    pooja_priority_conf: int = 5
+    pooja_non_priority_conf: int = 7
     email_send_reports: bool = True
     email_send_html: bool = False
     search_mode: str = "title"
@@ -70,6 +72,8 @@ class CompanyOut(BaseModel):
     relevance_threshold: float
     llm_judge_enabled: bool
     pooja_algo_enabled: bool
+    pooja_priority_conf: int
+    pooja_non_priority_conf: int
     email_send_reports: bool
     email_send_html: bool
     search_mode: str
@@ -143,6 +147,8 @@ async def _build_company_out(company: HeavyCompany, db: AsyncSession) -> Company
         relevance_threshold=company.relevance_threshold,
         llm_judge_enabled=company.llm_judge_enabled,
         pooja_algo_enabled=getattr(company, 'pooja_algo_enabled', False),
+        pooja_priority_conf=getattr(company, 'pooja_priority_conf', 5),
+        pooja_non_priority_conf=getattr(company, 'pooja_non_priority_conf', 7),
         email_send_reports=getattr(company, 'email_send_reports', True),
         email_send_html=getattr(company, 'email_send_html', False),
         search_mode=company.search_mode if company.search_mode else "title",
@@ -190,6 +196,8 @@ async def create_company(
         relevance_threshold=payload.relevance_threshold,
         llm_judge_enabled=payload.llm_judge_enabled,
         pooja_algo_enabled=payload.pooja_algo_enabled,
+        pooja_priority_conf=payload.pooja_priority_conf,
+        pooja_non_priority_conf=payload.pooja_non_priority_conf,
         email_send_reports=payload.email_send_reports,
         email_send_html=payload.email_send_html,
         search_mode=payload.search_mode,
@@ -232,6 +240,8 @@ async def update_company(
     company.relevance_threshold = payload.relevance_threshold
     company.llm_judge_enabled = payload.llm_judge_enabled
     company.pooja_algo_enabled = payload.pooja_algo_enabled
+    company.pooja_priority_conf = payload.pooja_priority_conf
+    company.pooja_non_priority_conf = payload.pooja_non_priority_conf
     company.email_send_reports = payload.email_send_reports
     company.email_send_html = payload.email_send_html
     company.search_mode = payload.search_mode
@@ -509,7 +519,7 @@ SECTOR_VARIANTS = {
     'startups': ['startups', 'StartUp'],
     'foods and drinks': ['foods and drinks', 'FOODS AND DRINKS', 'Foods'],
     'ai': ['ai', 'AI', 'Ai'],
-    'google': ['google', 'google 2', 'Google3'],
+    'google': ['google', 'google 2', 'google 3', 'Google3'],
     'travel': ['travel', 'Travell'],
     'lifestyle': ['lifestyle', 'LifeStyle'],
     'consultancies': ['consultancies', 'Consultancies']

@@ -281,6 +281,31 @@ def normalize_publication_name(name):
         name = name[4:]
     return "".join(c for c in name if c.isalnum())
 
+def is_indian_article(agency_name: str, url: str) -> bool:
+    name = (agency_name or "").strip().lower()
+    url_lower = (url or "").strip().lower()
+    if ".in/" in url_lower or url_lower.endswith(".in") or ".co.in" in url_lower or ".indiatimes.com" in url_lower:
+        return True
+    indian_keywords = [
+        "timesofindia", "times of india", "delhitimes", "delhi times", "mumbaitimes", "mumbai times", "bombaytimes", "bombay times",
+        "hindustantimes", "hindustan times", "ht brunch", "htbrunch", "indianexpress", "indian express", "thehindu", "the hindu",
+        "economictimes", "economic times", "et now", "etnow", "et prime", "etprime", "et wealth", "etwealth", "ettravelworld",
+        "indiatoday", "india today", "zeenews", "zee news", "news18", "zeebiz", "zee business", "cnbctv18", "cnbc tv18",
+        "moneycontrol", "livemint", "business-standard", "business standard", "financialexpress", "financial express",
+        "thehindubusinessline", "business line", "businessline", "forbesindia", "forbes india", "fortuneindia", "fortune india",
+        "businesstoday", "business today", "theweek.in", "the week", "outlookmoney", "outlook money", "press trust of india",
+        "pti.in", "cntraveller", "condé nast", "conde nast", "natgeotraveller", "travelandleisureindia", "curlytales", "curly tales",
+        "outlooktraveller", "outlook traveller", "the-ken", "the ken", "yourstory", "inc42", "vccircle", "story18", "ians.in", "ians",
+        "newindianexpress", "new indian express", "deccanherald", "deccan herald", "tribuneindia", "the tribune", "telegraphindia",
+        "telegraph india", "the telegraph", "deccanchronicle", "deccan chronicle", "news9live", "news9", "travelandtourworld",
+        "travelbizmonitor", "hotelierindia", "hotelier india", "bwhotelier", "indianretailer", "indian retailer", "tradebrains",
+        "livefromalounge", "traveltrendstoday", "bottindia", "hospitalitybizindia", "heraldgoa", "oheraldo", "uniindia",
+        "united news of india", "thehansindia", "the hans india"
+    ]
+    if any(k in name for k in indian_keywords) or any(k in url_lower for k in indian_keywords):
+        return True
+    return False
+
 def load_priority_media_list(filepath):
     if not os.path.exists(filepath):
         logger.warning(f"Priority media list not found: {filepath}")
@@ -956,6 +981,9 @@ def run_client_report_task(client_id: int):
             
         client_context = client.context
         client_timezone = client.timezone or "Asia/Kolkata"
+        priority_media_list = getattr(client, "priority_media_list", None)
+        region_filter = getattr(client, "region_filter", "All")
+        intl_exceptions = getattr(client, "intl_exceptions", None)
         
     try:
         def _update_progress(msg: str):
@@ -1670,7 +1698,34 @@ def run_client_report_task(client_id: int):
                             if is_relevant_kw:
                                 master_section_articles.append(art_data)
                                 if is_semantic_relevant:
-                                    filtered_section_articles.append(art_data)
+                                    passed_region = True
+                                    art_agency = art_data.get("agency") or "News"
+                                    art_url = art_data.get("url") or ""
+                                    is_indian = is_indian_article(art_agency, art_url)
+                                    
+                                    if region_filter == "Indian":
+                                        if not is_indian:
+                                            passed_exception = False
+                                            if intl_exceptions:
+                                                allowed_exceptions = [normalize_publication_name(p) for p in intl_exceptions.split(",") if p.strip()]
+                                                art_pub_norm = normalize_publication_name(art_agency)
+                                                if art_pub_norm in allowed_exceptions:
+                                                    passed_exception = True
+                                            if not passed_exception:
+                                                passed_region = False
+                                    elif region_filter == "International":
+                                        if is_indian:
+                                            passed_region = False
+                                            
+                                    passed_priority = True
+                                    if priority_media_list:
+                                        allowed_pubs = [normalize_publication_name(p) for p in priority_media_list.split(",") if p.strip()]
+                                        art_pub_norm = normalize_publication_name(art_agency)
+                                        if art_pub_norm not in allowed_pubs:
+                                            passed_priority = False
+                                            
+                                    if passed_region and passed_priority:
+                                        filtered_section_articles.append(art_data)
                     except Exception as future_err:
                         logger.error(f"Thread task exception: {future_err}")
             
@@ -1711,8 +1766,8 @@ def run_client_report_task(client_id: int):
         if not has_articles:
             logger.info("No relevant articles found for any section. A briefing report indicating this will still be generated.")
             
-        # 6. Generate DOCX files
-        _update_progress("Compiling Word briefing documents (Master and Filtered)...")
+        # 6. Generate DOCX and Excel files
+        _update_progress("Compiling Word briefing documents and Excel briefings...")
         date_str = datetime.now().strftime("%d-%m-%Y")
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
         os.makedirs(reports_dir, exist_ok=True)
@@ -1724,6 +1779,9 @@ def run_client_report_task(client_id: int):
         
         docx_filename_master = f"{client_name.replace(' ', '_')}_Master_{timestamp_suffix}.docx"
         docx_path_master = os.path.join(reports_dir, docx_filename_master)
+        
+        excel_filename = f"{client_name.replace(' ', '_')}_{timestamp_suffix}.xlsx"
+        excel_path = os.path.join(reports_dir, excel_filename)
         
         logger.info(f"Generating Filtered Word report: {docx_path_filtered}")
         generate_docx_report(
@@ -1741,6 +1799,19 @@ def run_client_report_task(client_id: int):
             data=report_data_master,
             output_path=docx_path_master,
             template_path=template_path
+        )
+
+        logger.info(f"Generating Client Excel report: {excel_path}")
+        excel_grouped_data = {
+            "Daily News Briefing": {sec: arts for sec, arts in report_data_filtered.items() if arts}
+        }
+        from scraper.report_generator import generate_excel_report
+        generate_excel_report(
+            client_name=client_name,
+            report_type="Client Intelligence Report",
+            date_str=datetime.now().strftime("%Y-%m-%d"),
+            grouped_data=excel_grouped_data,
+            output_path=excel_path
         )
         
         # 7. Upload to Google Drive/Docs & Share
@@ -1784,9 +1855,10 @@ def run_client_report_task(client_id: int):
             recipient_emails=all_emails,
             client_name=client_name,
             docx_path_filtered=docx_path_filtered,
-            docx_path_master=docx_path_master,
+            docx_path_master=None,  # Do not attach Master DOCX
+            excel_path_master=excel_path,  # Attach Excel Briefing report
             google_doc_url_filtered=google_doc_url_filtered,
-            google_doc_url_master=google_doc_url_master,
+            google_doc_url_master=google_doc_url_master,  # Keep Master Google Doc link
             has_articles=has_articles
         )
         
@@ -1798,6 +1870,14 @@ def run_client_report_task(client_id: int):
                     report_file_data = f.read()
             except Exception as e:
                 logger.error(f"Failed to read generated report file: {e}")
+
+        excel_file_data = None
+        if excel_path and os.path.exists(excel_path):
+            try:
+                with open(excel_path, "rb") as f:
+                    excel_file_data = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read generated excel file: {e}")
 
         if not email_sent:
             logger.warning("Report generated but email notification failed to send (SMTP connection error).")
@@ -1814,6 +1894,8 @@ def run_client_report_task(client_id: int):
                         status="completed",
                         generated_file_path=google_doc_url_filtered or docx_path_filtered,
                         generated_file_data=report_file_data,
+                        generated_excel_path=excel_path,
+                        generated_excel_data=excel_file_data,
                         progress_message=updated_log,
                         error_message="Email notification failed to send (SMTP connection timeout).",
                         completed_at=datetime.utcnow()
@@ -1825,6 +1907,15 @@ def run_client_report_task(client_id: int):
                     .values(last_run_at=datetime.utcnow())
                 )
                 db.commit()
+            
+            # Clean up local temporary files from server disk
+            for temp_file in [docx_path_filtered, docx_path_master, excel_path]:
+                if temp_file and os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                        logger.info(f"Cleaned up local temporary report file from disk: {temp_file}")
+                    except Exception as clean_err:
+                        logger.warning(f"Failed to remove temporary file {temp_file}: {clean_err}")
             return True
             
         # Update run log status to completed
@@ -1841,6 +1932,8 @@ def run_client_report_task(client_id: int):
                     status="completed",
                     generated_file_path=google_doc_url_filtered or docx_path_filtered,
                     generated_file_data=report_file_data,
+                    generated_excel_path=excel_path,
+                    generated_excel_data=excel_file_data,
                     progress_message=updated_log,
                     completed_at=datetime.utcnow()
                 )
@@ -1852,6 +1945,15 @@ def run_client_report_task(client_id: int):
             )
             db.commit()
             
+        # Clean up local temporary files from server disk
+        for temp_file in [docx_path_filtered, docx_path_master, excel_path]:
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                    logger.info(f"Cleaned up local temporary report file from disk: {temp_file}")
+                except Exception as clean_err:
+                    logger.warning(f"Failed to remove temporary file {temp_file}: {clean_err}")
+
         logger.info(f"Client Report Task completed successfully for client {client_id}")
         return True
         
@@ -2017,6 +2119,8 @@ def run_heavy_automation_task(company_id: int):
         window_hours = company.window_hours
         search_mode = company.search_mode if company.search_mode else "title"
         pooja_algo_enabled = getattr(company, "pooja_algo_enabled", False)
+        pooja_priority_conf = getattr(company, "pooja_priority_conf", 5)
+        pooja_non_priority_conf = getattr(company, "pooja_non_priority_conf", 7)
 
     try:
         def _update_progress(msg: str):
@@ -2065,7 +2169,7 @@ def run_heavy_automation_task(company_id: int):
             'startups': ['startups', 'StartUp'],
             'foods and drinks': ['foods and drinks', 'FOODS AND DRINKS', 'Foods'],
             'ai': ['ai', 'AI', 'Ai'],
-            'google': ['google', 'google 2', 'google 3'],
+            'google': ['google', 'google 2', 'google 3', 'Google3'],
             'travel': ['travel', 'Travell'],
             'lifestyle': ['lifestyle', 'LifeStyle'],
             'consultancies': ['consultancies', 'Consultancies']
@@ -2239,10 +2343,10 @@ def run_heavy_automation_task(company_id: int):
             corp_conf,    corp_matches    = evaluate_headline_relevance(query_text, corp_keywords)
             product_conf, product_matches = evaluate_headline_relevance(query_text, product_keywords)
 
-            min_conf = 5 if pooja_algo_enabled else 7
+            min_conf = pooja_priority_conf if pooja_algo_enabled else pooja_non_priority_conf
 
             # Corporate bucket
-            if (is_priority and corp_conf >= min_conf) or (corp_conf >= 7):
+            if (is_priority and corp_conf >= min_conf) or (corp_conf >= pooja_non_priority_conf):
                 art_corp = dict(art)
                 art_corp["confidence_score"] = corp_conf
                 art_corp["matches"]          = corp_matches
@@ -2251,7 +2355,7 @@ def run_heavy_automation_task(company_id: int):
                 relevant_map[art["url"]] = art
 
             # Product bucket
-            if (is_priority and product_conf >= min_conf) or (product_conf >= 7):
+            if (is_priority and product_conf >= min_conf) or (product_conf >= pooja_non_priority_conf):
                 art_prod = dict(art)
                 art_prod["confidence_score"] = product_conf
                 art_prod["matches"]          = product_matches
@@ -2547,7 +2651,12 @@ def run_heavy_automation_task(company_id: int):
 
                 sections = []
                 accent_colors = [BLUE, RED, YELLOW, GREEN]
-                for idx, (pillar, arts) in enumerate(by_pillar_email.items()):
+                
+                # Limit inline email body articles to 30 to prevent Gmail clipping
+                email_articles = relevant[:30]
+                by_pillar_email_limited = group_articles_by_sections(email_articles, company_name)
+                
+                for idx, (pillar, arts) in enumerate(by_pillar_email_limited.items()):
                     color = accent_colors[idx % len(accent_colors)]
                     sections.append({
                         "name": pillar.upper(),
@@ -2585,7 +2694,7 @@ def run_heavy_automation_task(company_id: int):
                     "takeaways": takeaway_items,
                     "signoff_name": f"{company_name} Intelligence Desk",
                     "signoff_sub": f"Daily News Coverage — {date.today().strftime('%d %B %Y')}",
-                    "sections_covered": " | ".join(by_pillar_email.keys()),
+                    "sections_covered": " | ".join(by_pillar_email_limited.keys()),
                     "disclaimer": f"This daily intelligence brief has been compiled from publicly available media sources for informational purposes only. The content herein represents the views of the cited third-party publications and does not constitute the official position of {company_name} or Alphabet Inc. All brand names and trademarks remain the property of their respective owners.",
                     "topic_tags": [f"#{t.replace(' ', '')}" for t in unique_subs[:10]],
                 }
@@ -2620,13 +2729,12 @@ def run_heavy_automation_task(company_id: int):
 
                     if master_emails:
                         _update_progress(f"Sending Corporate & Keywords Reports email to {len(master_emails)} recipients...")
-                        docx_master = master_path if send_reports else None
                         excel_master = master_excel_path if send_reports else None
                         success_master = send_report_email(
                             recipient_emails=master_emails,
                             client_name=company_name,
                             docx_path_filtered=mailer_path,
-                            docx_path_master=docx_master,
+                            docx_path_master=None,  # Do not send the 3rd doc (Master DOCX report)
                             has_articles=bool(relevant),
                             brief_content=exec_summary,
                             excel_path_filtered=filtered_excel_path,

@@ -347,7 +347,10 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
                 meta_p.paragraph_format.space_after = Pt(8)
                 
                 pub_name = art.get("agency") or "Unknown Publication"
-                pub_author = art.get("author")
+                pub_author = art.get("author") or art.get("journalist")
+                if not pub_author or str(pub_author).strip().upper() in ("N/A", "NONE", "NULL", ""):
+                    pub_author = f"syndicated by the {pub_name}"
+                
                 pub_date = art.get("published_at")
                 
                 date_text = ""
@@ -358,10 +361,7 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
                         date_text = pub_date.strftime("%Y-%m-%d")
                 
                 conf_score = art.get("confidence_score", 0)
-                if pub_author and str(pub_author).strip():
-                    meta_text = f"Publication: {pub_name} | Author: {str(pub_author).strip()} | Date: {date_text} | Relevance Confidence: {conf_score}/10"
-                else:
-                    meta_text = f"Publication: {pub_name} | Date: {date_text} | Relevance Confidence: {conf_score}/10"
+                meta_text = f"Publication: {pub_name} | Author: {str(pub_author).strip()} | Date: {date_text} | Relevance Confidence: {conf_score}/10"
                 
                 meta_run = meta_p.add_run(meta_text)
                 meta_run.font.name = 'Calibri'
@@ -428,7 +428,8 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
         "Author of the article",
         "Name of publication",
         "Time of publishing",
-        "Relevance score"
+        "Relevance score",
+        "Summary of the article"
     ]
 
     # 2. Iterate through sections
@@ -438,8 +439,8 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
         if not has_articles_in_master:
             continue
 
-        # Add Master Heading Row (Merged A to F)
-        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+        # Add Master Heading Row (Merged A to G)
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
         c_master = ws.cell(row=current_row, column=1, value=master)
         c_master.font = master_font
         c_master.fill = master_fill
@@ -451,8 +452,8 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
             if not articles:
                 continue
 
-            # Add Sub Heading Row (Merged A to F)
-            ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+            # Add Sub Heading Row (Merged A to G)
+            ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
             c_sub = ws.cell(row=current_row, column=1, value=sub)
             c_sub.font = sub_font
             c_sub.fill = sub_fill
@@ -495,21 +496,33 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
                 c_link.alignment = Alignment(horizontal="center")
                 
                 c_title = ws.cell(row=current_row, column=2, value=title)
-                c_author = ws.cell(row=current_row, column=3, value=str(author).strip())
+                
+                # Author fallback check
+                author_val = str(author).strip()
+                if not author_val or author_val.upper() in ("N/A", "NONE", "NULL", ""):
+                    author_val = f"syndicated by the {pub_name}"
+                c_author = ws.cell(row=current_row, column=3, value=author_val)
+                
                 c_pub = ws.cell(row=current_row, column=4, value=pub_name)
                 c_date = ws.cell(row=current_row, column=5, value=date_text)
                 
                 c_score = ws.cell(row=current_row, column=6, value=score_text)
                 c_score.alignment = Alignment(horizontal="center")
+                
+                summary_text = art.get("summary") or art.get("_summary") or art.get("full_body") or ""
+                c_summary = ws.cell(row=current_row, column=7, value=summary_text)
 
                 # Borders and alignment
-                for col_idx in range(1, 7):
+                for col_idx in range(1, 8):
                     c = ws.cell(row=current_row, column=col_idx)
                     c.border = thin_border
                     if col_idx == 1:
                         pass
                     elif col_idx == 6:
                         c.font = data_font
+                    elif col_idx == 7:
+                        c.font = data_font
+                        c.alignment = Alignment(vertical="center", wrap_text=True)
                     else:
                         c.font = data_font
                         c.alignment = Alignment(vertical="center", wrap_text=False)
@@ -527,6 +540,7 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
     ws.column_dimensions["D"].width = 25  # Publication Name
     ws.column_dimensions["E"].width = 15  # Date
     ws.column_dimensions["F"].width = 15  # Relevance Score
+    ws.column_dimensions["G"].width = 60  # Summary of the article
 
     wb.save(output_path)
     return output_path
@@ -678,10 +692,10 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
                     
                     pub_name = art.get("agency") or "Unknown Publication"
                     pub_author = art.get("author") or art.get("journalist")
-                    if pub_author:
+                    if pub_author and str(pub_author).strip().upper() not in ("N/A", "NONE", "NULL", ""):
                         byline_str = f"{pub_name} | {pub_author}"
                     else:
-                        byline_str = f"Syndicated by {pub_name}"
+                        byline_str = f"syndicated by the {pub_name}"
                         
                     meta_run = meta_p.add_run(byline_str)
                     meta_run.font.name = 'Calibri'
