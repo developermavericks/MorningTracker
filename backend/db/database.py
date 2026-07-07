@@ -851,6 +851,77 @@ def init_db_sync():
     except Exception as e:
         print(f"Sync Migration Notice (Heavy Automation Schema): {e}")
 
+    # Seed default Client Scapia if table is empty
+    try:
+        with SessionLocalSync() as db_session:
+            client_count = db_session.execute(text("SELECT COUNT(*) FROM clients")).scalar()
+            if client_count == 0:
+                scapia = Client(
+                    name='Scapia',
+                    scheduled_time='07:00',
+                    timezone='Asia/Kolkata',
+                    is_active=True,
+                    context='Scapia travel co-branded credit card. Focus on travel card launches, forex fees.',
+                    summary_length=35,
+                    region_filter='All'
+                )
+                db_session.add(scapia)
+                db_session.commit()
+                
+                # Seed Scapia recipient
+                recipient = ClientRecipient(client_id=scapia.id, email='developerteam@themavericksindia.com')
+                db_session.add(recipient)
+                
+                # Seed Scapia sections and keywords
+                sections_seed = [
+                    ("Company Keywords", ["Anil Goteti", "Scapia"]),
+                    ("Competitors", ["OneCard", "CRED", "Super.money", "Niyo", "Fi Money", "Uni Card", "Slice Card"]),
+                    ("Sector Keywords", ["co-branded credit cards", "travel fintech", "zero forex markup"])
+                ]
+                for sec_name, keywords in sections_seed:
+                    sec = ClientSection(client_id=scapia.id, name=sec_name)
+                    db_session.add(sec)
+                    db_session.commit()
+                    
+                    for kw in keywords:
+                        db_session.add(ClientKeyword(section_id=sec.id, keyword=kw))
+                db_session.commit()
+                print("Sync Database: Seeded default client 'Scapia'.")
+    except Exception as e:
+        print(f"Sync Migration Notice (Seed Client Scapia): {e}")
+
+    # Seed default HeavyCompany Google if table is empty
+    try:
+        with SessionLocalSync() as db_session:
+            company_count = db_session.execute(text("SELECT COUNT(*) FROM heavy_companies")).scalar()
+            if company_count == 0:
+                google = HeavyCompany(
+                    name='Google',
+                    sector_match='google',
+                    enabled=True,
+                    timezone='Asia/Kolkata',
+                    fetch_time='07:00',
+                    window_hours=24,
+                    relevancy_method='Hybrid',
+                    relevance_context='Google India corporate developments, technology updates, regulatory and policy changes, and legal filings.',
+                    relevance_threshold=0.5,
+                    search_mode='title',
+                    created_at=datetime.now(),
+                    updated_at=datetime.now()
+                )
+                db_session.add(google)
+                db_session.commit()
+                
+                recipient = HeavyRecipient(
+                    company_id=google.id,
+                    email='developerteam@themavericksindia.com'
+                )
+                db_session.add(recipient)
+                db_session.commit()
+                print("Sync Database: Seeded default company 'Google'.")
+    except Exception as e:
+        print(f"Sync Migration Notice (Seed Company Google): {e}")
+
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 
 # Connection Lifecycle is handled via get_db and SessionMiddleware
