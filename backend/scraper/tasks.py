@@ -2321,6 +2321,14 @@ def run_heavy_automation_task(company_id: int):
         product_articles   = []
         relevant_map       = {}
 
+        # Counters for priority media list breakdown
+        priority_total       = 0
+        non_priority_total   = 0
+        priority_corp_pass   = 0
+        priority_prod_pass   = 0
+        non_priority_corp_pass = 0
+        non_priority_prod_pass = 0
+
         _update_progress(f"Running relevancy match in mode: {search_mode}")
 
         for art in deduped:
@@ -2336,6 +2344,11 @@ def run_heavy_automation_task(company_id: int):
 
             is_priority = is_priority_publication(agency, priority_publications)
             art["_is_priority"] = is_priority
+
+            if is_priority:
+                priority_total += 1
+            else:
+                non_priority_total += 1
 
             corp_conf,    corp_matches    = evaluate_headline_relevance(query_text, corp_keywords)
             product_conf, product_matches = evaluate_headline_relevance(query_text, product_keywords)
@@ -2358,6 +2371,10 @@ def run_heavy_automation_task(company_id: int):
                 art_corp["_source_type"]     = "corporate"
                 corporate_articles.append(art_corp)
                 relevant_map[art["url"]] = art
+                if is_priority:
+                    priority_corp_pass += 1
+                else:
+                    non_priority_corp_pass += 1
 
             # Product bucket
             if product_conf >= product_min:
@@ -2367,8 +2384,19 @@ def run_heavy_automation_task(company_id: int):
                 art_prod["_source_type"]     = "product"
                 product_articles.append(art_prod)
                 relevant_map[art["url"]] = art
+                if is_priority:
+                    priority_prod_pass += 1
+                else:
+                    non_priority_prod_pass += 1
 
         relevant = list(relevant_map.values())
+        _update_progress(
+            f"Priority media list breakdown: "
+            f"{priority_total} articles from priority pubs "
+            f"({priority_corp_pass} corp + {priority_prod_pass} product passed), "
+            f"{non_priority_total} from non-priority pubs "
+            f"({non_priority_corp_pass} corp + {non_priority_prod_pass} product passed)"
+        )
         _update_progress(
             f"Relevance matching: corporate matches={len(corporate_articles)}, "
             f"product matches={len(product_articles)}, unique relevant={len(relevant)}"
