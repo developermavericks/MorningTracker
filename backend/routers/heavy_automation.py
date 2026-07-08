@@ -43,6 +43,7 @@ class CompanyCreate(BaseModel):
     relevance_threshold: float = 0.5
     llm_judge_enabled: bool = False
     pooja_algo_enabled: bool = False
+    pooja_folder_filtering_enabled: bool = False
     pooja_priority_conf: int = 5
     pooja_non_priority_conf: int = 7
     email_send_reports: bool = True
@@ -72,6 +73,7 @@ class CompanyOut(BaseModel):
     relevance_threshold: float
     llm_judge_enabled: bool
     pooja_algo_enabled: bool
+    pooja_folder_filtering_enabled: bool
     pooja_priority_conf: int
     pooja_non_priority_conf: int
     email_send_reports: bool
@@ -147,6 +149,7 @@ async def _build_company_out(company: HeavyCompany, db: AsyncSession) -> Company
         relevance_threshold=company.relevance_threshold,
         llm_judge_enabled=company.llm_judge_enabled,
         pooja_algo_enabled=getattr(company, 'pooja_algo_enabled', False),
+        pooja_folder_filtering_enabled=getattr(company, 'pooja_folder_filtering_enabled', False),
         pooja_priority_conf=getattr(company, 'pooja_priority_conf', 5),
         pooja_non_priority_conf=getattr(company, 'pooja_non_priority_conf', 7),
         email_send_reports=getattr(company, 'email_send_reports', True),
@@ -196,6 +199,7 @@ async def create_company(
         relevance_threshold=payload.relevance_threshold,
         llm_judge_enabled=payload.llm_judge_enabled,
         pooja_algo_enabled=payload.pooja_algo_enabled,
+        pooja_folder_filtering_enabled=payload.pooja_folder_filtering_enabled,
         pooja_priority_conf=payload.pooja_priority_conf,
         pooja_non_priority_conf=payload.pooja_non_priority_conf,
         email_send_reports=payload.email_send_reports,
@@ -240,6 +244,7 @@ async def update_company(
     company.relevance_threshold = payload.relevance_threshold
     company.llm_judge_enabled = payload.llm_judge_enabled
     company.pooja_algo_enabled = payload.pooja_algo_enabled
+    company.pooja_folder_filtering_enabled = payload.pooja_folder_filtering_enabled
     company.pooja_priority_conf = payload.pooja_priority_conf
     company.pooja_non_priority_conf = payload.pooja_non_priority_conf
     company.email_send_reports = payload.email_send_reports

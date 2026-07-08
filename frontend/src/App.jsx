@@ -23,7 +23,7 @@ const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "◈", adminOnly: true },
   { id: "articles", label: "Articles", icon: "≡", adminOnly: true },
   { id: "client-reports", label: "Client Automation", icon: "⚡", adminOnly: true },
-  // { id: "heavy-automation", label: "Heavy Automation", icon: "🔬", adminOnly: true },
+  { id: "heavy-automation", label: "Heavy Automation", icon: "🔬", adminOnly: true },
   { id: "brands", label: "Keyword Setup", icon: "🏢" },
   { id: "jobs", label: "Tracker", icon: "◎" },
   { id: "admin", label: "Admin Portal", icon: "⚙", adminOnly: true },
@@ -186,7 +186,7 @@ function ProtectedApp() {
         {page === "dashboard" && <Dashboard onNavigate={navigateWithContext} />}
         {page === "articles" && <ArticlesBrowser initialFilters={navContext} />}
         {page === "client-reports" && <ClientReports />}
-        {/* {page === "heavy-automation" && <HeavyAutomation />} */}
+        {page === "heavy-automation" && <HeavyAutomation />}
         {page === "brands" && <BrandTracker onNavigate={navigateWithContext} initialFilters={navContext} />}
         {page === "jobs" && <Jobs />}
         {page === "diagnostics" && <Diagnostics />}
