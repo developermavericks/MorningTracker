@@ -16,6 +16,7 @@ const DEFAULT_COMPANY = {
   relevancy_method: "Hybrid",
   llm_judge_enabled: false,
   pooja_algo_enabled: false,
+  pooja_folder_filtering_enabled: false,
   pooja_priority_conf: 5,
   pooja_non_priority_conf: 7,
   email_send_reports: true,
@@ -594,6 +595,19 @@ function CompanySettings({ company, availableSectors, onSave, onDelete, onRunNow
                   />
                   <label htmlFor="llm_judge_enabled" style={{ fontSize: "13px", fontWeight: "700", cursor: "pointer", flex: 1 }}>
                     Enable LLM Judge (Pass ambiguous articles through AI verification)
+                  </label>
+                </div>
+                
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: "8px", padding: "12px" }}>
+                  <input
+                    type="checkbox"
+                    id="pooja_folder_filtering_enabled"
+                    checked={form.pooja_folder_filtering_enabled ?? false}
+                    onChange={e => set("pooja_folder_filtering_enabled", e.target.checked)}
+                    style={{ width: "16px", height: "16px" }}
+                  />
+                  <label htmlFor="pooja_folder_filtering_enabled" style={{ fontSize: "13px", fontWeight: "700", cursor: "pointer", flex: 1 }}>
+                    Enable Pooja Folder Filtering Logic (Priority media + keywords.xlsx from folder)
                   </label>
                 </div>
                 

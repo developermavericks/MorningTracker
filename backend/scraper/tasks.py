@@ -2133,6 +2133,7 @@ def run_heavy_automation_task(company_id: int):
         window_hours = company.window_hours
         search_mode = company.search_mode if company.search_mode else "title"
         pooja_algo_enabled = getattr(company, "pooja_algo_enabled", False)
+        pooja_folder_filtering_enabled = getattr(company, "pooja_folder_filtering_enabled", False)
         pooja_priority_conf = getattr(company, "pooja_priority_conf", 5)
         pooja_non_priority_conf = getattr(company, "pooja_non_priority_conf", 7)
 
@@ -2335,86 +2336,135 @@ def run_heavy_automation_task(company_id: int):
         product_articles   = []
         relevant_map       = {}
 
-        # Counters for priority media list breakdown
-        priority_total       = 0
-        non_priority_total   = 0
-        priority_corp_pass   = 0
-        priority_prod_pass   = 0
-        non_priority_corp_pass = 0
-        non_priority_prod_pass = 0
+        if pooja_folder_filtering_enabled:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Filtering articles using Pooja's folder filtering logic...")
+            folder_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Pooja_filtering_Logic_for_heavy_automation_final")
+            media_list_path = os.path.join(folder_dir, "[Internal] Google Online Priority Media List 2026.xlsx")
+            keywords_xlsx_path = os.path.join(folder_dir, "keywords.xlsx")
+            
+            import sys
+            if folder_dir not in sys.path:
+                sys.path.append(folder_dir)
+            
+            from Pooja_filtering_Logic_for_heavy_automation_final.filter_priority_media import load_priority_publications, build_match_keywords, is_priority as pooja_is_priority
+            from Pooja_filtering_Logic_for_heavy_automation_final.filter_by_keywords import parse_keywords_file, build_keyword_index, match_title as pooja_match_title
+            
+            publications = load_priority_publications(media_list_path)
+            match_pairs = build_match_keywords(publications)
+            
+            sectors_data = parse_keywords_file(keywords_xlsx_path)
+            keyword_index = build_keyword_index(sectors_data)
+            
+            for art in deduped:
+                agency = art.get("agency") or ""
+                title = art.get("title") or ""
+                
+                is_pri, matched_pub = pooja_is_priority(agency, match_pairs)
+                art["_is_priority"] = is_pri
+                
+                if is_pri:
+                    kw, sector, sub_cat = pooja_match_title(title, keyword_index)
+                    if kw:
+                        art_p = dict(art)
+                        art_p["confidence_score"] = 10
+                        art_p["matches"] = [{"master": sector or "Other", "sub": sub_cat or "General", "matched_items": [kw]}]
+                        art_p["_pillar"] = sector or "Other"
+                        art_p["_sub_category"] = sub_cat or "General"
+                        art_p["_keyword_hits"] = [kw]
+                        art_p["_relevance_score"] = 10
+                        
+                        relevant_map[art["url"]] = art_p
+                        
+                        is_product = "product" in (sector or "").lower()
+                        if is_product:
+                            art_p["_source_type"] = "product"
+                            product_articles.append(art_p)
+                        else:
+                            art_p["_source_type"] = "corporate"
+                            corporate_articles.append(art_p)
+            relevant = list(relevant_map.values())
+            _update_progress(f"Pooja folder filtering complete: found {len(relevant)} relevant articles.")
+        else:
+            # Counters for priority media list breakdown
+            priority_total       = 0
+            non_priority_total   = 0
+            priority_corp_pass   = 0
+            priority_prod_pass   = 0
+            non_priority_corp_pass = 0
+            non_priority_prod_pass = 0
 
-        _update_progress(f"Running relevancy match in mode: {search_mode}")
+            _update_progress(f"Running relevancy match in mode: {search_mode}")
 
-        for art in deduped:
-            title  = art.get("title", "") or ""
-            agency = art.get("agency", "") or ""
+            for art in deduped:
+                title  = art.get("title", "") or ""
+                agency = art.get("agency", "") or ""
 
-            # Check based on search_mode
-            if search_mode == "full_body":
-                body = art.get("summary") or art.get("full_body") or ""
-                query_text = f"{title}\n{body}"
-            else:
-                query_text = title
-
-            is_priority = is_priority_publication(agency, priority_publications)
-            art["_is_priority"] = is_priority
-
-            if is_priority:
-                priority_total += 1
-            else:
-                non_priority_total += 1
-
-            corp_conf,    corp_matches    = evaluate_headline_relevance(query_text, corp_keywords)
-            product_conf, product_matches = evaluate_headline_relevance(query_text, product_keywords)
-
-            # When Pooja Algo is enabled: priority pubs use a lower bar (pooja_priority_conf),
-            # non-priority pubs use a stricter bar (pooja_non_priority_conf).
-            # When disabled: all articles use pooja_non_priority_conf uniformly.
-            if pooja_algo_enabled:
-                corp_min    = pooja_priority_conf    if is_priority else pooja_non_priority_conf
-                product_min = pooja_priority_conf    if is_priority else pooja_non_priority_conf
-            else:
-                corp_min    = pooja_non_priority_conf
-                product_min = pooja_non_priority_conf
-
-            # Corporate bucket
-            if corp_conf >= corp_min:
-                art_corp = dict(art)
-                art_corp["confidence_score"] = corp_conf
-                art_corp["matches"]          = corp_matches
-                art_corp["_source_type"]     = "corporate"
-                corporate_articles.append(art_corp)
-                relevant_map[art["url"]] = art
-                if is_priority:
-                    priority_corp_pass += 1
+                # Check based on search_mode
+                if search_mode == "full_body":
+                    body = art.get("summary") or art.get("full_body") or ""
+                    query_text = f"{title}\n{body}"
                 else:
-                    non_priority_corp_pass += 1
+                    query_text = title
 
-            # Product bucket
-            if product_conf >= product_min:
-                art_prod = dict(art)
-                art_prod["confidence_score"] = product_conf
-                art_prod["matches"]          = product_matches
-                art_prod["_source_type"]     = "product"
-                product_articles.append(art_prod)
-                relevant_map[art["url"]] = art
+                is_priority = is_priority_publication(agency, priority_publications)
+                art["_is_priority"] = is_priority
+
                 if is_priority:
-                    priority_prod_pass += 1
+                    priority_total += 1
                 else:
-                    non_priority_prod_pass += 1
+                    non_priority_total += 1
 
-        relevant = list(relevant_map.values())
-        _update_progress(
-            f"Priority media list breakdown: "
-            f"{priority_total} articles from priority pubs "
-            f"({priority_corp_pass} corp + {priority_prod_pass} product passed), "
-            f"{non_priority_total} from non-priority pubs "
-            f"({non_priority_corp_pass} corp + {non_priority_prod_pass} product passed)"
-        )
-        _update_progress(
-            f"Relevance matching: corporate matches={len(corporate_articles)}, "
-            f"product matches={len(product_articles)}, unique relevant={len(relevant)}"
-        )
+                corp_conf,    corp_matches    = evaluate_headline_relevance(query_text, corp_keywords)
+                product_conf, product_matches = evaluate_headline_relevance(query_text, product_keywords)
+
+                # When Pooja Algo is enabled: priority pubs use a lower bar (pooja_priority_conf),
+                # non-priority pubs use a stricter bar (pooja_non_priority_conf).
+                # When disabled: all articles use pooja_non_priority_conf uniformly.
+                if pooja_algo_enabled:
+                    corp_min    = pooja_priority_conf    if is_priority else pooja_non_priority_conf
+                    product_min = pooja_priority_conf    if is_priority else pooja_non_priority_conf
+                else:
+                    corp_min    = pooja_non_priority_conf
+                    product_min = pooja_non_priority_conf
+
+                # Corporate bucket
+                if corp_conf >= corp_min:
+                    art_corp = dict(art)
+                    art_corp["confidence_score"] = corp_conf
+                    art_corp["matches"]          = corp_matches
+                    art_corp["_source_type"]     = "corporate"
+                    corporate_articles.append(art_corp)
+                    relevant_map[art["url"]] = art
+                    if is_priority:
+                        priority_corp_pass += 1
+                    else:
+                        non_priority_corp_pass += 1
+
+                # Product bucket
+                if product_conf >= product_min:
+                    art_prod = dict(art)
+                    art_prod["confidence_score"] = product_conf
+                    art_prod["matches"]          = product_matches
+                    art_prod["_source_type"]     = "product"
+                    product_articles.append(art_prod)
+                    relevant_map[art["url"]] = art
+                    if is_priority:
+                        priority_prod_pass += 1
+                    else:
+                        non_priority_prod_pass += 1
+
+            relevant = list(relevant_map.values())
+            _update_progress(
+                f"Priority media list breakdown: "
+                f"{priority_total} articles from priority pubs "
+                f"({priority_corp_pass} corp + {priority_prod_pass} product passed), "
+                f"{non_priority_total} from non-priority pubs "
+                f"({non_priority_corp_pass} corp + {non_priority_prod_pass} product passed)"
+            )
+            _update_progress(
+                f"Relevance matching: corporate matches={len(corporate_articles)}, "
+                f"product matches={len(product_articles)}, unique relevant={len(relevant)}"
+            )
 
         # Build audit trail parameters on unique relevant articles
         for art_url, art in relevant_map.items():

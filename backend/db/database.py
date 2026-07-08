@@ -272,6 +272,7 @@ class HeavyCompany(Base):
     relevance_threshold: Mapped[float] = mapped_column(Float, default=0.5)
     llm_judge_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     pooja_algo_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    pooja_folder_filtering_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     pooja_priority_conf: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
     pooja_non_priority_conf: Mapped[int] = mapped_column(Integer, default=7, server_default="7")
     email_send_reports: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")

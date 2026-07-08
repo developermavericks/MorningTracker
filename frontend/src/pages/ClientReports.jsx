@@ -171,6 +171,8 @@ function parseProgressLog(progressMessage, startedAt, completedAt, status, clien
 }
 
 export default function ClientReports() {
+  const [locked, setLocked] = useState(true);
+  const [passphrase, setPassphrase] = useState("");
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -429,6 +431,86 @@ export default function ClientReports() {
       alert("Failed to download file. It may have been cleared or expired.");
     }
   };
+
+  const handleUnlock = (e) => {
+    e.preventDefault();
+    if (passphrase === "maa chod do client automation ki") {
+      setLocked(false);
+    } else {
+      alert("Invalid Passphrase!");
+    }
+  };
+
+  if (locked) {
+    return (
+      <div style={{
+        padding: "48px 24px",
+        minHeight: "100%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "var(--text)",
+        background: "radial-gradient(circle at center, rgba(30,30,40,0.2) 0%, rgba(10,10,15,0.8) 100%)",
+      }}>
+        <div style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "24px",
+          padding: "40px",
+          width: "480px",
+          boxShadow: "var(--glow)",
+          textAlign: "center",
+          backdropFilter: "blur(12px)",
+        }}>
+          <div style={{ fontSize: "64px", marginBottom: "16px" }}>🔒</div>
+          <h2 style={{ fontSize: "24px", fontWeight: "800", margin: "0 0 8px 0", background: "linear-gradient(90deg, #ff4e50 0%, #f9d423 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+            Client Automation Locked
+          </h2>
+          <p style={{ fontSize: "14px", color: "var(--text-muted)", margin: "0 0 24px 0", lineHeight: "1.5" }}>
+            This tab is locked to prevent unauthorized modifications to the client briefing pipelines. Please enter the master release passphrase to unlock.
+          </p>
+          <form onSubmit={handleUnlock} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <input
+              type="password"
+              placeholder="Enter release passphrase..."
+              value={passphrase}
+              onChange={e => setPassphrase(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                border: "1px solid var(--border)",
+                borderRadius: "12px",
+                background: "var(--surface2)",
+                color: "var(--text)",
+                fontSize: "14px",
+                textAlign: "center",
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                width: "100%",
+                padding: "12px",
+                background: "linear-gradient(135deg, #ff4e50 0%, #f9d423 100%)",
+                border: "none",
+                borderRadius: "12px",
+                color: "#111",
+                fontWeight: "800",
+                fontSize: "14px",
+                cursor: "pointer",
+                transition: "transform 0.2s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = "scale(1.02)"}
+              onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+            >
+              Unlock Configuration
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "24px", minHeight: "100%", color: "var(--text)" }}>
