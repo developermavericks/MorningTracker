@@ -38,6 +38,9 @@ class ClientCreate(BaseModel):
     sections: List[SectionCreate]
     context: Optional[str] = None
     summary_length: int = 35
+    priority_media_list: Optional[str] = None
+    region_filter: str = "All"
+    intl_exceptions: Optional[str] = None
 
 class SectionResponse(BaseModel):
     id: int
@@ -56,6 +59,9 @@ class ClientResponse(BaseModel):
     last_run_at: Optional[str] = None
     context: Optional[str] = None
     summary_length: int = 35
+    priority_media_list: Optional[str] = None
+    region_filter: str = "All"
+    intl_exceptions: Optional[str] = None
 
 class RunLogResponse(BaseModel):
     id: int
@@ -64,6 +70,7 @@ class RunLogResponse(BaseModel):
     error_message: Optional[str]
     progress_message: Optional[str]
     generated_file_path: Optional[str]
+    generated_excel_path: Optional[str] = None
     started_at: str
     completed_at: Optional[str]
 
@@ -114,7 +121,10 @@ async def list_clients(
                 sections=sections_data,
                 last_run_at=client.last_run_at.isoformat() + ("Z" if client.last_run_at.tzinfo is None else "") if client.last_run_at else None,
                 context=client.context,
-                summary_length=client.summary_length or 35
+                summary_length=client.summary_length or 35,
+                priority_media_list=client.priority_media_list,
+                region_filter=client.region_filter or "All",
+                intl_exceptions=client.intl_exceptions
             )
         )
     return response_data
@@ -136,7 +146,10 @@ async def create_client(
         timezone=payload.timezone,
         is_active=payload.is_active,
         context=payload.context,
-        summary_length=payload.summary_length
+        summary_length=payload.summary_length,
+        priority_media_list=payload.priority_media_list,
+        region_filter=payload.region_filter or "All",
+        intl_exceptions=payload.intl_exceptions
     )
     db.add(new_client)
     await db.commit()
@@ -181,7 +194,10 @@ async def create_client(
         sections=sections_response,
         last_run_at=None,
         context=new_client.context,
-        summary_length=new_client.summary_length
+        summary_length=new_client.summary_length,
+        priority_media_list=new_client.priority_media_list,
+        region_filter=new_client.region_filter or "All",
+        intl_exceptions=new_client.intl_exceptions
     )
 
 @router.put("/{client_id}", response_model=ClientResponse)
@@ -203,6 +219,9 @@ async def update_client(
     client.is_active = payload.is_active
     client.context = payload.context
     client.summary_length = payload.summary_length
+    client.priority_media_list = payload.priority_media_list
+    client.region_filter = payload.region_filter or "All"
+    client.intl_exceptions = payload.intl_exceptions
     
     # Update recipients (clear old first)
     await db.execute(delete(ClientRecipient).where(ClientRecipient.client_id == client_id))
@@ -252,7 +271,10 @@ async def update_client(
         sections=sections_response,
         last_run_at=client.last_run_at.isoformat() + ("Z" if client.last_run_at.tzinfo is None else "") if client.last_run_at else None,
         context=client.context,
-        summary_length=client.summary_length or 35
+        summary_length=client.summary_length or 35,
+        priority_media_list=client.priority_media_list,
+        region_filter=client.region_filter or "All",
+        intl_exceptions=client.intl_exceptions
     )
 
 @router.delete("/{client_id}")
@@ -394,6 +416,10 @@ async def get_client_run_logs(
                 log.generated_file_path if (log.generated_file_path and log.generated_file_path.startswith("https://"))
                 else (os.path.basename(log.generated_file_path) if log.generated_file_path else None)
             ),
+            generated_excel_path=(
+                log.generated_excel_path if (log.generated_excel_path and log.generated_excel_path.startswith("https://"))
+                else (os.path.basename(log.generated_excel_path) if log.generated_excel_path else None)
+            ),
             started_at=log.started_at.isoformat() + ("Z" if log.started_at.tzinfo is None else ""),
             completed_at=log.completed_at.isoformat() + ("Z" if log.completed_at.tzinfo is None else "") if log.completed_at else None
         )
@@ -437,15 +463,18 @@ async def download_report(
     if not os.path.exists(file_path):
         # Dynamically restore from DB if missing on disk
         async for session in get_db_yield():
+            is_xlsx = filename.endswith(".xlsx")
+            field_match = ClientRunLog.generated_excel_path if is_xlsx else ClientRunLog.generated_file_path
             res = await session.execute(
-                select(ClientRunLog).where(ClientRunLog.generated_file_path.like(f"%{filename}%"))
+                select(ClientRunLog).where(field_match.like(f"%{filename}%"))
             )
             run_log = res.scalar_one_or_none()
-            if run_log and run_log.generated_file_data:
+            file_data = run_log.generated_excel_data if is_xlsx else run_log.generated_file_data
+            if run_log and file_data:
                 try:
                     os.makedirs(reports_dir, exist_ok=True)
                     with open(file_path, "wb") as buffer:
-                        buffer.write(run_log.generated_file_data)
+                        buffer.write(file_data)
                     logger.info(f"Dynamically restored client report from DB: {file_path}")
                 except Exception as ex:
                     logger.error(f"Failed to restore client report from DB: {ex}")
@@ -454,8 +483,9 @@ async def download_report(
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
         
+    media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if filename.endswith(".xlsx") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     return FileResponse(
         file_path, 
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+        media_type=media_type, 
         filename=filename
     )

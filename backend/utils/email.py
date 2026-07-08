@@ -58,7 +58,6 @@ def send_report_email(recipient_emails: list, client_name: str, docx_path_filter
             f"NEXUS Global News Intelligence"
         )
         if html_body:
-            msg.attach(MIMEText(body, 'plain'))
             msg.attach(MIMEText(html_body, 'html'))
         else:
             msg.attach(MIMEText(body, 'plain'))
