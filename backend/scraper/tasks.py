@@ -2138,6 +2138,39 @@ def run_heavy_automation_task(company_id: int):
         pooja_non_priority_conf = getattr(company, "pooja_non_priority_conf", 7)
 
     try:
+        def save_intermediate_csv(filename, articles_list, extra_headers=[]):
+            import csv
+            reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+            os.makedirs(reports_dir, exist_ok=True)
+            file_path = os.path.join(reports_dir, filename)
+            headers = ["Title", "URL", "Agency", "Published_At"] + extra_headers
+            try:
+                with open(file_path, "w", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(headers)
+                    for a in articles_list:
+                        row = [
+                            a.get("title", ""),
+                            a.get("url", ""),
+                            a.get("agency", ""),
+                            str(a.get("published_at", ""))
+                        ]
+                        for h in extra_headers:
+                            if h == "Matched_Keyword":
+                                kw_hits = a.get("_keyword_hits", [])
+                                row.append(", ".join(kw_hits) if isinstance(kw_hits, list) else str(kw_hits))
+                            elif h == "Sector":
+                                row.append(a.get("_pillar", ""))
+                            elif h == "Sub_Category":
+                                row.append(a.get("_sub_category", ""))
+                            else:
+                                row.append("")
+                        writer.writerow(row)
+                return filename
+            except Exception as ex:
+                logger.error(f"Failed to save intermediate CSV {filename}: {ex}")
+                return None
+
         def _update_progress(msg: str):
             try:
                 with get_db_sync() as db:
@@ -2294,6 +2327,11 @@ def run_heavy_automation_task(company_id: int):
             logger.info(f"[Heavy] No articles fetched for {company_name}")
             return True
 
+        # Step 1: Save fetched articles
+        fetched_fn = f"Fetched_Articles_Run_{run_id}.csv"
+        save_intermediate_csv(fetched_fn, fetched)
+        _update_progress(f"Step 1: Fetched {len(fetched)} articles from Nexus feed. Downloadable output: /api/heavy-automation/reports/{fetched_fn}")
+
         # ─ Exact dedup ────────────────────────────────────────────────────────
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Exact dedup...")
         deduped_exact = exact_dedup(fetched)
@@ -2302,7 +2340,11 @@ def run_heavy_automation_task(company_id: int):
         # ─ Near-dup clustering ────────────────────────────────────────────────
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Near-dup clustering...")
         deduped = near_dedup(deduped_exact, threshold=0.80)
-        _update_progress(f"After near-dedup: {len(deduped)} articles")
+        
+        # Step 2: Save deduped articles
+        deduped_fn = f"Deduped_Articles_Run_{run_id}.csv"
+        save_intermediate_csv(deduped_fn, deduped)
+        _update_progress(f"Step 2: After deduplication: {len(deduped)} articles. Downloadable output: /api/heavy-automation/reports/{deduped_fn}")
 
         # ─ Filter articles using super-final CSV keywords + priority media list ────
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Filtering articles using Google_keywords_super_final.csv...")
@@ -2383,7 +2425,50 @@ def run_heavy_automation_task(company_id: int):
                             art_p["_source_type"] = "corporate"
                             corporate_articles.append(art_p)
             relevant = list(relevant_map.values())
-            _update_progress(f"Pooja folder filtering complete: found {len(relevant)} relevant articles.")
+            
+            # Step 3: Save Pooja-filtered articles (before Claude check)
+            pooja_filtered_fn = f"Pooja_Filtered_Articles_Run_{run_id}.csv"
+            save_intermediate_csv(pooja_filtered_fn, relevant, ["Matched_Keyword", "Sector", "Sub_Category"])
+            _update_progress(f"Step 3: Pooja filtered matches (before Claude check): {len(relevant)} articles. Downloadable output: /api/heavy-automation/reports/{pooja_filtered_fn}")
+            
+            # Send to Claude for keyword relevance check
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Sending {len(relevant)} articles to Claude to verify keyword relevance...")
+            from scraper.heavy_llm import verify_article_keyword_with_claude
+            
+            claude_verified = []
+            claude_log_lines = []
+            
+            for art in relevant:
+                title = art.get("title") or ""
+                kw_hits = art.get("_keyword_hits", [])
+                keyword = kw_hits[0] if (isinstance(kw_hits, list) and kw_hits) else str(kw_hits)
+                
+                is_valid = verify_article_keyword_with_claude(title, keyword)
+                if is_valid:
+                    claude_verified.append(art)
+                    claude_log_lines.append(f"[KEEP] Matched keyword '{keyword}' in title: {title}")
+                else:
+                    claude_log_lines.append(f"[DISCARD] Matched keyword '{keyword}' is irrelevant in title: {title}")
+            
+            # Save Claude verification trace logs separately
+            claude_log_fn = f"Claude_Verification_Log_Run_{run_id}.txt"
+            reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+            with open(os.path.join(reports_dir, claude_log_fn), "w", encoding="utf-8") as f:
+                f.write("\n".join(claude_log_lines))
+            
+            _update_progress(f"Step 3.5: Claude keyword verification complete. Discarded {len(relevant) - len(claude_verified)} irrelevant matches. Downloadable output: /api/heavy-automation/reports/{claude_log_fn}")
+            
+            # Rebuild relevant_map, corporate_articles, product_articles based on Claude verification
+            relevant_map = {a["url"]: a for a in claude_verified}
+            relevant = list(relevant_map.values())
+            
+            corporate_articles = [a for a in corporate_articles if a["url"] in relevant_map]
+            product_articles = [a for a in product_articles if a["url"] in relevant_map]
+            
+            # Step 4: Save Claude-verified articles
+            claude_verified_fn = f"Claude_Verified_Articles_Run_{run_id}.csv"
+            save_intermediate_csv(claude_verified_fn, relevant, ["Matched_Keyword", "Sector", "Sub_Category"])
+            _update_progress(f"Step 4: Claude verified relevant articles: {len(relevant)} articles. Downloadable output: /api/heavy-automation/reports/{claude_verified_fn}")
         else:
             # Counters for priority media list breakdown
             priority_total       = 0

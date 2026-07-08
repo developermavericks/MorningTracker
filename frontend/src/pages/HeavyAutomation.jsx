@@ -388,9 +388,37 @@ function RunHistory({ company }) {
                           </div>
                           <span style={{ fontSize: "9px", fontFamily: "monospace", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "1px", fontWeight: "700" }}>Trace Log</span>
                         </div>
-                        <pre style={{ margin: 0, padding: "10px", fontSize: "11px", color: "#34d399", fontFamily: "monospace", overflowX: "auto", maxHeight: "200px", overflowY: "auto", textAlign: "left", whiteSpace: "pre-wrap" }}>
-                          {pInfo.lines}
-                        </pre>
+                        <div style={{ margin: 0, padding: "10px", fontSize: "11px", color: "#34d399", fontFamily: "monospace", overflowX: "auto", maxHeight: "250px", overflowY: "auto", textAlign: "left", display: "flex", flexDirection: "column", gap: "6px" }}>
+                          {pInfo.lines.split("\n").map((line, lIdx) => {
+                            if (line.includes("Downloadable output:")) {
+                              const parts = line.split("Downloadable output:");
+                              const textPart = parts[0].trim();
+                              const pathPart = parts[1].trim();
+                              const filename = pathPart.split("/").pop();
+                              return (
+                                <div key={lIdx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", borderBottom: "1px dashed rgba(52,211,153,0.15)", paddingBottom: "4px" }}>
+                                  <span>{textPart}</span>
+                                  <button
+                                    onClick={() => handleDownloadReport(filename)}
+                                    style={{
+                                      background: "rgba(52,211,153,0.15)",
+                                      border: "1px solid rgba(52,211,153,0.45)",
+                                      color: "#34d399",
+                                      padding: "2px 8px",
+                                      borderRadius: "4px",
+                                      fontSize: "10px",
+                                      cursor: "pointer",
+                                      fontWeight: "700"
+                                    }}
+                                  >
+                                    📥 Download
+                                  </button>
+                                </div>
+                              );
+                            }
+                            return <div key={lIdx} style={{ whiteSpace: "pre-wrap" }}>{line}</div>;
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>

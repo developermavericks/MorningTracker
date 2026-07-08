@@ -357,3 +357,42 @@ Return ONLY the formatted takeaways."""
         system_prompt=system_prompt,
         max_tokens=1000
     )
+
+
+def verify_article_keyword_with_claude(title: str, matched_keyword: str) -> bool:
+    """
+    Asks Claude if the article title is truly relevant to the matched keyword.
+    Returns True if relevant, False otherwise.
+    """
+    system_prompt = "You are a precise news filtering assistant. Decide if the news article title is genuinely relevant to the matched keyword."
+    prompt = f"""Article Title: {title}
+Matched Keyword: {matched_keyword}
+
+Decide if this article is relevant. 
+
+CRITICAL RULE: If the article title directly mentions the company "Google" or its core products/executives (such as Android, YouTube, Pixel, Gemini, Waymo, Sundar Pichai), it is ALWAYS relevant (answer "yes").
+
+Otherwise, is it genuinely relevant to the matched keyword "{matched_keyword}"?
+
+Answer "yes" if:
+- It mentions Google, Android, YouTube, Pixel, Gemini, CCI cases involving Google, etc.
+- It is a genuine match for the keyword.
+
+Answer "no" ONLY if the match is a coincidental substring match, horoscope, or completely unrelated to Google (for example:
+- "nothing to fear" matching "nothing ear"
+- "opposition to" matching "oppo india"
+- "open letter" matching "open ai"
+- "Gemini horoscope/astrology"
+- "skills" matching "skills india"
+- "policy" matching "ai policy india" when it is about land-use).
+
+Answer with ONLY "yes" or "no"."""
+
+    resp = _call_claude([{"role": "user", "content": prompt}], system_prompt=system_prompt, max_tokens=10, temperature=0.1)
+    if not resp:
+        # If Claude fails, try Hugging Face fallback
+        resp = _call_llm([{"role": "user", "content": prompt}], system_prompt=system_prompt, max_tokens=10, temperature=0.1)
+        
+    if resp:
+        return "yes" in resp.lower()
+    return True  # fallback to keeping the article if LLM call fails completely
