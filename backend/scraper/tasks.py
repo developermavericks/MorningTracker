@@ -1170,7 +1170,8 @@ def run_client_report_task(client_id: int):
                                     "url": existing_article.resolved_url or existing_article.url,
                                     "agency": existing_article.agency or agency,
                                     "summary": existing_article.summary,
-                                    "publication_category": pub_category
+                                    "publication_category": pub_category,
+                                    "published_at": existing_article.published_at.isoformat() if existing_article.published_at else None
                                 },
                                 "is_relevant_kw": True,
                                 "is_semantic_relevant": True
@@ -1265,7 +1266,8 @@ def run_client_report_task(client_id: int):
                                     "agency": existing_article.agency or agency,
                                     "summary": existing_article.summary,
                                     "publication_category": pub_category,
-                                    "is_paywalled": False
+                                    "is_paywalled": False,
+                                    "published_at": existing_article.published_at.isoformat() if existing_article.published_at else None
                                 },
                                 "is_relevant_kw": True,
                                 "is_semantic_relevant": True
@@ -1624,6 +1626,17 @@ def run_client_report_task(client_id: int):
                     from scraper.search_utils import match_publication_category
                     pub_category = match_publication_category(agency, resolved_url)
                     extra_meta["publication_category"] = pub_category
+                    
+                    # Parse RSS published date
+                    pub_at_dt = None
+                    pub_at_str = art.get("published_at")
+                    if pub_at_str:
+                        try:
+                            pub_at_dt = datetime.fromisoformat(pub_at_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                        except Exception:
+                            pass
+                    if not pub_at_dt:
+                        pub_at_dt = datetime.now()
                         
                     # 10. Cache to DB
                     try:
@@ -1635,7 +1648,7 @@ def run_client_report_task(client_id: int):
                             "summary": summary_text,
                             "author": author_name,
                             "agency": agency,
-                            "published_at": datetime.now(),
+                            "published_at": pub_at_dt,
                             "sector": f"{client_name} - {section_name}",
                             "region": "india",
                             "user_id": f"client_{client_id}",
@@ -1663,7 +1676,8 @@ def run_client_report_task(client_id: int):
                         "agency": agency,
                         "summary": summary_text,
                         "publication_category": pub_category,
-                        "is_paywalled": False
+                        "is_paywalled": False,
+                        "published_at": pub_at_dt.isoformat()
                     }
                     
                     return {

@@ -349,7 +349,7 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
                 pub_name = art.get("agency") or "Unknown Publication"
                 pub_author = art.get("author") or art.get("journalist")
                 if not pub_author or str(pub_author).strip().upper() in ("N/A", "NONE", "NULL", ""):
-                    pub_author = f"syndicated by the {pub_name}"
+                    pub_author = "N/A"
                 
                 pub_date = art.get("published_at")
                 
@@ -414,6 +414,9 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
         bottom=Side(style='thin', color='D3D3D3')
     )
 
+    is_client_report = (report_type == "Client Intelligence Report")
+    max_cols = 6 if is_client_report else 7
+
     # 1. Title Block
     ws.cell(row=1, column=1, value=f"NEXUS NEWS BRIEFING: {report_type.upper()}").font = title_font
     ws.cell(row=2, column=1, value=f"Date: {date_str} | Generated for {client_name}").font = subtitle_font
@@ -431,6 +434,8 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
         "Relevance score",
         "Summary of the article"
     ]
+    if is_client_report:
+        headers.remove("Relevance score")
 
     # 2. Iterate through sections
     for master, subs in grouped_data.items():
@@ -440,7 +445,7 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
             continue
 
         # Add Master Heading Row (Merged A to G)
-        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols)
         c_master = ws.cell(row=current_row, column=1, value=master)
         c_master.font = master_font
         c_master.fill = master_fill
@@ -453,7 +458,7 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
                 continue
 
             # Add Sub Heading Row (Merged A to G)
-            ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
+            ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols)
             c_sub = ws.cell(row=current_row, column=1, value=sub)
             c_sub.font = sub_font
             c_sub.fill = sub_fill
@@ -500,29 +505,38 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
                 # Author fallback check
                 author_val = str(author).strip()
                 if not author_val or author_val.upper() in ("N/A", "NONE", "NULL", ""):
-                    author_val = f"syndicated by the {pub_name}"
+                    if is_client_report:
+                        author_val = "N/A"
+                    else:
+                        author_val = f"syndicated by the {pub_name}"
                 c_author = ws.cell(row=current_row, column=3, value=author_val)
                 
                 c_pub = ws.cell(row=current_row, column=4, value=pub_name)
                 c_date = ws.cell(row=current_row, column=5, value=date_text)
                 
-                c_score = ws.cell(row=current_row, column=6, value=score_text)
-                c_score.alignment = Alignment(horizontal="center")
+                if not is_client_report:
+                    c_score = ws.cell(row=current_row, column=6, value=score_text)
+                    c_score.alignment = Alignment(horizontal="center")
                 
+                if is_client_report:
+                    summary_col = 6
+                else:
+                    summary_col = 7
                 summary_text = art.get("summary") or art.get("_summary") or art.get("full_body") or ""
-                c_summary = ws.cell(row=current_row, column=7, value=summary_text)
+                c_summary = ws.cell(row=current_row, column=summary_col, value=summary_text)
 
                 # Borders and alignment
-                for col_idx in range(1, 8):
+                for col_idx in range(1, max_cols + 1):
                     c = ws.cell(row=current_row, column=col_idx)
                     c.border = thin_border
                     if col_idx == 1:
                         pass
-                    elif col_idx == 6:
-                        c.font = data_font
-                    elif col_idx == 7:
+                    elif col_idx == max_cols:
                         c.font = data_font
                         c.alignment = Alignment(vertical="center", wrap_text=True)
+                    elif not is_client_report and col_idx == 6:
+                        c.font = data_font
+                        c.alignment = Alignment(horizontal="center", vertical="center")
                     else:
                         c.font = data_font
                         c.alignment = Alignment(vertical="center", wrap_text=False)
@@ -539,8 +553,11 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
     ws.column_dimensions["C"].width = 25  # Author
     ws.column_dimensions["D"].width = 25  # Publication Name
     ws.column_dimensions["E"].width = 15  # Date
-    ws.column_dimensions["F"].width = 15  # Relevance Score
-    ws.column_dimensions["G"].width = 60  # Summary of the article
+    if is_client_report:
+        ws.column_dimensions["F"].width = 60  # Summary
+    else:
+        ws.column_dimensions["F"].width = 15  # Relevance Score
+        ws.column_dimensions["G"].width = 60  # Summary
 
     wb.save(output_path)
     return output_path
