@@ -518,6 +518,7 @@ async def init_db():
             if "postgresql" in engine.url.drivername:
                 await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS search_mode VARCHAR DEFAULT 'title'"))
                 await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS pooja_algo_enabled BOOLEAN DEFAULT FALSE"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS pooja_folder_filtering_enabled BOOLEAN DEFAULT FALSE"))
                 await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS email_send_reports BOOLEAN DEFAULT TRUE"))
                 await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS email_send_html BOOLEAN DEFAULT FALSE"))
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
@@ -535,6 +536,9 @@ async def init_db():
                 except Exception: pass
                 try:
                     await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN pooja_algo_enabled BOOLEAN DEFAULT FALSE"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN pooja_folder_filtering_enabled BOOLEAN DEFAULT FALSE"))
                 except Exception: pass
                 try:
                     await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN email_send_reports BOOLEAN DEFAULT TRUE"))
@@ -883,12 +887,14 @@ def init_db_sync():
             if "postgresql" in engine_sync.url.drivername:
                 conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE"))
                 conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS llm_judge_enabled BOOLEAN DEFAULT TRUE"))
+                conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS pooja_folder_filtering_enabled BOOLEAN DEFAULT FALSE"))
                 conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
                 conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN IF NOT EXISTS bucket VARCHAR"))
             else:
                 for col_sql in [
                     "ALTER TABLE heavy_companies ADD COLUMN updated_at DATETIME",
                     "ALTER TABLE heavy_companies ADD COLUMN llm_judge_enabled BOOLEAN DEFAULT 1",
+                    "ALTER TABLE heavy_companies ADD COLUMN pooja_folder_filtering_enabled BOOLEAN DEFAULT 0",
                     "ALTER TABLE heavy_runs ADD COLUMN email_status VARCHAR",
                     "ALTER TABLE heavy_run_articles ADD COLUMN bucket VARCHAR",
                 ]:
