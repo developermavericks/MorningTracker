@@ -257,12 +257,12 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
         month_year_str = datetime.now().strftime("%B %Y")
         file_name = f"{client_name}{doc_suffix} - {month_year_str}"
         
-        # Search for an existing monthly Google Doc inside the client's folder
-        query = f"name = '{file_name}' and mimeType = 'application/vnd.google-apps.document' and '{folder_id}' in parents and trashed = false"
+        # Search for an existing monthly Google Doc or docx inside the client's folder
+        query = f"name = '{file_name}' and (mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') and '{folder_id}' in parents and trashed = false"
         results = service.files().list(
             q=query, 
             spaces='drive', 
-            fields='files(id, webViewLink)',
+            fields='files(id, webViewLink, mimeType)',
             supportsAllDrives=True,
             includeItemsFromAllDrives=True
         ).execute()
@@ -275,21 +275,27 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
             # Monthly document already exists -> Export, Merge, and Update in-place
             doc_id = files[0]['id']
             web_link = files[0]['webViewLink']
-            logger.info(f"Monthly document exists: ID {doc_id}. Initiating daily append merge...")
+            mime_type = files[0].get('mimeType')
+            logger.info(f"Monthly document exists: ID {doc_id} ({mime_type}). Initiating daily append merge...")
             
             temp_existing_path = docx_path + ".existing.docx"
             temp_combined_path = docx_path + ".combined.docx"
             
             media = None
             try:
-                # 1. Export Google Doc as a local DOCX using downloader
+                # 1. Export Google Doc or download standard binary file using downloader
                 from googleapiclient.http import MediaIoBaseDownload
                 import io
                 
-                export_request = service.files().export_media(
-                    fileId=doc_id, 
-                    mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                )
+                if mime_type == 'application/vnd.google-apps.document':
+                    export_request = service.files().export_media(
+                        fileId=doc_id, 
+                        mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                    )
+                else:
+                    export_request = service.files().get_media(
+                        fileId=doc_id
+                    )
                 fh = io.BytesIO()
                 downloader = MediaIoBaseDownload(fh, export_request)
                 done = False
@@ -334,7 +340,7 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
             logger.info(f"Creating new monthly Google Doc: {file_name}")
             file_metadata = {
                 'name': file_name,
-                'mimeType': 'application/vnd.google-apps.document'
+                'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
             }
             if folder_id:
                 file_metadata['parents'] = [folder_id]
