@@ -1698,6 +1698,7 @@ def run_client_report_task(client_id: int):
             processed_count = 0
             
             # Run up to 8 threads per section (sections now run in parallel, so 8 keeps total threads safe)
+            seen_resolved_urls = set()
             with ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(_process_single_article, t): t for t in art_tuples}
                 for future in as_completed(futures):
@@ -1709,6 +1710,16 @@ def run_client_report_task(client_id: int):
                             art_data = res["art_data"]
                             is_relevant_kw = res["is_relevant_kw"]
                             is_semantic_relevant = res["is_semantic_relevant"]
+                            
+                            # Deduplicate resolved/normalized URL within this section
+                            from scraper.search_utils import normalize_url
+                            resolved_url = art_data.get("url")
+                            norm_resolved = normalize_url(resolved_url) if resolved_url else ""
+                            if norm_resolved:
+                                if norm_resolved in seen_resolved_urls:
+                                    logger.info(f"Skipping duplicate resolved article within section: {art_data['title']}")
+                                    continue
+                                seen_resolved_urls.add(norm_resolved)
                             
                             if is_relevant_kw:
                                 master_section_articles.append(art_data)
@@ -1759,8 +1770,9 @@ def run_client_report_task(client_id: int):
             )
             return section_name, filtered_section_articles, master_section_articles
 
-        # Run all sections in parallel — all sections start simultaneously
         active_processing_sections = {sn: kw for sn, kw in sections_data.items() if kw}
+        temp_filtered = {}
+        temp_master = {}
         sec_workers = min(len(active_processing_sections), 5)
         with ThreadPoolExecutor(max_workers=sec_workers) as sec_exe:
             sec_futures = {
@@ -1770,10 +1782,14 @@ def run_client_report_task(client_id: int):
             for fut in as_completed(sec_futures):
                 try:
                     sn, filtered, master = fut.result()
-                    report_data_filtered[sn] = filtered
-                    report_data_master[sn] = master
+                    temp_filtered[sn] = filtered
+                    temp_master[sn] = master
                 except Exception as sec_err:
                     logger.error(f"Section processing failed: {sec_err}", exc_info=True)
+
+        # Re-align report dictionaries to the original database configuration order
+        report_data_filtered = {sn: temp_filtered[sn] for sn in sections_data if sn in temp_filtered}
+        report_data_master = {sn: temp_master[sn] for sn in sections_data if sn in temp_master}
 
         # Check if we got any articles at all
         total_filtered_count = sum(len(articles) for articles in report_data_filtered.values())
