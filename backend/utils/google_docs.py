@@ -320,11 +320,9 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     resumable=True
                 )
-                update_body = {'mimeType': 'application/vnd.google-apps.document'}
 
                 service.files().update(
                     fileId=doc_id,
-                    body=update_body,
                     media_body=media,
                     supportsAllDrives=True
                 ).execute()
