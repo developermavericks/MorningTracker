@@ -178,6 +178,7 @@ class Client(Base):
     priority_media_list: Mapped[Optional[str]] = mapped_column(Text)
     region_filter: Mapped[str] = mapped_column(String, default="All", server_default="All")
     intl_exceptions: Mapped[Optional[str]] = mapped_column(Text)
+    cumulative_sheet_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 class ClientSection(Base):
     __tablename__ = "client_sections"
@@ -208,6 +209,7 @@ class ClientRunLog(Base):
     generated_file_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     generated_excel_path: Mapped[Optional[str]] = mapped_column(Text)
     generated_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    cumulative_sheet_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
@@ -903,6 +905,22 @@ def init_db_sync():
                     except Exception: pass
     except Exception as e:
         print(f"Sync Migration Notice (Heavy Automation Schema): {e}")
+
+    # Automated migration: Add cumulative_sheet_url to clients and client_run_logs
+    try:
+        with engine_sync.begin() as conn:
+            if "postgresql" in engine_sync.url.drivername:
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS cumulative_sheet_url VARCHAR"))
+                conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS cumulative_sheet_url VARCHAR"))
+            else:
+                try:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN cumulative_sheet_url VARCHAR"))
+                except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN cumulative_sheet_url VARCHAR"))
+                except Exception: pass
+    except Exception as e:
+        print(f"Sync Migration Notice (Cumulative Sheet Schema): {e}")
 
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 

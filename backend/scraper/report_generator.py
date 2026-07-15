@@ -86,6 +86,13 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
 
     if template_path and os.path.exists(template_path):
         doc = Document(template_path)
+        # Safely clear all body elements (paragraphs, tables, etc.) to strip existing old articles/text,
+        # but keep the section properties (sectPr) so margins, headers, footers and page sizes are preserved.
+        body = doc.element.body
+        for child in list(body):
+            if child.tag.endswith('sectPr'):
+                continue
+            body.remove(child)
     else:
         doc = Document()
         

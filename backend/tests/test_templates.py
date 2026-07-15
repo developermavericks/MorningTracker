@@ -75,17 +75,27 @@ def test_duplicate_paragraphs_merging(tmp_path):
     temp_doc.add_paragraph("Template Logo Placeholder")
     temp_doc.save(template_file)
     
-    # 2. Create daily briefing 1 (which includes 2 template paragraphs + 1 article paragraph)
+    # 2. Create daily briefing 1 using generate_docx_report (which clears template text)
     daily_file = os.path.join(tmp_path, "daily_briefing.docx")
-    daily_doc = Document(template_file)
-    daily_doc.add_paragraph("Today's News Article 1")
-    daily_doc.save(daily_file)
+    daily_data = {"Section A": [{"title": "Today's News Article 1", "url": "http://test.com", "summary": "Summary 1"}]}
+    generate_docx_report(
+        client_name="Test Client",
+        date_str="2026-07-15",
+        data=daily_data,
+        output_path=daily_file,
+        template_path=template_file
+    )
     
-    # 3. Create existing monthly file (which includes 2 template paragraphs + 1 yesterday's article paragraph)
+    # 3. Create existing monthly file using generate_docx_report
     monthly_file = os.path.join(tmp_path, "monthly_archive.docx")
-    monthly_doc = Document(template_file)
-    monthly_doc.add_paragraph("Yesterday's News Article 2")
-    monthly_doc.save(monthly_file)
+    monthly_data = {"Section A": [{"title": "Yesterday's News Article 2", "url": "http://test.com", "summary": "Summary 2"}]}
+    generate_docx_report(
+        client_name="Test Client",
+        date_str="2026-07-14",
+        data=monthly_data,
+        output_path=monthly_file,
+        template_path=template_file
+    )
     
     # 4. Merge them using merge_docx_files, passing the template_path
     combined_file = os.path.join(tmp_path, "combined.docx")
@@ -95,15 +105,8 @@ def test_duplicate_paragraphs_merging(tmp_path):
     combined_doc = Document(combined_file)
     paragraphs = [p.text for p in combined_doc.paragraphs if p.text.strip()]
     
-    # Expected:
-    # 1. Template Header (from combined base)
-    # 2. Template Logo Placeholder (from combined base)
-    # 3. Today's News Article 1 (from combined base)
-    # 4. Separation line (from merge script)
-    # 5. Yesterday's News Article 2 (copied, template paragraphs skipped!)
-    
-    # Check that "Template Header" and "Template Logo Placeholder" appear EXACTLY once!
-    assert paragraphs.count("Template Header") == 1
-    assert paragraphs.count("Template Logo Placeholder") == 1
-    assert "Today's News Article 1" in paragraphs
-    assert "Yesterday's News Article 2" in paragraphs
+    # Check that "Template Header" and "Template Logo Placeholder" are stripped, but articles are present
+    assert not any("Template Header" in p for p in paragraphs)
+    assert not any("Template Logo Placeholder" in p for p in paragraphs)
+    assert any("Today's News Article 1" in p for p in paragraphs)
+    assert any("Yesterday's News Article 2" in p for p in paragraphs)

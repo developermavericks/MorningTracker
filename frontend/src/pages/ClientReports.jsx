@@ -515,6 +515,7 @@ export default function ClientReports() {
                 <th style={{ padding: "16px", fontSize: "12px", fontWeight: "800", color: "var(--text-muted)", textTransform: "uppercase" }}>Schedule</th>
                 <th style={{ padding: "16px", fontSize: "12px", fontWeight: "800", color: "var(--text-muted)", textTransform: "uppercase" }}>Sections & Keywords</th>
                 <th style={{ padding: "16px", fontSize: "12px", fontWeight: "800", color: "var(--text-muted)", textTransform: "uppercase" }}>Template</th>
+                <th style={{ padding: "16px", fontSize: "12px", fontWeight: "800", color: "var(--text-muted)", textTransform: "uppercase" }}>Cumulative Sheet</th>
                 <th style={{ padding: "16px", fontSize: "12px", fontWeight: "800", color: "var(--text-muted)", textTransform: "uppercase" }}>Last Execution</th>
                 <th style={{ padding: "16px", fontSize: "12px", fontWeight: "800", color: "var(--text-muted)", textTransform: "uppercase", textAlign: "right" }}>Actions</th>
               </tr>
@@ -611,6 +612,28 @@ export default function ClientReports() {
                           />
                         </label>
                       </div>
+                    )}
+                  </td>
+                  {/* Cumulative Sheet */}
+                  <td style={{ padding: "16px" }}>
+                    {client.cumulative_sheet_url ? (
+                      <a
+                        href={client.cumulative_sheet_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          color: "#10b981",
+                          fontWeight: "700",
+                          textDecoration: "underline",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px"
+                        }}
+                      >
+                        🟢 Open Sheet
+                      </a>
+                    ) : (
+                      <span style={{ color: "var(--text-muted)", fontSize: "13px" }}>Not generated yet</span>
                     )}
                   </td>
                   {/* Last Run Time */}
@@ -1028,6 +1051,37 @@ export default function ClientReports() {
                       }}
                     >
                       📊 Download Excel Briefing
+                    </button>
+                  )}
+
+                  {log.cumulative_sheet_url && (
+                    <button
+                      onClick={() => window.open(log.cumulative_sheet_url, "_blank")}
+                      className="btn btn-secondary"
+                      style={{ 
+                        width: "100%", 
+                        padding: "8px", 
+                        fontSize: "12px", 
+                        textAlign: "center",
+                        background: "rgba(34, 197, 94, 0.15)",
+                        border: "1px solid rgba(34, 197, 94, 0.35)",
+                        color: "#fff",
+                        fontWeight: "600",
+                        borderRadius: "8px",
+                        cursor: "pointer",
+                        transition: "all 0.25s",
+                        marginTop: "8px"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(34, 197, 94, 0.25)";
+                        e.currentTarget.style.borderColor = "var(--success)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(34, 197, 94, 0.15)";
+                        e.currentTarget.style.borderColor = "rgba(34, 197, 94, 0.35)";
+                      }}
+                    >
+                      🟢 View Cumulative Sheet
                     </button>
                   )}
                 </div>
