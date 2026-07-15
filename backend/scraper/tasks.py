@@ -1673,6 +1673,7 @@ def run_client_report_task(client_id: int):
                     art_data = {
                         "title": title,
                         "url": resolved_url,
+                        "author": author_name,
                         "agency": agency,
                         "summary": summary_text,
                         "publication_category": pub_category,
