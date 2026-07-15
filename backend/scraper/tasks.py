@@ -1759,8 +1759,9 @@ def run_client_report_task(client_id: int):
             )
             return section_name, filtered_section_articles, master_section_articles
 
-        # Run all sections in parallel — all sections start simultaneously
         active_processing_sections = {sn: kw for sn, kw in sections_data.items() if kw}
+        temp_filtered = {}
+        temp_master = {}
         sec_workers = min(len(active_processing_sections), 5)
         with ThreadPoolExecutor(max_workers=sec_workers) as sec_exe:
             sec_futures = {
@@ -1770,10 +1771,14 @@ def run_client_report_task(client_id: int):
             for fut in as_completed(sec_futures):
                 try:
                     sn, filtered, master = fut.result()
-                    report_data_filtered[sn] = filtered
-                    report_data_master[sn] = master
+                    temp_filtered[sn] = filtered
+                    temp_master[sn] = master
                 except Exception as sec_err:
                     logger.error(f"Section processing failed: {sec_err}", exc_info=True)
+
+        # Re-align report dictionaries to the original database configuration order
+        report_data_filtered = {sn: temp_filtered[sn] for sn in sections_data if sn in temp_filtered}
+        report_data_master = {sn: temp_master[sn] for sn in sections_data if sn in temp_master}
 
         # Check if we got any articles at all
         total_filtered_count = sum(len(articles) for articles in report_data_filtered.values())
