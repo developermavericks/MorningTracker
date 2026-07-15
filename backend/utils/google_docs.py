@@ -102,6 +102,12 @@ def merge_docx_files(new_docx_path: str, existing_docx_path: str, output_path: s
     if template_path and os.path.exists(template_path):
         try:
             temp_doc = Document(template_path)
+            # Safely clear body elements except sectPr to get the correct cleared paragraph count (which should be 0)
+            body = temp_doc.element.body
+            for child in list(body):
+                if child.tag.endswith('sectPr'):
+                    continue
+                body.remove(child)
             N_temp = len(temp_doc.paragraphs)
         except Exception as e:
             logger.error(f"Failed to read template paragraphs: {e}")
@@ -310,10 +316,11 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
                 
                 # 3. Update the existing Google Doc content
                 media = MediaFileUpload(
-                    temp_combined_path, 
-                    mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
+                    temp_combined_path,
+                    mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     resumable=True
                 )
+
                 service.files().update(
                     fileId=doc_id,
                     media_body=media,
@@ -340,7 +347,7 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
             logger.info(f"Creating new monthly Google Doc: {file_name}")
             file_metadata = {
                 'name': file_name,
-                'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                'mimeType': 'application/vnd.google-apps.document'
             }
             if folder_id:
                 file_metadata['parents'] = [folder_id]
@@ -406,4 +413,306 @@ def upload_docx_to_google_doc(docx_path: str, client_name: str, date_str: str, r
         
     except Exception as e:
         logger.error(f"Failed to upload report to Google Docs: {e}", exc_info=True)
+        return None
+
+def write_articles_to_sheet(ws, date_str, client_name, grouped_data):
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    
+    # Style definitions (Steel Blue & Ice Blue theme)
+    master_fill = PatternFill(start_color="365F91", end_color="365F91", fill_type="solid")
+    master_font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
+    
+    table_header_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    table_header_font = Font(name="Calibri", size=10, bold=True, color="000000")
+    
+    data_font = Font(name="Calibri", size=10)
+    link_font = Font(name="Calibri", size=10, color="0000FF", underline="single")
+    title_font = Font(name="Calibri", size=14, bold=True, color="365F91")
+    subtitle_font = Font(name="Calibri", size=11, italic=True)
+
+    thin_border = Border(
+        left=Side(style='thin', color='D3D3D3'),
+        right=Side(style='thin', color='D3D3D3'),
+        top=Side(style='thin', color='D3D3D3'),
+        bottom=Side(style='thin', color='D3D3D3')
+    )
+
+    max_cols = 6 # Link, Title, Author, Publication, Date, Summary
+
+    # Title Block
+    ws.cell(row=1, column=1, value="NEXUS NEWS BRIEFING: CUMULATIVE REPORT").font = title_font
+    ws.cell(row=2, column=1, value=f"Date: {date_str} | Generated for {client_name}").font = subtitle_font
+    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[2].height = 20
+
+    current_row = 4
+
+    headers = [
+        "Link of the article",
+        "Title of the article",
+        "Author of the article",
+        "Name of publication",
+        "Time of publishing",
+        "Summary of the article"
+    ]
+
+    # Iterate through sections
+    for section_name, articles in grouped_data.items():
+        if not articles:
+            continue
+
+        # Add Section Heading Row (Merged A to F)
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols)
+        c_master = ws.cell(row=current_row, column=1, value=section_name)
+        c_master.font = master_font
+        c_master.fill = master_fill
+        c_master.alignment = Alignment(vertical="center", indent=1)
+        ws.row_dimensions[current_row].height = 26
+        current_row += 1
+
+        # Add Table Headers for the nested table
+        for col_idx, h in enumerate(headers, start=1):
+            cell = ws.cell(row=current_row, column=col_idx, value=h)
+            cell.fill = table_header_fill
+            cell.font = table_header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = thin_border
+        ws.row_dimensions[current_row].height = 20
+        current_row += 1
+
+        # Add articles
+        for art in articles:
+            title = art.get("title", "Untitled Article")
+            url = art.get("url") or art.get("resolved_url") or "#"
+            author = art.get("author") or "N/A"
+            pub_name = art.get("agency") or "Unknown Publication"
+            pub_date = art.get("published_at")
+            
+            date_text = "N/A"
+            if pub_date:
+                if isinstance(pub_date, str):
+                    date_text = pub_date[:10]
+                else:
+                    date_text = pub_date.strftime("%Y-%m-%d")
+
+            # Write values
+            c_link = ws.cell(row=current_row, column=1, value="Link")
+            c_link.hyperlink = url
+            c_link.font = link_font
+            c_link.alignment = Alignment(horizontal="center")
+            
+            c_title = ws.cell(row=current_row, column=2, value=title)
+            
+            author_val = str(author).strip()
+            if not author_val or author_val.upper() in ("N/A", "NONE", "NULL", ""):
+                author_val = "N/A"
+            c_author = ws.cell(row=current_row, column=3, value=author_val)
+            
+            c_pub = ws.cell(row=current_row, column=4, value=pub_name)
+            c_date = ws.cell(row=current_row, column=5, value=date_text)
+            
+            summary_text = art.get("summary") or art.get("_summary") or art.get("full_body") or ""
+            c_summary = ws.cell(row=current_row, column=6, value=summary_text)
+
+            # Borders and alignment
+            for col_idx in range(1, max_cols + 1):
+                c = ws.cell(row=current_row, column=col_idx)
+                c.border = thin_border
+                c.font = data_font
+                if col_idx == 1:
+                    pass
+                elif col_idx == max_cols:
+                    c.alignment = Alignment(vertical="center", wrap_text=True)
+                else:
+                    c.alignment = Alignment(vertical="center", wrap_text=False)
+
+            ws.row_dimensions[current_row].height = 20
+            current_row += 1
+
+        # Empty row for breathing space
+        current_row += 1
+
+    # Set column widths
+    ws.column_dimensions["A"].width = 15  # Link
+    ws.column_dimensions["B"].width = 50  # Title
+    ws.column_dimensions["C"].width = 25  # Author
+    ws.column_dimensions["D"].width = 25  # Publication Name
+    ws.column_dimensions["E"].width = 15  # Date
+    ws.column_dimensions["F"].width = 60  # Summary
+
+def upload_cumulative_excel_to_google_sheet(grouped_data: dict, client_name: str, date_str: str, recipients: list) -> str:
+    """
+    Creates or updates a cumulative Excel sheet stored on Google Drive (.xlsx format, openable via Google Sheets).
+    Daily run articles are added into a separate tab named after the execution date.
+    Shares the sheet with the list of recipient emails.
+    Returns the URL link to the sheet.
+    """
+    service = get_drive_service()
+    if not service:
+        return None
+        
+    try:
+        folder_id = get_or_create_reports_folder(service, client_name)
+        file_name = f"{client_name} - Cumulative Filtered Articles"
+        
+        # Search for an existing cumulative sheet inside the client's folder
+        query = f"name = '{file_name}' and mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' and '{folder_id}' in parents and trashed = false"
+        results = service.files().list(
+            q=query, 
+            spaces='drive', 
+            fields='files(id, webViewLink)',
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        files = results.get('files', [])
+        
+        sheet_id = None
+        web_link = None
+        
+        import openpyxl
+        temp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+        os.makedirs(temp_dir, exist_ok=True)
+        local_path = os.path.join(temp_dir, f"Cumulative_{client_name.replace(' ', '_')}.xlsx")
+        
+        if files:
+            sheet_id = files[0]['id']
+            web_link = files[0]['webViewLink']
+            logger.info(f"Cumulative sheet exists: ID {sheet_id}. Downloading for daily tab append...")
+            
+            temp_existing_path = local_path + ".existing.xlsx"
+            
+            media = None
+            try:
+                # 1. Download standard binary excel file
+                from googleapiclient.http import MediaIoBaseDownload
+                import io
+                
+                request = service.files().get_media(fileId=sheet_id)
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+                    
+                with open(temp_existing_path, "wb") as f:
+                    f.write(fh.getvalue())
+                
+                # 2. Open and add/overwrite today's date tab
+                wb = openpyxl.load_workbook(temp_existing_path)
+                
+                # Remove if tab already exists to avoid duplicate tabs for the same date
+                if date_str in wb.sheetnames:
+                    wb.remove(wb[date_str])
+                    
+                # Create sheet tab (position 0 to show newest date first)
+                ws = wb.create_sheet(title=date_str, index=0)
+                write_articles_to_sheet(ws, date_str, client_name, grouped_data)
+                
+                wb.save(local_path)
+                
+                # 3. Update the existing file content on Google Drive
+                media = MediaFileUpload(
+                    local_path, 
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
+                    resumable=True
+                )
+                service.files().update(
+                    fileId=sheet_id,
+                    media_body=media,
+                    supportsAllDrives=True
+                ).execute()
+                logger.info(f"Successfully appended today's tab to cumulative sheet: {file_name}")
+                
+            except Exception as merge_err:
+                logger.error(f"Failed to merge with existing cumulative sheet: {merge_err}", exc_info=True)
+            finally:
+                if media and hasattr(media, '_fd') and media._fd:
+                    try: media._fd.close()
+                    except: pass
+                if os.path.exists(temp_existing_path):
+                    try: os.remove(temp_existing_path)
+                    except: pass
+                if os.path.exists(local_path):
+                    try: os.remove(local_path)
+                    except: pass
+        
+        if not sheet_id:
+            logger.info(f"Creating new cumulative spreadsheet: {file_name}")
+            wb = openpyxl.Workbook()
+            # Rename default sheet
+            ws = wb.active
+            ws.title = date_str
+            write_articles_to_sheet(ws, date_str, client_name, grouped_data)
+            
+            wb.save(local_path)
+            
+            file_metadata = {
+                'name': file_name,
+                'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            }
+            if folder_id:
+                file_metadata['parents'] = [folder_id]
+                
+            media = None
+            try:
+                media = MediaFileUpload(
+                    local_path, 
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
+                    resumable=True
+                )
+                uploaded_file = service.files().create(
+                    body=file_metadata, 
+                    media_body=media, 
+                    fields='id, webViewLink',
+                    supportsAllDrives=True
+                ).execute()
+                
+                sheet_id = uploaded_file.get('id')
+                web_link = uploaded_file.get('webViewLink')
+                logger.info(f"Created cumulative sheet ID: {sheet_id}")
+            finally:
+                if media and hasattr(media, '_fd') and media._fd:
+                    try: media._fd.close()
+                    except: pass
+                if os.path.exists(local_path):
+                    try: os.remove(local_path)
+                    except: pass
+                    
+        # Share spreadsheet with recipients
+        for email in recipients:
+            if not email:
+                continue
+            try:
+                user_permission = {
+                    'type': 'user',
+                    'role': 'writer',
+                    'emailAddress': email
+                }
+                service.permissions().create(
+                    fileId=sheet_id, 
+                    body=user_permission, 
+                    sendNotificationEmails=False,
+                    supportsAllDrives=True
+                ).execute()
+            except Exception:
+                pass
+                
+        # Make document publicly readable via link (Anyone can view)
+        try:
+            public_permission = {
+                'type': 'anyone',
+                'role': 'reader'
+            }
+            service.permissions().create(
+                fileId=sheet_id,
+                body=public_permission,
+                supportsAllDrives=True
+            ).execute()
+        except Exception:
+            pass
+            
+        return web_link
+        
+    except Exception as e:
+        logger.error(f"Failed to upload cumulative sheet to Google Drive: {e}", exc_info=True)
         return None

@@ -1862,6 +1862,23 @@ def run_client_report_task(client_id: int):
             except Exception as e:
                 logger.error(f"Failed to upload Master report to Google Docs: {e}")
                 
+        # 7.5 Generate and Upload Cumulative Excel to Google Sheets
+        cumulative_sheet_url = None
+        if has_articles:
+            _update_progress("Uploading Cumulative Spreadsheet tab to Google Drive...")
+            logger.info("Uploading Cumulative Spreadsheet tab to Google Drive...")
+            try:
+                from utils.google_docs import upload_cumulative_excel_to_google_sheet
+                date_str_tab = datetime.now().strftime("%Y-%m-%d")
+                cumulative_sheet_url = upload_cumulative_excel_to_google_sheet(
+                    grouped_data=report_data_filtered,
+                    client_name=client_name,
+                    date_str=date_str_tab,
+                    recipients=all_emails
+                )
+            except Exception as e:
+                logger.error(f"Failed to upload Cumulative report to Google Sheets: {e}")
+
         # 8. Send Email notification
         _update_progress("Sending daily briefing email...")
         logger.info(f"Sending report email to: {all_emails}")
@@ -1873,7 +1890,8 @@ def run_client_report_task(client_id: int):
             excel_path_master=excel_path,  # Attach Excel Briefing report
             google_doc_url_filtered=google_doc_url_filtered,
             google_doc_url_master=google_doc_url_master,  # Keep Master Google Doc link
-            has_articles=has_articles
+            has_articles=has_articles,
+            cumulative_sheet_url=cumulative_sheet_url
         )
         
         # Read the generated report file into binary data to save in the database
@@ -1910,15 +1928,20 @@ def run_client_report_task(client_id: int):
                         generated_file_data=report_file_data,
                         generated_excel_path=excel_path,
                         generated_excel_data=excel_file_data,
+                        cumulative_sheet_url=cumulative_sheet_url,
                         progress_message=updated_log,
                         error_message="Email notification failed to send (SMTP connection timeout).",
                         completed_at=datetime.utcnow()
                     )
                 )
+                
+                client_update_vals = {"last_run_at": datetime.utcnow()}
+                if cumulative_sheet_url:
+                    client_update_vals["cumulative_sheet_url"] = cumulative_sheet_url
                 db.execute(
                     update(Client)
                     .where(Client.id == client_id)
-                    .values(last_run_at=datetime.utcnow())
+                    .values(**client_update_vals)
                 )
                 db.commit()
             
@@ -1948,14 +1971,19 @@ def run_client_report_task(client_id: int):
                     generated_file_data=report_file_data,
                     generated_excel_path=excel_path,
                     generated_excel_data=excel_file_data,
+                    cumulative_sheet_url=cumulative_sheet_url,
                     progress_message=updated_log,
                     completed_at=datetime.utcnow()
                 )
             )
+            
+            client_update_vals = {"last_run_at": datetime.utcnow()}
+            if cumulative_sheet_url:
+                client_update_vals["cumulative_sheet_url"] = cumulative_sheet_url
             db.execute(
                 update(Client)
                 .where(Client.id == client_id)
-                .values(last_run_at=datetime.utcnow())
+                .values(**client_update_vals)
             )
             db.commit()
             

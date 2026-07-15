@@ -9,7 +9,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-def send_report_email(recipient_emails: list, client_name: str, docx_path_filtered: str, docx_path_master: str, google_doc_url_filtered: str = None, google_doc_url_master: str = None, has_articles: bool = True, brief_content: str = None, excel_path_filtered: str = None, excel_path_master: str = None, html_body: str = None) -> bool:
+def send_report_email(recipient_emails: list, client_name: str, docx_path_filtered: str, docx_path_master: str, google_doc_url_filtered: str = None, google_doc_url_master: str = None, has_articles: bool = True, brief_content: str = None, excel_path_filtered: str = None, excel_path_master: str = None, html_body: str = None, cumulative_sheet_url: str = None) -> bool:
     """
     Sends the generated DOCX and Excel reports (Filtered and Master) and the executive brief to the specified email addresses.
     """
@@ -52,6 +52,8 @@ def send_report_email(recipient_emails: list, client_name: str, docx_path_filter
         if google_doc_url_master:
             label = "Master Report Google Doc" if "google" in client_name.lower() else "Master Report (All Search Matches)"
             body += f"📝 {label}:\n{google_doc_url_master}\n\n"
+        if cumulative_sheet_url:
+            body += f"📈 Cumulative Google Sheet (All Filtered Articles by Date):\n{cumulative_sheet_url}\n\n"
             
         body += (
             f"Best regards,\n"

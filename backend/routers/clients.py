@@ -62,6 +62,7 @@ class ClientResponse(BaseModel):
     priority_media_list: Optional[str] = None
     region_filter: str = "All"
     intl_exceptions: Optional[str] = None
+    cumulative_sheet_url: Optional[str] = None
 
 class RunLogResponse(BaseModel):
     id: int
@@ -71,6 +72,7 @@ class RunLogResponse(BaseModel):
     progress_message: Optional[str]
     generated_file_path: Optional[str]
     generated_excel_path: Optional[str] = None
+    cumulative_sheet_url: Optional[str] = None
     started_at: str
     completed_at: Optional[str]
 
@@ -124,7 +126,8 @@ async def list_clients(
                 summary_length=client.summary_length or 35,
                 priority_media_list=client.priority_media_list,
                 region_filter=client.region_filter or "All",
-                intl_exceptions=client.intl_exceptions
+                intl_exceptions=client.intl_exceptions,
+                cumulative_sheet_url=client.cumulative_sheet_url
             )
         )
     return response_data
@@ -197,7 +200,8 @@ async def create_client(
         summary_length=new_client.summary_length,
         priority_media_list=new_client.priority_media_list,
         region_filter=new_client.region_filter or "All",
-        intl_exceptions=new_client.intl_exceptions
+        intl_exceptions=new_client.intl_exceptions,
+        cumulative_sheet_url=None
     )
 
 @router.put("/{client_id}", response_model=ClientResponse)
@@ -274,7 +278,8 @@ async def update_client(
         summary_length=client.summary_length or 35,
         priority_media_list=client.priority_media_list,
         region_filter=client.region_filter or "All",
-        intl_exceptions=client.intl_exceptions
+        intl_exceptions=client.intl_exceptions,
+        cumulative_sheet_url=client.cumulative_sheet_url
     )
 
 @router.delete("/{client_id}")
@@ -298,6 +303,7 @@ async def delete_client(
             except Exception:
                 pass
             
+    await db.execute(delete(ClientRunLog).where(ClientRunLog.client_id == client_id))
     await db.execute(delete(Client).where(Client.id == client_id))
     await db.commit()
     return {"detail": "Client deleted successfully"}
@@ -420,6 +426,7 @@ async def get_client_run_logs(
                 log.generated_excel_path if (log.generated_excel_path and log.generated_excel_path.startswith("https://"))
                 else (os.path.basename(log.generated_excel_path) if log.generated_excel_path else None)
             ),
+            cumulative_sheet_url=log.cumulative_sheet_url,
             started_at=log.started_at.isoformat() + ("Z" if log.started_at.tzinfo is None else ""),
             completed_at=log.completed_at.isoformat() + ("Z" if log.completed_at.tzinfo is None else "") if log.completed_at else None
         )
