@@ -1698,6 +1698,7 @@ def run_client_report_task(client_id: int):
             processed_count = 0
             
             # Run up to 8 threads per section (sections now run in parallel, so 8 keeps total threads safe)
+            seen_resolved_urls = set()
             with ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(_process_single_article, t): t for t in art_tuples}
                 for future in as_completed(futures):
@@ -1709,6 +1710,16 @@ def run_client_report_task(client_id: int):
                             art_data = res["art_data"]
                             is_relevant_kw = res["is_relevant_kw"]
                             is_semantic_relevant = res["is_semantic_relevant"]
+                            
+                            # Deduplicate resolved/normalized URL within this section
+                            from scraper.search_utils import normalize_url
+                            resolved_url = art_data.get("url")
+                            norm_resolved = normalize_url(resolved_url) if resolved_url else ""
+                            if norm_resolved:
+                                if norm_resolved in seen_resolved_urls:
+                                    logger.info(f"Skipping duplicate resolved article within section: {art_data['title']}")
+                                    continue
+                                seen_resolved_urls.add(norm_resolved)
                             
                             if is_relevant_kw:
                                 master_section_articles.append(art_data)
