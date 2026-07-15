@@ -483,6 +483,21 @@ async def init_db():
                 except Exception: pass
         except: pass
 
+        # Automated Migration: Add cumulative_sheet_url to clients and client_run_logs if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS cumulative_sheet_url VARCHAR"))
+                await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS cumulative_sheet_url VARCHAR"))
+            else:
+                try:
+                    await conn.execute(text("ALTER TABLE clients ADD COLUMN cumulative_sheet_url VARCHAR"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN cumulative_sheet_url VARCHAR"))
+                except Exception: pass
+        except Exception as e:
+            print(f"Migration Notice (Cumulative Sheet Schema): {e}")
+
         # Automated Migration: Add heavy_companies pooja_priority_conf, pooja_non_priority_conf if missing
         try:
             if "postgresql" in engine.url.drivername:
