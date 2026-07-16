@@ -1712,7 +1712,6 @@ def run_client_report_task(client_id: int):
                             is_semantic_relevant = res["is_semantic_relevant"]
                             
                             # Deduplicate resolved/normalized URL within this section
-                            from scraper.search_utils import normalize_url
                             resolved_url = art_data.get("url")
                             norm_resolved = normalize_url(resolved_url) if resolved_url else ""
                             if norm_resolved:
