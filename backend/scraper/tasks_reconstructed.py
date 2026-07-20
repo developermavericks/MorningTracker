@@ -563,7 +563,7 @@ def run_client_report_task(client_id: int):
             template_path = os.path.join(templates_dir, os.path.basename(db_template_path))
 
             # Restore template from database if missing on disk (critical for ephemeral storage)
-            if template_data and not os.path.exists(template_path):
+            if template_data:
                 try:
                     os.makedirs(templates_dir, exist_ok=True)
                     with open(template_path, "wb") as f:

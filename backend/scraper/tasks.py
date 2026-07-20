@@ -971,7 +971,7 @@ def run_client_report_task(client_id: int):
             template_path = os.path.join(templates_dir, os.path.basename(db_template_path))
             
             # Restore from database if missing on disk (critical for container rebuilding/ephemeral storage)
-            if getattr(client, "template_data", None) and not os.path.exists(template_path):
+            if getattr(client, "template_data", None):
                 try:
                     with open(template_path, "wb") as buffer:
                         buffer.write(client.template_data)
