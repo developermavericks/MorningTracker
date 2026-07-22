@@ -275,7 +275,7 @@ Articles list:
 
 FORMAT REQUIREMENTS:
 - Your response MUST be a clean list of exactly 4 to 5 bullet points (each starting with a hyphen `-`).
-- Each bullet point must be a concise, professional summary of 1-2 sentences maximum (1 to 2 lines max) detailing an important development.
+- Each bullet point MUST be strictly under 15 words long. This is a hard limit.
 - Focus ONLY on the most important news.
 - Do not use markdown headers or title tags.
 - Return ONLY the bulleted list. Do not include introductory conversational prefixes or markdown formatting."""
@@ -285,6 +285,7 @@ FORMAT REQUIREMENTS:
         system_prompt=system_prompt,
         max_tokens=1000
     )
+
 
 
 

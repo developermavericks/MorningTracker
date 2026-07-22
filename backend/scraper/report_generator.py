@@ -632,6 +632,10 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
                     break
 
             if is_bullet:
+                # Enforce 15 words limit strictly
+                words = line.split()
+                if len(words) > 15:
+                    line = " ".join(words[:15]) + "..."
                 p = doc.add_paragraph(style='List Bullet')
                 p.paragraph_format.space_after = Pt(4)
                 run = p.add_run(line)
@@ -648,6 +652,9 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
                     run.font.size = Pt(11)
                     run.font.color.rgb = RGBColor(66, 133, 244) # Blue accent
                 else:
+                    words = line.split()
+                    if len(words) > 15:
+                        line = " ".join(words[:15]) + "..."
                     run = p.add_run(line)
                     run.font.name = 'Calibri'
                     run.font.size = Pt(10.5)

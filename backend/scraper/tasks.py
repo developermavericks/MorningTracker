@@ -2137,11 +2137,32 @@ def check_client_schedules():
                 logger.error(f"Error checking schedule for client '{client.name}': {e}")
 
 
+def deduplicate_across_publications(articles_list):
+    """
+    Deduplicates articles based on normalized title similarity across all publications.
+    Keeps only one article per unique story (first one found).
+    """
+    seen_titles = set()
+    deduped = []
+    for a in articles_list:
+        title = a.get("title", "")
+        if not title:
+            continue
+        # Normalize: convert to lowercase, alphanumeric only
+        norm = "".join(ch for ch in title.lower() if ch.isalnum())
+        # Check first 50 chars to filter out minor trailing publication suffix variations
+        key = norm[:50]
+        if key not in seen_titles:
+            deduped.append(a)
+            seen_titles.add(key)
+    return deduped
+
+
 def build_mailer_grouped_data(articles_list):
     """
     Groups matched articles into three main categories for the mailer:
-    1. Google (Critical/Crisis, Corporate, AI Specific, Product, Pixel/Watches/Devices)
-    2. Competition (Samsung, Apple, Nothing only)
+    1. Google (Critical/Crisis, Corporate/Organizational, AI Specific/Research, Product, Pixel/Watches/Devices)
+    2. Competition (Apple, Samsung, OpenAI/ChatGPT, Microsoft, Amazon, Meta (Facebook/Instagram/WhatsApp), Perplexity, Anthropic, MapMyIndia/Mappls, Paytm, Spokesperson Related, Crisis Related)
     3. Industry (10 specified topics)
     
     Allows articles to be placed in multiple sections if they match multiple criteria.
@@ -2152,15 +2173,24 @@ def build_mailer_grouped_data(articles_list):
     grouped = {
         "Google": {
             "Critical/Crisis": [],
-            "Corporate": [],
-            "AI Specific": [],
+            "Corporate/Organizational": [],
+            "AI Specific/Research": [],
             "Product": [],
             "Pixel/Watches/Devices": []
         },
         "Competition": {
             "Apple": [],
             "Samsung": [],
-            "Nothing": []
+            "OpenAI/ChatGPT": [],
+            "Microsoft": [],
+            "Amazon": [],
+            "Meta (Facebook/Instagram/WhatsApp)": [],
+            "Perplexity": [],
+            "Anthropic": [],
+            "MapMyIndia/Mappls": [],
+            "Paytm": [],
+            "Spokesperson Related": [],
+            "Crisis Related": []
         },
         "Industry": {
             "Data center": [],
@@ -2207,10 +2237,18 @@ def build_mailer_grouped_data(articles_list):
         re.IGNORECASE
     )
     
-    # Competition brands
+    # Competition brands & topics
     re_apple = re.compile(r"\b(apple|iphone|ipad|macbook|airpods|ios|bionic|iwatch)\b", re.IGNORECASE)
     re_samsung = re.compile(r"\b(samsung|galaxy|exynos|one ui)\b", re.IGNORECASE)
-    re_nothing = re.compile(r"\b(nothing\s+(phone|ear|buds|tech|os))\b", re.IGNORECASE)
+    re_openai = re.compile(r"\b(openai|chatgpt)\b", re.IGNORECASE)
+    re_microsoft = re.compile(r"\b(microsoft|msft\b|azure)\b", re.IGNORECASE)
+    re_amazon = re.compile(r"\b(amazon|aws\b)\b", re.IGNORECASE)
+    re_meta = re.compile(r"\b(meta\b|facebook|instagram|whatsapp|insta\b)\b", re.IGNORECASE)
+    re_perplexity = re.compile(r"\bperplexity\b", re.IGNORECASE)
+    re_anthropic = re.compile(r"\b(anthropic|claude)\b", re.IGNORECASE)
+    re_mmi = re.compile(r"\b(mapmyindia|mappls)\b", re.IGNORECASE)
+    re_paytm = re.compile(r"\bpaytm\b", re.IGNORECASE)
+    re_spokesperson = re.compile(r"\b(spokesperson|spokesman|spokeswoman|representative|statement|declared|commented|replied)\b", re.IGNORECASE)
     
     # Industry critical topics
     re_datacenter = re.compile(r"\b(data\s+centers?|data\s+centres?|server\s+farms?|power\s+grids?|cooling\s+systems?)\b", re.IGNORECASE)
@@ -2236,25 +2274,24 @@ def build_mailer_grouped_data(articles_list):
         
         # --- 1. GOOGLE CATEGORY ---
         if is_google_branded:
-            # Place in subcategories (in order of priority)
             added_to_google = False
             
-            # Critical/Crisis
+            # Critical/Crisis (spokesperson & crisis related on top)
             is_crisis = bool(re_crisis.search(title)) or any("policy" in k or "regulation" in k or "legal" in k or "cci" in k for k in kw_hits)
             if is_crisis:
                 grouped["Google"]["Critical/Crisis"].append(art)
                 added_to_google = True
             
-            # Corporate
+            # Corporate/Organizational
             is_corp = bool(re_corp.search(title)) or any("skilling" in k or "startup" in k or "arts" in k or "culture" in k for k in kw_hits)
             if is_corp:
-                grouped["Google"]["Corporate"].append(art)
+                grouped["Google"]["Corporate/Organizational"].append(art)
                 added_to_google = True
                 
-            # AI Specific
+            # AI Specific/Research
             is_ai = bool(re_ai.search(title)) or any("gemini" in k or "deepmind" in k or "ai" in k for k in kw_hits)
             if is_ai:
-                grouped["Google"]["AI Specific"].append(art)
+                grouped["Google"]["AI Specific/Research"].append(art)
                 added_to_google = True
                 
             # Product
@@ -2271,25 +2308,47 @@ def build_mailer_grouped_data(articles_list):
                 
             # Fallback if Google but no subcategory matched
             if not added_to_google:
-                grouped["Google"]["Corporate"].append(art)
+                grouped["Google"]["Corporate/Organizational"].append(art)
                 
         # --- 2. COMPETITION CATEGORY ---
         is_apple = bool(re_apple.search(title)) or any("apple" in k or "iphone" in k or "ios" in k or "airpods" in k for k in kw_hits)
         is_samsung = bool(re_samsung.search(title)) or any("samsung" in k or "galaxy" in k for k in kw_hits)
+        is_openai_chatgpt = bool(re_openai.search(title)) or any("openai" in k or "chatgpt" in k for k in kw_hits)
+        is_msft = bool(re_microsoft.search(title)) or any("microsoft" in k or "azure" in k for k in kw_hits)
+        is_amzn = bool(re_amazon.search(title)) or any("amazon" in k or "aws" in k for k in kw_hits)
+        is_meta_fb = bool(re_meta.search(title)) or any("meta" in k or "facebook" in k or "instagram" in k or "whatsapp" in k for k in kw_hits)
+        is_perp = bool(re_perplexity.search(title)) or any("perplexity" in k for k in kw_hits)
+        is_anth = bool(re_anthropic.search(title)) or any("anthropic" in k or "claude" in k for k in kw_hits)
+        is_mmi_map = bool(re_mmi.search(title)) or any("mapmyindia" in k or "mappls" in k for k in kw_hits)
+        is_paytm_app = bool(re_paytm.search(title)) or any("paytm" in k for k in kw_hits)
+        is_spokes = bool(re_spokesperson.search(title))
+        is_comp_crisis = bool(re_crisis.search(title))
         
-        # Check Nothing carefully
-        is_nothing = bool(re_nothing.search(title)) or any("nothing" in k for k in kw_hits)
-        if not is_nothing and re.search(r"\bNothing\b", title):
-            # Check if it is a false positive of general word 'nothing'
-            if any(term in title.lower() for term in ("ear", "phone", "buds", "tech", "os")):
-                is_nothing = True
-        
+        # We classify if any of these match and it contains competitor elements
         if is_apple:
             grouped["Competition"]["Apple"].append(art)
         if is_samsung:
             grouped["Competition"]["Samsung"].append(art)
-        if is_nothing:
-            grouped["Competition"]["Nothing"].append(art)
+        if is_openai_chatgpt:
+            grouped["Competition"]["OpenAI/ChatGPT"].append(art)
+        if is_msft:
+            grouped["Competition"]["Microsoft"].append(art)
+        if is_amzn:
+            grouped["Competition"]["Amazon"].append(art)
+        if is_meta_fb:
+            grouped["Competition"]["Meta (Facebook/Instagram/WhatsApp)"].append(art)
+        if is_perp:
+            grouped["Competition"]["Perplexity"].append(art)
+        if is_anth:
+            grouped["Competition"]["Anthropic"].append(art)
+        if is_mmi_map:
+            grouped["Competition"]["MapMyIndia/Mappls"].append(art)
+        if is_paytm_app:
+            grouped["Competition"]["Paytm"].append(art)
+        if is_spokes:
+            grouped["Competition"]["Spokesperson Related"].append(art)
+        if is_comp_crisis:
+            grouped["Competition"]["Crisis Related"].append(art)
             
         # --- 3. INDUSTRY CATEGORY ---
         if re_datacenter.search(title):
@@ -2980,8 +3039,12 @@ def run_heavy_automation_task(company_id: int):
             _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating executive summary...")
 
             from scraper.heavy_llm import generate_executive_summary, generate_strategic_takeaways
-            exec_summary = generate_executive_summary(relevant, company_name=company_name)
-            takeaways = generate_strategic_takeaways(relevant, company_name=company_name)
+            
+            # Deduplicate articles across publications for mailer content
+            mailer_relevant = deduplicate_across_publications(relevant)
+            
+            exec_summary = generate_executive_summary(mailer_relevant, company_name=company_name)
+            takeaways = generate_strategic_takeaways(mailer_relevant, company_name=company_name)
 
             if exec_summary:
                 _update_progress(f"Executive Summary: {exec_summary[:100]}...")
@@ -2991,6 +3054,7 @@ def run_heavy_automation_task(company_id: int):
             _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] LLM Judge disabled. Skipping executive summary generation.")
             exec_summary = "Executive Summary skipped (LLM Judge / Claude disabled for this run)."
             takeaways = "Strategic Takeaways skipped (LLM Judge / Claude disabled for this run)."
+            mailer_relevant = relevant
 
 
         # Generate Mailer DOCX (Phase 4 Extension)
@@ -3001,7 +3065,7 @@ def run_heavy_automation_task(company_id: int):
         )
         
         # Build new 3-category grouped structure for the mailer
-        mailer_grouped = build_mailer_grouped_data(relevant)
+        mailer_grouped = build_mailer_grouped_data(mailer_relevant)
         
         from scraper.report_generator import generate_mailer_docx_report
         generate_mailer_docx_report(company_name, "Google Daily Brief", today_str, exec_summary, takeaways, mailer_grouped, mailer_path)
@@ -3076,12 +3140,12 @@ def run_heavy_automation_task(company_id: int):
                 YELLOW = "#FBBC04"
                 GREEN  = "#34A853"
 
-                unique_subs = list(set(art.get("_sub_category") for art in relevant if art.get("_sub_category")))
+                unique_subs = list(set(art.get("_sub_category") for art in mailer_relevant if art.get("_sub_category")))
                 if "General" in unique_subs and len(unique_subs) > 1:
                     unique_subs.remove("General")
                 top_tags = [sub for sub in unique_subs[:10]]
 
-                # Parse bullets from executive summary
+                # Parse bullets from executive summary and enforce 15 words limit strictly
                 exec_bullets = []
                 if exec_summary:
                     for line in exec_summary.split("\n"):
@@ -3090,17 +3154,24 @@ def run_heavy_automation_task(company_id: int):
                             continue
                         for prefix in ("-", "*", "•"):
                             if line.startswith(prefix):
-                                line = line[len(prefix):].strip()
-                                exec_bullets.append(line)
+                                clean_line = line[len(prefix):].strip()
+                                words = clean_line.split()
+                                if len(words) > 15:
+                                    clean_line = " ".join(words[:15]) + "..."
+                                exec_bullets.append(clean_line)
                                 break
                 if not exec_bullets and exec_summary:
-                    exec_bullets.append(exec_summary)
+                    words = exec_summary.split()
+                    if len(words) > 15:
+                        exec_bullets.append(" ".join(words[:15]) + "...")
+                    else:
+                        exec_bullets.append(exec_summary)
 
                 sections = []
                 accent_colors = [BLUE, RED, YELLOW, GREEN]
                 
                 # Limit inline email body articles to 30 to prevent Gmail clipping
-                email_articles = relevant[:30]
+                email_articles = mailer_relevant[:30]
                 email_grouped = build_mailer_grouped_data(email_articles)
                 
                 idx = 0
@@ -3161,7 +3232,7 @@ def run_heavy_automation_task(company_id: int):
                             client_name=company_name,
                             docx_path_filtered=mailer_path,
                             docx_path_master=None,
-                            has_articles=bool(relevant),
+                            has_articles=bool(mailer_relevant),
                             brief_content=exec_summary,
                             google_doc_url_filtered=google_doc_url,
                             html_body=html_body if send_html else None,
@@ -3175,7 +3246,7 @@ def run_heavy_automation_task(company_id: int):
                             client_name=company_name,
                             docx_path_filtered=mailer_path,
                             docx_path_master=None,  # Do not send the 3rd doc (Master DOCX report)
-                            has_articles=bool(relevant),
+                            has_articles=bool(mailer_relevant),
                             brief_content=exec_summary,
                             excel_path_filtered=filtered_excel_path,
                             excel_path_master=excel_master,
