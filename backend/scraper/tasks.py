@@ -2180,6 +2180,8 @@ def run_heavy_automation_task(company_id: int):
         pooja_folder_filtering_enabled = getattr(company, "pooja_folder_filtering_enabled", False)
         pooja_priority_conf = getattr(company, "pooja_priority_conf", 5)
         pooja_non_priority_conf = getattr(company, "pooja_non_priority_conf", 7)
+        llm_judge_enabled = getattr(company, "llm_judge_enabled", False)
+
 
     try:
         def save_intermediate_csv(filename, articles_list, extra_headers=[]):
@@ -2476,31 +2478,43 @@ def run_heavy_automation_task(company_id: int):
             _update_progress(f"Step 3: Pooja filtered matches (before Claude check): {len(relevant)} articles. Downloadable output: /api/heavy-automation/reports/{pooja_filtered_fn}")
             
             # Send to Claude for keyword relevance check
-            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Sending {len(relevant)} articles to Claude to verify keyword relevance...")
-            from scraper.heavy_llm import verify_article_keyword_with_claude
-            
-            claude_verified = []
-            claude_log_lines = []
-            
-            for art in relevant:
-                title = art.get("title") or ""
-                kw_hits = art.get("_keyword_hits", [])
-                keyword = kw_hits[0] if (isinstance(kw_hits, list) and kw_hits) else str(kw_hits)
-                
-                is_valid = verify_article_keyword_with_claude(title, keyword)
-                if is_valid:
-                    claude_verified.append(art)
-                    claude_log_lines.append(f"[KEEP] Matched keyword '{keyword}' in title: {title}")
-                else:
-                    claude_log_lines.append(f"[DISCARD] Matched keyword '{keyword}' is irrelevant in title: {title}")
-            
-            # Save Claude verification trace logs separately
             claude_log_fn = f"Claude_Verification_Log_Run_{run_id}.txt"
-            reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
-            with open(os.path.join(reports_dir, claude_log_fn), "w", encoding="utf-8") as f:
-                f.write("\n".join(claude_log_lines))
             
-            _update_progress(f"Step 3.5: Claude keyword verification complete. Discarded {len(relevant) - len(claude_verified)} irrelevant matches. Downloadable output: /api/heavy-automation/reports/{claude_log_fn}")
+            if llm_judge_enabled:
+                _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Sending {len(relevant)} articles to Claude to verify keyword relevance...")
+                from scraper.heavy_llm import verify_article_keyword_with_claude
+                
+                claude_verified = []
+                claude_log_lines = []
+                
+                for art in relevant:
+                    title = art.get("title") or ""
+                    kw_hits = art.get("_keyword_hits", [])
+                    keyword = kw_hits[0] if (isinstance(kw_hits, list) and kw_hits) else str(kw_hits)
+                    
+                    is_valid = verify_article_keyword_with_claude(title, keyword)
+                    if is_valid:
+                        claude_verified.append(art)
+                        claude_log_lines.append(f"[KEEP] Matched keyword '{keyword}' in title: {title}")
+                    else:
+                        claude_log_lines.append(f"[DISCARD] Matched keyword '{keyword}' is irrelevant in title: {title}")
+                
+                # Save Claude verification trace logs separately
+                reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+                with open(os.path.join(reports_dir, claude_log_fn), "w", encoding="utf-8") as f:
+                    f.write("\n".join(claude_log_lines))
+                
+                _update_progress(f"Step 3.5: Claude keyword verification complete. Discarded {len(relevant) - len(claude_verified)} irrelevant matches. Downloadable output: /api/heavy-automation/reports/{claude_log_fn}")
+            else:
+                _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] LLM Judge disabled. Skipping Claude keyword verification (keeping all matches).")
+                claude_verified = relevant
+                claude_log_lines = ["Claude keyword verification bypassed (LLM Judge toggle is OFF)."]
+                reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+                with open(os.path.join(reports_dir, claude_log_fn), "w", encoding="utf-8") as f:
+                    f.write("\n".join(claude_log_lines))
+                
+                _update_progress(f"Step 3.5: Claude keyword verification bypassed. Downloadable output: /api/heavy-automation/reports/{claude_log_fn}")
+
             
             # Rebuild relevant_map, corporate_articles, product_articles based on Claude verification
             relevant_map = {a["url"]: a for a in claude_verified}
@@ -2772,16 +2786,22 @@ def run_heavy_automation_task(company_id: int):
             logger.warning(f"[Heavy] Audit trail storage failed: {e}")
 
         # Generate Executive Summary + Strategic Takeaways (Phase 4)
-        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating executive summary...")
+        if llm_judge_enabled:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating executive summary...")
 
-        from scraper.heavy_llm import generate_executive_summary, generate_strategic_takeaways
-        exec_summary = generate_executive_summary(relevant, company_name=company_name)
-        takeaways = generate_strategic_takeaways(relevant, company_name=company_name)
+            from scraper.heavy_llm import generate_executive_summary, generate_strategic_takeaways
+            exec_summary = generate_executive_summary(relevant, company_name=company_name)
+            takeaways = generate_strategic_takeaways(relevant, company_name=company_name)
 
-        if exec_summary:
-            _update_progress(f"Executive Summary: {exec_summary[:100]}...")
-        if takeaways:
-            _update_progress(f"Strategic Takeaways generated.")
+            if exec_summary:
+                _update_progress(f"Executive Summary: {exec_summary[:100]}...")
+            if takeaways:
+                _update_progress(f"Strategic Takeaways generated.")
+        else:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] LLM Judge disabled. Skipping executive summary generation.")
+            exec_summary = "Executive Summary skipped (LLM Judge / Claude disabled for this run)."
+            takeaways = "Strategic Takeaways skipped (LLM Judge / Claude disabled for this run)."
+
 
         # Generate Mailer DOCX (Phase 4 Extension)
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating Mailer DOCX...")
