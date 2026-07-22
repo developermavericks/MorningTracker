@@ -140,8 +140,8 @@ def _section_heading(text: str, accent: str, size: int = 14) -> str:
 
 
 def _render_exec(brief: Mapping[str, Any]) -> str:
-    cards = brief.get("exec_cards") or []
-    if not cards:
+    bullets = brief.get("exec_bullets") or []
+    if not bullets:
         return ""
     intro = brief.get("exec_intro", "")
     intro_html = (
@@ -149,31 +149,20 @@ def _render_exec(brief: Mapping[str, Any]) -> str:
         f'margin-bottom:10px;">{esc(intro)}</div>' if intro else ""
     )
 
-    rows = []
-    for i in range(0, len(cards), 2):
-        pair = cards[i:i + 2]
-        tds = []
-        for c in pair:
-            color = c.get("color", BLUE)
-            tds.append(
-                f'<td width="50%" valign="top" style="width:50%;'
-                f'border:1px solid {color};padding:9px 11px;">'
-                f'<div style="font-size:9px;font-weight:bold;color:{color};'
-                f'letter-spacing:.4px;margin-bottom:3px;">{esc(c.get("label",""))}</div>'
-                f'<div style="font-size:10.5px;color:{_BODY};line-height:1.45;">'
-                f'{esc(c.get("text",""))}</div></td>'
-            )
-        if len(tds) == 1:
-            tds.append('<td width="50%" style="width:50%;"></td>')
-        rows.append(f"<tr>{''.join(tds)}</tr>")
+    lis = "".join(
+        f'<li style="font-size:12px;color:{_BODY};line-height:1.6;margin-bottom:6px;">{esc(b)}</li>'
+        for b in bullets
+    )
 
     return f"""
       <tr><td style="padding:16px 24px 0;">
         {_section_heading("EXECUTIVE SUMMARY", BLUE, size=15)}
         {intro_html}
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="6"
-               style="width:100%;border-collapse:separate;">{''.join(rows)}</table>
+        <ul style="margin:0 0 10px;padding-left:20px;font-family:{_FONT};">
+          {lis}
+        </ul>
       </td></tr>"""
+
 
 
 def _byline_html(a: Mapping[str, Any]) -> str:
@@ -243,39 +232,8 @@ def _render_section(section: Mapping[str, Any]) -> str:
 
 
 def _render_takeaways(brief: Mapping[str, Any]) -> str:
-    items = brief.get("takeaways") or []
-    if not items:
-        return ""
-    intro = brief.get("takeaways_intro", "")
-    intro_html = (
-        f'<div style="font-size:12px;font-style:italic;color:{_MUTED};'
-        f'margin-bottom:8px;">{esc(intro)}</div>' if intro else ""
-    )
-    cards = []
-    for i, t in enumerate(items, start=1):
-        cards.append(f"""
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-                 style="width:100%;margin-bottom:6px;">
-            <tr>
-              <td width="30" valign="top" align="center"
-                  style="width:30px;background:{BLUE};padding:6px;">
-                <span style="font-size:14px;font-weight:bold;color:#ffffff;">{i}</span>
-              </td>
-              <td valign="top" style="background:#f0f7ff;border:1px solid {_HAIRLINE};
-                                      padding:6px 10px;">
-                <div style="font-size:12px;font-weight:bold;color:{_INK};
-                            margin-bottom:3px;">{esc(t.get("title",""))}</div>
-                <div style="font-size:10px;color:{_BODY};line-height:1.5;">
-                  {esc(t.get("text",""))}</div>
-              </td>
-            </tr>
-          </table>""")
-    return f"""
-      <tr><td style="padding:6px 24px 0;">
-        {_section_heading("STRATEGIC TAKEAWAYS", BLUE)}
-        {intro_html}
-        {''.join(cards)}
-      </td></tr>"""
+    return ""
+
 
 
 def _render_footer(brief: Mapping[str, Any]) -> str:

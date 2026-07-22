@@ -622,50 +622,49 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
             line = line.strip()
             if not line:
                 continue
-            p = doc.add_paragraph()
-            p.paragraph_format.space_after = Pt(4)
-            if line.isupper() and len(line) < 30:
-                # Label!
-                run = p.add_run(line)
-                run.font.name = 'Calibri'
-                run.font.bold = True
-                run.font.size = Pt(11)
-                run.font.color.rgb = RGBColor(66, 133, 244) # Blue accent
-            else:
+
+            # Check if this is a bullet point
+            is_bullet = False
+            for prefix in ("-", "*", "•"):
+                if line.startswith(prefix):
+                    line = line[len(prefix):].strip()
+                    is_bullet = True
+                    break
+
+            if is_bullet:
+                # Enforce 15 words limit strictly
+                words = line.split()
+                if len(words) > 15:
+                    line = " ".join(words[:15]) + "..."
+                p = doc.add_paragraph(style='List Bullet')
+                p.paragraph_format.space_after = Pt(4)
                 run = p.add_run(line)
                 run.font.name = 'Calibri'
                 run.font.size = Pt(10.5)
+            else:
+                p = doc.add_paragraph()
+                p.paragraph_format.space_after = Pt(4)
+                if line.isupper() and len(line) < 30:
+                    # Label!
+                    run = p.add_run(line)
+                    run.font.name = 'Calibri'
+                    run.font.bold = True
+                    run.font.size = Pt(11)
+                    run.font.color.rgb = RGBColor(66, 133, 244) # Blue accent
+                else:
+                    words = line.split()
+                    if len(words) > 15:
+                        line = " ".join(words[:15]) + "..."
+                    run = p.add_run(line)
+                    run.font.name = 'Calibri'
+                    run.font.size = Pt(10.5)
 
         # Divider
         divider2 = doc.add_paragraph()
         add_horizontal_line(divider2)
 
-    # 2. Add Strategic Takeaways
-    if takeaways:
-        st_h = doc.add_paragraph()
-        st_hrun = st_h.add_run("STRATEGIC TAKEAWAYS")
-        st_hrun.font.name = 'Calibri'
-        st_hrun.font.size = Pt(14)
-        st_hrun.font.bold = True
-        st_hrun.font.color.rgb = RGBColor(74, 134, 232)
-        st_h.paragraph_format.space_before = Pt(14)
-        st_h.paragraph_format.space_after = Pt(6)
-
-        for line in takeaways.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            p = doc.add_paragraph()
-            p.paragraph_format.space_after = Pt(4)
-            run = p.add_run(line)
-            run.font.name = 'Calibri'
-            run.font.size = Pt(10.5)
-
-        # Divider
-        divider3 = doc.add_paragraph()
-        add_horizontal_line(divider3)
-
     # 3. Add Grouped Categories & Articles
+
     if grouped_data:
         for master, subs in grouped_data.items():
             # Add Master Heading (H1)

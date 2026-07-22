@@ -2137,6 +2137,251 @@ def check_client_schedules():
                 logger.error(f"Error checking schedule for client '{client.name}': {e}")
 
 
+def deduplicate_across_publications(articles_list):
+    """
+    Deduplicates articles based on normalized title similarity across all publications.
+    Keeps only one article per unique story (first one found).
+    """
+    seen_titles = set()
+    deduped = []
+    for a in articles_list:
+        title = a.get("title", "")
+        if not title:
+            continue
+        # Normalize: convert to lowercase, alphanumeric only
+        norm = "".join(ch for ch in title.lower() if ch.isalnum())
+        # Check first 50 chars to filter out minor trailing publication suffix variations
+        key = norm[:50]
+        if key not in seen_titles:
+            deduped.append(a)
+            seen_titles.add(key)
+    return deduped
+
+
+def build_mailer_grouped_data(articles_list):
+    """
+    Groups matched articles into three main categories for the mailer:
+    1. Google (Critical/Crisis, Corporate/Organizational, AI Specific/Research, Product, Pixel/Watches/Devices)
+    2. Competition (Apple, Samsung, OpenAI/ChatGPT, Microsoft, Amazon, Meta (Facebook/Instagram/WhatsApp), Perplexity, Anthropic, MapMyIndia/Mappls, Paytm, Spokesperson Related, Crisis Related)
+    3. Industry (10 specified topics)
+    
+    Allows articles to be placed in multiple sections if they match multiple criteria.
+    """
+    import re
+    
+    # Initialize the target categories in the exact order requested
+    grouped = {
+        "Google": {
+            "Critical/Crisis": [],
+            "Corporate/Organizational": [],
+            "AI Specific/Research": [],
+            "Product": [],
+            "Pixel/Watches/Devices": []
+        },
+        "Competition": {
+            "Apple": [],
+            "Samsung": [],
+            "OpenAI/ChatGPT": [],
+            "Microsoft": [],
+            "Amazon": [],
+            "Meta (Facebook/Instagram/WhatsApp)": [],
+            "Perplexity": [],
+            "Anthropic": [],
+            "MapMyIndia/Mappls": [],
+            "Paytm": [],
+            "Spokesperson Related": [],
+            "Crisis Related": []
+        },
+        "Industry": {
+            "Data center": [],
+            "AI Sovereignty": [],
+            "AI and Jobs": [],
+            "Content moderation": [],
+            "Social media ban": [],
+            "Copyright": [],
+            "Broad AI hot topics": [],
+            "Digital Divide": [],
+            "AI Bubble": [],
+            "Trade deal": []
+        }
+    }
+    
+    # Compile regexes for faster matching
+    re_google = re.compile(
+        r"\b(google|alphabet|youtube|yt\b|android|pixel|nest|fitbit|gemini|waymo|sundar\b|pichai|preeti\b|lobana|dutta\b|chobey|gupta\b|swamy|sreedharan|mohan\b|digikavach)\b", 
+        re.IGNORECASE
+    )
+    
+    re_crisis = re.compile(
+        r"\b(crisis|fine|fines|penalty|penalties|investigation|investigates|probe|probes|cci|antitrust|monopoly|court|lawsuit|sues|suit|ban|bans|regulatory|regulation|legal|layoffs|layoff|strike|hacked|breach|vuln|tax|dispute)\b",
+        re.IGNORECASE
+    )
+    
+    re_corp = re.compile(
+        r"\b(appoint|leader|leadership|partnership|partner|investment|invest|funding|office|expansion|hiring|hire|event|csr|arts|culture|philanthropy|grant|startup|ecosystem|skills|skilling)\b",
+        re.IGNORECASE
+    )
+    
+    re_ai = re.compile(
+        r"\b(ai\b|artificial intelligence|gemini|deepmind|bard|vertex|llm|generative|genai)\b",
+        re.IGNORECASE
+    )
+    
+    re_prod = re.compile(
+        r"\b(search|maps|pay|gpay|wallet|ads|workspace|meet|docs|sheets|drive|chrome|classroom)\b",
+        re.IGNORECASE
+    )
+    
+    re_dev = re.compile(
+        r"\b(pixel|watch|wear os|fitbit|earbuds|buds|chromecast|nest|tensor|hardware|device|devices|smartphone|smartwatch)\b",
+        re.IGNORECASE
+    )
+    
+    # Competition brands & topics
+    re_apple = re.compile(r"\b(apple|iphone|ipad|macbook|airpods|ios|bionic|iwatch)\b", re.IGNORECASE)
+    re_samsung = re.compile(r"\b(samsung|galaxy|exynos|one ui)\b", re.IGNORECASE)
+    re_openai = re.compile(r"\b(openai|chatgpt)\b", re.IGNORECASE)
+    re_microsoft = re.compile(r"\b(microsoft|msft\b|azure)\b", re.IGNORECASE)
+    re_amazon = re.compile(r"\b(amazon|aws\b)\b", re.IGNORECASE)
+    re_meta = re.compile(r"\b(meta\b|facebook|instagram|whatsapp|insta\b)\b", re.IGNORECASE)
+    re_perplexity = re.compile(r"\bperplexity\b", re.IGNORECASE)
+    re_anthropic = re.compile(r"\b(anthropic|claude)\b", re.IGNORECASE)
+    re_mmi = re.compile(r"\b(mapmyindia|mappls)\b", re.IGNORECASE)
+    re_paytm = re.compile(r"\bpaytm\b", re.IGNORECASE)
+    re_spokesperson = re.compile(r"\b(spokesperson|spokesman|spokeswoman|representative|statement|declared|commented|replied)\b", re.IGNORECASE)
+    
+    # Industry critical topics
+    re_datacenter = re.compile(r"\b(data\s+centers?|data\s+centres?|server\s+farms?|power\s+grids?|cooling\s+systems?)\b", re.IGNORECASE)
+    re_sovereignty = re.compile(r"\b(sovereign\s+ai|ai\s+sovereignty|domestic\s+ai|localized\s+ai|local\s+ai|national\s+ai|meity|digital\s+public\s+infrastructure|dpi|dpdp)\b", re.IGNORECASE)
+    re_jobs = re.compile(r"\b(jobs?|hiring|layoffs?|unemployment|workforce|skills?\s+gap|future\s+of\s+work|employment)\b", re.IGNORECASE)
+    re_moderation = re.compile(r"\b(content\s+moderation|moderation|hate\s+speech|take\s+down|misinformation|fake\s+news|deepfakes?|fact\s+checks?|online\s+safety)\b", re.IGNORECASE)
+    re_socban = re.compile(r"\b(social\s+media\s+bans?|ban\s+social\s+media|kids\s+bans?|youth\s+restrictions?|banning\s+tiktok)\b", re.IGNORECASE)
+    re_copyright = re.compile(r"\b(copyrights?|fair\s+use|publisher\s+lawsuits?|licensing\s+deals?|intellectual\s+property|ip\s+infringement)\b", re.IGNORECASE)
+    re_broadai = re.compile(r"\b(ai\b|artificial\s+intelligence|machine\s+learning|llms?|generative\s+ai|gen\s+ai|chatgpt|openai|claude|deepseek|perplexity|llama)\b", re.IGNORECASE)
+    re_digitaldivide = re.compile(r"\b(digital\s+divide|rural\s+internet|skilling|digital\s+literacy|accessibility|affordable\s+devices|connectivity)\b", re.IGNORECASE)
+    re_bubble = re.compile(r"\b(ai\s+bubble|bubble|tech\s+crash|overvalued|overhype|capital\s+spending|monetize\s+ai|profitability)\b", re.IGNORECASE)
+    re_trade = re.compile(r"\b(trade\s+deals?|tariffs?|import\s+dut(y|ies)|cross-border|export\s+controls?|trade\s+agreements?)\b", re.IGNORECASE)
+
+    for art in articles_list:
+        title = art.get("title") or ""
+        body = art.get("summary") or art.get("full_body") or ""
+        text_to_check = f"{title} {body}"
+        
+        # Check matching keywords in _keyword_hits to help accuracy
+        kw_hits = [str(k).lower() for k in art.get("_keyword_hits", [])]
+        
+        is_google_branded = bool(re_google.search(text_to_check)) or any("google" in k or "youtube" in k or "android" in k or "gemini" in k or "pixel" in k or "sundar" in k for k in kw_hits)
+        
+        # --- 1. GOOGLE CATEGORY ---
+        if is_google_branded:
+            added_to_google = False
+            
+            # Critical/Crisis (spokesperson & crisis related on top)
+            is_crisis = bool(re_crisis.search(title)) or any("policy" in k or "regulation" in k or "legal" in k or "cci" in k for k in kw_hits)
+            if is_crisis:
+                grouped["Google"]["Critical/Crisis"].append(art)
+                added_to_google = True
+            
+            # Corporate/Organizational
+            is_corp = bool(re_corp.search(title)) or any("skilling" in k or "startup" in k or "arts" in k or "culture" in k for k in kw_hits)
+            if is_corp:
+                grouped["Google"]["Corporate/Organizational"].append(art)
+                added_to_google = True
+                
+            # AI Specific/Research
+            is_ai = bool(re_ai.search(title)) or any("gemini" in k or "deepmind" in k or "ai" in k for k in kw_hits)
+            if is_ai:
+                grouped["Google"]["AI Specific/Research"].append(art)
+                added_to_google = True
+                
+            # Product
+            is_prod = bool(re_prod.search(title)) or any("search" in k or "maps" in k or "pay" in k or "workspace" in k for k in kw_hits)
+            if is_prod:
+                grouped["Google"]["Product"].append(art)
+                added_to_google = True
+                
+            # Pixel/Watches/Devices
+            is_dev = bool(re_dev.search(title)) or any("pixel" in k or "watch" in k or "buds" in k or "wear os" in k or "tensor" in k for k in kw_hits)
+            if is_dev:
+                grouped["Google"]["Pixel/Watches/Devices"].append(art)
+                added_to_google = True
+                
+            # Fallback if Google but no subcategory matched
+            if not added_to_google:
+                grouped["Google"]["Corporate/Organizational"].append(art)
+                
+        # --- 2. COMPETITION CATEGORY ---
+        is_apple = bool(re_apple.search(title)) or any("apple" in k or "iphone" in k or "ios" in k or "airpods" in k for k in kw_hits)
+        is_samsung = bool(re_samsung.search(title)) or any("samsung" in k or "galaxy" in k for k in kw_hits)
+        is_openai_chatgpt = bool(re_openai.search(title)) or any("openai" in k or "chatgpt" in k for k in kw_hits)
+        is_msft = bool(re_microsoft.search(title)) or any("microsoft" in k or "azure" in k for k in kw_hits)
+        is_amzn = bool(re_amazon.search(title)) or any("amazon" in k or "aws" in k for k in kw_hits)
+        is_meta_fb = bool(re_meta.search(title)) or any("meta" in k or "facebook" in k or "instagram" in k or "whatsapp" in k for k in kw_hits)
+        is_perp = bool(re_perplexity.search(title)) or any("perplexity" in k for k in kw_hits)
+        is_anth = bool(re_anthropic.search(title)) or any("anthropic" in k or "claude" in k for k in kw_hits)
+        is_mmi_map = bool(re_mmi.search(title)) or any("mapmyindia" in k or "mappls" in k for k in kw_hits)
+        is_paytm_app = bool(re_paytm.search(title)) or any("paytm" in k for k in kw_hits)
+        is_spokes = bool(re_spokesperson.search(title))
+        is_comp_crisis = bool(re_crisis.search(title))
+        
+        # We classify if any of these match and it contains competitor elements
+        if is_apple:
+            grouped["Competition"]["Apple"].append(art)
+        if is_samsung:
+            grouped["Competition"]["Samsung"].append(art)
+        if is_openai_chatgpt:
+            grouped["Competition"]["OpenAI/ChatGPT"].append(art)
+        if is_msft:
+            grouped["Competition"]["Microsoft"].append(art)
+        if is_amzn:
+            grouped["Competition"]["Amazon"].append(art)
+        if is_meta_fb:
+            grouped["Competition"]["Meta (Facebook/Instagram/WhatsApp)"].append(art)
+        if is_perp:
+            grouped["Competition"]["Perplexity"].append(art)
+        if is_anth:
+            grouped["Competition"]["Anthropic"].append(art)
+        if is_mmi_map:
+            grouped["Competition"]["MapMyIndia/Mappls"].append(art)
+        if is_paytm_app:
+            grouped["Competition"]["Paytm"].append(art)
+        if is_spokes:
+            grouped["Competition"]["Spokesperson Related"].append(art)
+        if is_comp_crisis:
+            grouped["Competition"]["Crisis Related"].append(art)
+            
+        # --- 3. INDUSTRY CATEGORY ---
+        if re_datacenter.search(title):
+            grouped["Industry"]["Data center"].append(art)
+        if re_sovereignty.search(title) or any("policy" in k or "regulation" in k or "dpdp" in k for k in kw_hits):
+            grouped["Industry"]["AI Sovereignty"].append(art)
+        if re_jobs.search(title) and ("ai" in title.lower() or "ai" in body.lower()):
+            grouped["Industry"]["AI and Jobs"].append(art)
+        if re_moderation.search(title):
+            grouped["Industry"]["Content moderation"].append(art)
+        if re_socban.search(title):
+            grouped["Industry"]["Social media ban"].append(art)
+        if re_copyright.search(title) or any("copyright" in k for k in kw_hits):
+            grouped["Industry"]["Copyright"].append(art)
+        if re_broadai.search(title) or any("ai" in k or "chatgpt" in k or "openai" in k or "claude" in k for k in kw_hits):
+            grouped["Industry"]["Broad AI hot topics"].append(art)
+        if re_digitaldivide.search(title):
+            grouped["Industry"]["Digital Divide"].append(art)
+        if re_bubble.search(title):
+            grouped["Industry"]["AI Bubble"].append(art)
+        if re_trade.search(title):
+            grouped["Industry"]["Trade deal"].append(art)
+
+    # Clean up empty subcategories to prevent printing blank headers
+    cleaned_grouped = {}
+    for master, subs in grouped.items():
+        cleaned_subs = {sub: arts for sub, arts in subs.items() if arts}
+        if cleaned_subs:
+            cleaned_grouped[master] = cleaned_subs
+            
+    return cleaned_grouped
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Heavy Automation Tasks
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2180,6 +2425,8 @@ def run_heavy_automation_task(company_id: int):
         pooja_folder_filtering_enabled = getattr(company, "pooja_folder_filtering_enabled", False)
         pooja_priority_conf = getattr(company, "pooja_priority_conf", 5)
         pooja_non_priority_conf = getattr(company, "pooja_non_priority_conf", 7)
+        llm_judge_enabled = getattr(company, "llm_judge_enabled", False)
+
 
     try:
         def save_intermediate_csv(filename, articles_list, extra_headers=[]):
@@ -2264,7 +2511,11 @@ def run_heavy_automation_task(company_id: int):
             'google': ['google', 'google 2', 'google 3', 'Google3'],
             'travel': ['travel', 'Travell'],
             'lifestyle': ['lifestyle', 'LifeStyle'],
-            'consultancies': ['consultancies', 'Consultancies']
+            'consultancies': ['consultancies', 'Consultancies'],
+            'fintech': ['fintech', 'Fintech', 'FinTech', 'FINTECH'],
+            'automobile': ['automobile', 'Automobile', 'auto', 'Auto', 'AUTOMOBILE'],
+            'media and entertainment': ['media and entertainment', 'Media and Entertainment', 'media', 'Media', 'entertainment', 'Entertainment'],
+            'education': ['education', 'Education', 'EDUCATION']
         }
 
         # ── Dynamically discover ALL sector name variants stored in the local DB ──
@@ -2476,31 +2727,43 @@ def run_heavy_automation_task(company_id: int):
             _update_progress(f"Step 3: Pooja filtered matches (before Claude check): {len(relevant)} articles. Downloadable output: /api/heavy-automation/reports/{pooja_filtered_fn}")
             
             # Send to Claude for keyword relevance check
-            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Sending {len(relevant)} articles to Claude to verify keyword relevance...")
-            from scraper.heavy_llm import verify_article_keyword_with_claude
-            
-            claude_verified = []
-            claude_log_lines = []
-            
-            for art in relevant:
-                title = art.get("title") or ""
-                kw_hits = art.get("_keyword_hits", [])
-                keyword = kw_hits[0] if (isinstance(kw_hits, list) and kw_hits) else str(kw_hits)
-                
-                is_valid = verify_article_keyword_with_claude(title, keyword)
-                if is_valid:
-                    claude_verified.append(art)
-                    claude_log_lines.append(f"[KEEP] Matched keyword '{keyword}' in title: {title}")
-                else:
-                    claude_log_lines.append(f"[DISCARD] Matched keyword '{keyword}' is irrelevant in title: {title}")
-            
-            # Save Claude verification trace logs separately
             claude_log_fn = f"Claude_Verification_Log_Run_{run_id}.txt"
-            reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
-            with open(os.path.join(reports_dir, claude_log_fn), "w", encoding="utf-8") as f:
-                f.write("\n".join(claude_log_lines))
             
-            _update_progress(f"Step 3.5: Claude keyword verification complete. Discarded {len(relevant) - len(claude_verified)} irrelevant matches. Downloadable output: /api/heavy-automation/reports/{claude_log_fn}")
+            if llm_judge_enabled:
+                _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Sending {len(relevant)} articles to Claude to verify keyword relevance...")
+                from scraper.heavy_llm import verify_article_keyword_with_claude
+                
+                claude_verified = []
+                claude_log_lines = []
+                
+                for art in relevant:
+                    title = art.get("title") or ""
+                    kw_hits = art.get("_keyword_hits", [])
+                    keyword = kw_hits[0] if (isinstance(kw_hits, list) and kw_hits) else str(kw_hits)
+                    
+                    is_valid = verify_article_keyword_with_claude(title, keyword)
+                    if is_valid:
+                        claude_verified.append(art)
+                        claude_log_lines.append(f"[KEEP] Matched keyword '{keyword}' in title: {title}")
+                    else:
+                        claude_log_lines.append(f"[DISCARD] Matched keyword '{keyword}' is irrelevant in title: {title}")
+                
+                # Save Claude verification trace logs separately
+                reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+                with open(os.path.join(reports_dir, claude_log_fn), "w", encoding="utf-8") as f:
+                    f.write("\n".join(claude_log_lines))
+                
+                _update_progress(f"Step 3.5: Claude keyword verification complete. Discarded {len(relevant) - len(claude_verified)} irrelevant matches. Downloadable output: /api/heavy-automation/reports/{claude_log_fn}")
+            else:
+                _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] LLM Judge disabled. Skipping Claude keyword verification (keeping all matches).")
+                claude_verified = relevant
+                claude_log_lines = ["Claude keyword verification bypassed (LLM Judge toggle is OFF)."]
+                reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+                with open(os.path.join(reports_dir, claude_log_fn), "w", encoding="utf-8") as f:
+                    f.write("\n".join(claude_log_lines))
+                
+                _update_progress(f"Step 3.5: Claude keyword verification bypassed. Downloadable output: /api/heavy-automation/reports/{claude_log_fn}")
+
             
             # Rebuild relevant_map, corporate_articles, product_articles based on Claude verification
             relevant_map = {a["url"]: a for a in claude_verified}
@@ -2772,16 +3035,27 @@ def run_heavy_automation_task(company_id: int):
             logger.warning(f"[Heavy] Audit trail storage failed: {e}")
 
         # Generate Executive Summary + Strategic Takeaways (Phase 4)
-        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating executive summary...")
+        if llm_judge_enabled:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating executive summary...")
 
-        from scraper.heavy_llm import generate_executive_summary, generate_strategic_takeaways
-        exec_summary = generate_executive_summary(relevant, company_name=company_name)
-        takeaways = generate_strategic_takeaways(relevant, company_name=company_name)
+            from scraper.heavy_llm import generate_executive_summary, generate_strategic_takeaways
+            
+            # Deduplicate articles across publications for mailer content
+            mailer_relevant = deduplicate_across_publications(relevant)
+            
+            exec_summary = generate_executive_summary(mailer_relevant, company_name=company_name)
+            takeaways = generate_strategic_takeaways(mailer_relevant, company_name=company_name)
 
-        if exec_summary:
-            _update_progress(f"Executive Summary: {exec_summary[:100]}...")
-        if takeaways:
-            _update_progress(f"Strategic Takeaways generated.")
+            if exec_summary:
+                _update_progress(f"Executive Summary: {exec_summary[:100]}...")
+            if takeaways:
+                _update_progress(f"Strategic Takeaways generated.")
+        else:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] LLM Judge disabled. Skipping executive summary generation.")
+            exec_summary = "Executive Summary skipped (LLM Judge / Claude disabled for this run)."
+            takeaways = "Strategic Takeaways skipped (LLM Judge / Claude disabled for this run)."
+            mailer_relevant = relevant
+
 
         # Generate Mailer DOCX (Phase 4 Extension)
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating Mailer DOCX...")
@@ -2789,9 +3063,14 @@ def run_heavy_automation_task(company_id: int):
         mailer_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports", google_mailer_filename
         )
+        
+        # Build new 3-category grouped structure for the mailer
+        mailer_grouped = build_mailer_grouped_data(mailer_relevant)
+        
         from scraper.report_generator import generate_mailer_docx_report
-        generate_mailer_docx_report(company_name, "Google Daily Brief", today_str, exec_summary, takeaways, all_grouped, mailer_path)
+        generate_mailer_docx_report(company_name, "Google Daily Brief", today_str, exec_summary, takeaways, mailer_grouped, mailer_path)
         _update_progress(f"Mailer DOCX saved: {google_mailer_filename}")
+
 
         # Collect email recipients by role to use for sharing the Google Doc
         with get_db_sync() as db:
@@ -2861,66 +3140,72 @@ def run_heavy_automation_task(company_id: int):
                 YELLOW = "#FBBC04"
                 GREEN  = "#34A853"
 
-                unique_subs = list(set(art.get("_sub_category") for art in relevant if art.get("_sub_category")))
+                unique_subs = list(set(art.get("_sub_category") for art in mailer_relevant if art.get("_sub_category")))
                 if "General" in unique_subs and len(unique_subs) > 1:
                     unique_subs.remove("General")
                 top_tags = [sub for sub in unique_subs[:10]]
 
-                exec_cards = []
-                card_colors = [BLUE, GREEN, RED, YELLOW]
-                for idx, art in enumerate(relevant[:6]):
-                    exec_cards.append({
-                        "label": (art.get("_sub_category") or "ALERT").upper().split(",")[0].strip(),
-                        "color": card_colors[idx % len(card_colors)],
-                        "text": art.get("title")
-                    })
+                # Parse bullets from executive summary and enforce 15 words limit strictly
+                exec_bullets = []
+                if exec_summary:
+                    for line in exec_summary.split("\n"):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        for prefix in ("-", "*", "•"):
+                            if line.startswith(prefix):
+                                clean_line = line[len(prefix):].strip()
+                                words = clean_line.split()
+                                if len(words) > 15:
+                                    clean_line = " ".join(words[:15]) + "..."
+                                exec_bullets.append(clean_line)
+                                break
+                if not exec_bullets and exec_summary:
+                    words = exec_summary.split()
+                    if len(words) > 15:
+                        exec_bullets.append(" ".join(words[:15]) + "...")
+                    else:
+                        exec_bullets.append(exec_summary)
 
                 sections = []
                 accent_colors = [BLUE, RED, YELLOW, GREEN]
                 
                 # Limit inline email body articles to 30 to prevent Gmail clipping
-                email_articles = relevant[:30]
-                by_pillar_email_limited = group_articles_by_sections(email_articles, company_name)
+                email_articles = mailer_relevant[:30]
+                email_grouped = build_mailer_grouped_data(email_articles)
                 
-                for idx, (pillar, arts) in enumerate(by_pillar_email_limited.items()):
-                    color = accent_colors[idx % len(accent_colors)]
-                    sections.append({
-                        "name": pillar.upper(),
-                        "accent": color,
-                        "articles": arts
-                    })
-
-                takeaway_items = []
-                if takeaways:
-                    lines = [l.strip().lstrip("-*•").strip() for l in takeaways.split("\n") if l.strip()]
-                    for line in lines:
-                        parts = line.split("—", 1)
-                        if len(parts) == 2:
-                            title_part, text_part = parts[0].strip(), parts[1].strip()
-                        else:
-                            parts = line.split(":", 1)
-                            if len(parts) == 2:
-                                title_part, text_part = parts[0].strip(), parts[1].strip()
-                            else:
-                                title_part, text_part = "Key Takeaway", line
-                        takeaway_items.append({
-                            "title": title_part,
-                            "text": text_part
-                        })
+                idx = 0
+                for cat_name in ("Google", "Competition", "Industry"):
+                    if cat_name in email_grouped:
+                        # Collect all articles under all subcategories of this master category, deduplicated by URL
+                        cat_arts = []
+                        seen_urls = set()
+                        for sub_arts in email_grouped[cat_name].values():
+                            for art in sub_arts:
+                                if art["url"] not in seen_urls:
+                                    cat_arts.append(art)
+                                    seen_urls.add(art["url"])
+                        
+                        if cat_arts:
+                            color = accent_colors[idx % len(accent_colors)]
+                            sections.append({
+                                "name": cat_name.upper(),
+                                "accent": color,
+                                "articles": cat_arts
+                            })
+                            idx += 1
 
                 brief_data = {
                     "brand": company_name,
                     "subtitle": "DAILY INTELLIGENCE BRIEF",
                     "date_str": date.today().strftime("%d %B %Y").upper(),
                     "top_tags": top_tags,
-                    "exec_intro": f"{len(relevant)} headline developments shaping {company_name}'s strategic landscape today:",
-                    "exec_cards": exec_cards,
+                    "exec_intro": f"Key headline developments shaping the landscape today:",
+                    "exec_bullets": exec_bullets,
                     "sections": sections,
-                    "takeaways_intro": "Key intelligence insights from today's coverage:",
-                    "takeaways": takeaway_items,
                     "signoff_name": f"{company_name} Intelligence Desk",
                     "signoff_sub": f"Daily News Coverage — {date.today().strftime('%d %B %Y')}",
-                    "sections_covered": " | ".join(by_pillar_email_limited.keys()),
+                    "sections_covered": " | ".join(s["name"] for s in sections),
                     "disclaimer": f"This daily intelligence brief has been compiled from publicly available media sources for informational purposes only. The content herein represents the views of the cited third-party publications and does not constitute the official position of {company_name} or Alphabet Inc. All brand names and trademarks remain the property of their respective owners.",
                     "topic_tags": [f"#{t.replace(' ', '')}" for t in unique_subs[:10]],
                 }
@@ -2947,7 +3232,7 @@ def run_heavy_automation_task(company_id: int):
                             client_name=company_name,
                             docx_path_filtered=mailer_path,
                             docx_path_master=None,
-                            has_articles=bool(relevant),
+                            has_articles=bool(mailer_relevant),
                             brief_content=exec_summary,
                             google_doc_url_filtered=google_doc_url,
                             html_body=html_body if send_html else None,
@@ -2961,7 +3246,7 @@ def run_heavy_automation_task(company_id: int):
                             client_name=company_name,
                             docx_path_filtered=mailer_path,
                             docx_path_master=None,  # Do not send the 3rd doc (Master DOCX report)
-                            has_articles=bool(relevant),
+                            has_articles=bool(mailer_relevant),
                             brief_content=exec_summary,
                             excel_path_filtered=filtered_excel_path,
                             excel_path_master=excel_master,

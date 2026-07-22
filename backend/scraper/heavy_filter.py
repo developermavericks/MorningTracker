@@ -52,28 +52,115 @@ def title_hash(title: str) -> str:
 
 # ── Stage 1 — Exact dedup ────────────────────────────────────────────────────
 
+# --- Legacy Exact Dedup Logic (Commented Out) ---
+# def exact_dedup(articles: List[dict]) -> List[dict]:
+#     """
+#     Drop articles with duplicate normalized titles.
+#     Returns deduplicated list; first occurrence wins.
+#     """
+#     seen: set = set()
+#     result = []
+#     for art in articles:
+#         h = title_hash(art.get("title", ""))
+#         if h not in seen:
+#             seen.add(h)
+#             result.append(art)
+#     return result
+
 def exact_dedup(articles: List[dict]) -> List[dict]:
     """
-    Drop articles with duplicate normalized titles.
-    Returns deduplicated list; first occurrence wins.
+    Drop articles with duplicate normalized titles from the SAME publication.
+    Returns deduplicated list; first occurrence per publication wins.
     """
     seen: set = set()
     result = []
     for art in articles:
         h = title_hash(art.get("title", ""))
-        if h not in seen:
-            seen.add(h)
+        agency = (art.get("agency") or "").lower().strip()
+        key = (h, agency)
+        if key not in seen:
+            seen.add(key)
             result.append(art)
     return result
 
 
 # ── Stage 2 — Near-dup clustering (TF-IDF cosine) ────────────────────────────
 
+# --- Legacy Near Dedup Logic (Commented Out) ---
+# def near_dedup(articles: List[dict], threshold: float = 0.80) -> List[dict]:
+#     """
+#     Cluster near-duplicate articles (same story, different outlets) using
+#     TF-IDF cosine similarity. Keeps the representative with the longest body.
+#     Attaches 'cluster_outlets' to each kept article.
+#     """
+#     if len(articles) <= 1:
+#         return articles
+# 
+#     try:
+#         from sklearn.feature_extraction.text import TfidfVectorizer
+#         from sklearn.metrics.pairwise import cosine_similarity
+#         import numpy as np
+# 
+#         texts = [
+#             normalize_text((a.get("title") or "") + " " + (a.get("full_body") or a.get("summary") or ""))
+#             for a in articles
+#         ]
+# 
+#         vec = TfidfVectorizer(max_features=5000, sublinear_tf=True)
+#         tfidf = vec.fit_transform(texts)
+#         sim = cosine_similarity(tfidf)
+# 
+#         # Union-Find clustering
+#         parent = list(range(len(articles)))
+# 
+#         def find(x):
+#             while parent[x] != x:
+#                 parent[x] = parent[parent[x]]
+#                 x = parent[x]
+#             return x
+# 
+#         def union(a, b):
+#             ra, rb = find(a), find(b)
+#             if ra != rb:
+#                 parent[rb] = ra
+# 
+#         n = len(articles)
+#         for i in range(n):
+#             for j in range(i + 1, n):
+#                 if sim[i, j] >= threshold:
+#                     union(i, j)
+# 
+#         # Group by cluster root
+#         clusters: Dict[int, List[int]] = {}
+#         for idx in range(n):
+#             root = find(idx)
+#             clusters.setdefault(root, []).append(idx)
+# 
+#         result = []
+#         for indices in clusters.values():
+#             # Pick representative: longest body
+#             best = max(indices, key=lambda i: len(articles[i].get("full_body") or articles[i].get("summary") or ""))
+#             rep = dict(articles[best])
+#             outlets = list({
+#                 articles[i].get("agency") or articles[i].get("source_feed") or "Unknown"
+#                 for i in indices
+#                 if i != best
+#             })
+#             rep["cluster_outlets"] = outlets
+#             rep["cluster_size"] = len(indices)
+#             result.append(rep)
+# 
+#         logger.info(f"Near-dedup: {len(articles)} → {len(result)} articles after clustering")
+#         return result
+# 
+#     except Exception as e:
+#         logger.warning(f"Near-dedup failed, skipping: {e}")
+#         return articles
+
 def near_dedup(articles: List[dict], threshold: float = 0.80) -> List[dict]:
     """
-    Cluster near-duplicate articles (same story, different outlets) using
+    Cluster near-duplicate articles from the SAME publication using
     TF-IDF cosine similarity. Keeps the representative with the longest body.
-    Attaches 'cluster_outlets' to each kept article.
     """
     if len(articles) <= 1:
         return articles
@@ -108,8 +195,11 @@ def near_dedup(articles: List[dict], threshold: float = 0.80) -> List[dict]:
 
         n = len(articles)
         for i in range(n):
+            agency_i = (articles[i].get("agency") or "").lower().strip()
             for j in range(i + 1, n):
-                if sim[i, j] >= threshold:
+                agency_j = (articles[j].get("agency") or "").lower().strip()
+                # Only cluster near-duplicates if they are from the same publication
+                if agency_i == agency_j and sim[i, j] >= threshold:
                     union(i, j)
 
         # Group by cluster root
@@ -132,12 +222,13 @@ def near_dedup(articles: List[dict], threshold: float = 0.80) -> List[dict]:
             rep["cluster_size"] = len(indices)
             result.append(rep)
 
-        logger.info(f"Near-dedup: {len(articles)} → {len(result)} articles after clustering")
+        logger.info(f"Near-dedup (within publications): {len(articles)} → {len(result)} articles after clustering")
         return result
 
     except Exception as e:
         logger.warning(f"Near-dedup failed, skipping: {e}")
         return articles
+
 
 
 # ── Stage 3A — Keyword matcher ────────────────────────────────────────────────

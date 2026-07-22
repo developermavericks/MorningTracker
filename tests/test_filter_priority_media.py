@@ -105,5 +105,43 @@ class TestFilterPriorityMedia(unittest.TestCase):
         self.assertTrue(matched)
         self.assertEqual(pub_name, "The Ken")
 
+    def test_publication_scoped_deduplication(self):
+        from scraper.heavy_filter import exact_dedup, near_dedup
+        
+        # Mock articles
+        articles = [
+            {"title": "Google India makes new investments", "agency": "Times of India", "full_body": "TOI body here"},
+            {"title": "Google India makes new investments", "agency": "Times of India", "full_body": "TOI second copy body"}, # Duplicate from same agency (exact)
+            {"title": "Google India makes new investments", "agency": "The Economic Times", "full_body": "ET copy body"}, # Same title, different agency
+            {"title": "Google India makes new investments", "agency": "Reuters", "full_body": "Reuters copy body"}, # Same title, different agency
+        ]
+        
+        # Test exact dedup
+        deduped_exact = exact_dedup(articles)
+        self.assertEqual(len(deduped_exact), 3) # TOI (1), ET (1), Reuters (1)
+        
+        # Verify that we preserved the correct agencies
+        agencies = [art["agency"] for art in deduped_exact]
+        self.assertIn("Times of India", agencies)
+        self.assertIn("The Economic Times", agencies)
+        self.assertIn("Reuters", agencies)
+        
+        # Test near dedup within publications
+        near_dup_articles = [
+            {"title": "YouTube launches new feature", "agency": "TOI", "full_body": "YouTube has launched a new feature for creator safety."},
+            {"title": "YouTube launches new feature!", "agency": "TOI", "full_body": "YouTube has launched a new feature for creator safety!"}, # Near duplicate, same agency
+            {"title": "YouTube launches new feature", "agency": "ET", "full_body": "YouTube has launched a new feature for creator safety."}, # Near duplicate, different agency
+        ]
+        
+        deduped_near = near_dedup(near_dup_articles, threshold=0.80)
+        # Should deduplicate the two TOI articles into 1, but keep the ET article
+        self.assertEqual(len(deduped_near), 2)
+        
+        agencies_near = [art["agency"] for art in deduped_near]
+        self.assertIn("TOI", agencies_near)
+        self.assertIn("ET", agencies_near)
+
+
 if __name__ == "__main__":
     unittest.main()
+
