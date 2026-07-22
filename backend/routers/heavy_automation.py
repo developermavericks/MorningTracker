@@ -527,12 +527,16 @@ SECTOR_VARIANTS = {
     'google': ['google', 'google 2', 'google 3', 'Google3'],
     'travel': ['travel', 'Travell'],
     'lifestyle': ['lifestyle', 'LifeStyle'],
-    'consultancies': ['consultancies', 'Consultancies']
+    'consultancies': ['consultancies', 'Consultancies'],
+    'fintech': ['fintech', 'Fintech', 'FinTech', 'FINTECH'],
+    'automobile': ['automobile', 'Automobile', 'auto', 'Auto', 'AUTOMOBILE'],
+    'media and entertainment': ['media and entertainment', 'Media and Entertainment', 'media', 'Media', 'entertainment', 'Entertainment'],
+    'education': ['education', 'Education', 'EDUCATION']
 }
 
 NEXUS_SECTORS = [
-    'ai', 'consultancies', 'foods and drinks', 'google', 'healthcare',
-    'lifestyle', 'policies', 'real estate', 'startups', 'stock market', 'tech', 'travel'
+    'ai', 'automobile', 'consultancies', 'education', 'fintech', 'foods and drinks', 'google', 'healthcare',
+    'lifestyle', 'media and entertainment', 'policies', 'real estate', 'startups', 'stock market', 'tech', 'travel'
 ]
 
 @router.get("/nexus-sectors")

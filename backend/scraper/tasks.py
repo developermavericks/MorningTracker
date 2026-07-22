@@ -2452,7 +2452,11 @@ def run_heavy_automation_task(company_id: int):
             'google': ['google', 'google 2', 'google 3', 'Google3'],
             'travel': ['travel', 'Travell'],
             'lifestyle': ['lifestyle', 'LifeStyle'],
-            'consultancies': ['consultancies', 'Consultancies']
+            'consultancies': ['consultancies', 'Consultancies'],
+            'fintech': ['fintech', 'Fintech', 'FinTech', 'FINTECH'],
+            'automobile': ['automobile', 'Automobile', 'auto', 'Auto', 'AUTOMOBILE'],
+            'media and entertainment': ['media and entertainment', 'Media and Entertainment', 'media', 'Media', 'entertainment', 'Entertainment'],
+            'education': ['education', 'Education', 'EDUCATION']
         }
 
         # ── Dynamically discover ALL sector name variants stored in the local DB ──
