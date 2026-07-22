@@ -267,36 +267,25 @@ def generate_executive_summary(articles: List[dict], company_name: str = "Google
         f"for the daily {company_name} news tracker."
     )
 
-    prompt = f"""Based on the following relevant news articles, generate exactly six headline developments.
+    prompt = f"""Based on the following relevant news articles, generate a consolidated executive summary as a bulleted list of 5-7 key developments.
 Prefer articles from [PRIORITY MEDIA] sources whenever possible.
 
 Articles list:
 {article_text}
 
 FORMAT REQUIREMENTS:
-- Your response MUST start exactly with the line:
-"Six headline developments shaping {company_name} India's strategic landscape today:"
-- Followed by exactly six news cards.
-- Each card MUST have a capitalized short label (e.g. "DATA CENTRE", "$40B DEAL", "MILITARY AI", "SEOUL CAMPUS", "AD SPEND", "CYBER ALERT") representing the topic.
-- Followed by a concise 1-2 sentence description summarizing the core development and its relevance/implication.
-- Separate cards by an empty line.
-
-Example structure:
-Six headline developments shaping {company_name} India's strategic landscape today:
-
-DATA CENTRE
-AP Pollution Control Board grants Consent to Establishment for 2 Google Data Centre sites in Vizag (Rambilli & Tarluvada). CM Naidu to lay foundation stone.
-
-$40B DEAL
-Google / Alphabet commits $10B immediately and up to $40B total in Anthropic at $350B valuation, deepening AI partnership.
-
-Return ONLY the formatted text without any introductory conversational prefixes or markdown formatting."""
+- Your response MUST be a clean list of 5-7 bullet points (each starting with a hyphen `-`).
+- Each bullet point must be a concise, professional 1-2 sentence description summarizing an important development and its strategic relevance/implication.
+- Focus ONLY on the most important news.
+- Do not use markdown headers or title tags.
+- Return ONLY the bulleted list. Do not include introductory conversational prefixes or markdown formatting."""
 
     return _call_llm(
         [{"role": "user", "content": prompt}],
         system_prompt=system_prompt,
         max_tokens=1000
     )
+
 
 
 def generate_strategic_takeaways(articles: List[dict], company_name: str = "Google") -> Optional[str]:
