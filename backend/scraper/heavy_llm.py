@@ -267,15 +267,15 @@ def generate_executive_summary(articles: List[dict], company_name: str = "Google
         f"for the daily {company_name} news tracker."
     )
 
-    prompt = f"""Based on the following relevant news articles, generate a consolidated executive summary as a bulleted list of 5-7 key developments.
+    prompt = f"""Based on the following relevant news articles, generate a consolidated executive summary as a bulleted list of 4-5 key developments.
 Prefer articles from [PRIORITY MEDIA] sources whenever possible.
 
 Articles list:
 {article_text}
 
 FORMAT REQUIREMENTS:
-- Your response MUST be a clean list of 5-7 bullet points (each starting with a hyphen `-`).
-- Each bullet point must be a concise, professional 1-2 sentence description summarizing an important development and its strategic relevance/implication.
+- Your response MUST be a clean list of exactly 4 to 5 bullet points (each starting with a hyphen `-`).
+- Each bullet point must be a concise, professional summary of 1-2 sentences maximum (1 to 2 lines max) detailing an important development.
 - Focus ONLY on the most important news.
 - Do not use markdown headers or title tags.
 - Return ONLY the bulleted list. Do not include introductory conversational prefixes or markdown formatting."""
@@ -285,6 +285,7 @@ FORMAT REQUIREMENTS:
         system_prompt=system_prompt,
         max_tokens=1000
     )
+
 
 
 
