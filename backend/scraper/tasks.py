@@ -2270,10 +2270,30 @@ def build_mailer_grouped_data(articles_list):
         # Check matching keywords in _keyword_hits to help accuracy
         kw_hits = [str(k).lower() for k in art.get("_keyword_hits", [])]
         
+        # Competition brands & topics
+        is_apple = bool(re_apple.search(title)) or any("apple" in k or "iphone" in k or "ios" in k or "airpods" in k for k in kw_hits)
+        is_samsung = bool(re_samsung.search(title)) or any("samsung" in k or "galaxy" in k for k in kw_hits)
+        is_openai_chatgpt = bool(re_openai.search(title)) or any("openai" in k or "chatgpt" in k for k in kw_hits)
+        is_msft = bool(re_microsoft.search(title)) or any("microsoft" in k or "azure" in k for k in kw_hits)
+        is_amzn = bool(re_amazon.search(title)) or any("amazon" in k or "aws" in k for k in kw_hits)
+        is_meta_fb = bool(re_meta.search(title)) or any("meta" in k or "facebook" in k or "instagram" in k or "whatsapp" in k for k in kw_hits)
+        is_perp = bool(re_perplexity.search(title)) or any("perplexity" in k for k in kw_hits)
+        is_anth = bool(re_anthropic.search(title)) or any("anthropic" in k or "claude" in k for k in kw_hits)
+        is_mmi_map = bool(re_mmi.search(title)) or any("mapmyindia" in k or "mappls" in k for k in kw_hits)
+        is_paytm_app = bool(re_paytm.search(title)) or any("paytm" in k for k in kw_hits)
+        is_spokes = bool(re_spokesperson.search(title))
+        is_comp_crisis = bool(re_crisis.search(title))
+
+        is_competitor = (
+            is_apple or is_samsung or is_openai_chatgpt or is_msft or is_amzn or
+            is_meta_fb or is_perp or is_anth or is_mmi_map or is_paytm_app
+        )
+
         is_google_branded = bool(re_google.search(text_to_check)) or any("google" in k or "youtube" in k or "android" in k or "gemini" in k or "pixel" in k or "sundar" in k for k in kw_hits)
         
         # --- 1. GOOGLE CATEGORY ---
-        if is_google_branded:
+        # Exclude competitor-related news to keep Google section direct.
+        if is_google_branded and not is_competitor:
             added_to_google = False
             
             # Critical/Crisis (spokesperson & crisis related on top)
@@ -2311,19 +2331,6 @@ def build_mailer_grouped_data(articles_list):
                 grouped["Google"]["Corporate/Organizational"].append(art)
                 
         # --- 2. COMPETITION CATEGORY ---
-        is_apple = bool(re_apple.search(title)) or any("apple" in k or "iphone" in k or "ios" in k or "airpods" in k for k in kw_hits)
-        is_samsung = bool(re_samsung.search(title)) or any("samsung" in k or "galaxy" in k for k in kw_hits)
-        is_openai_chatgpt = bool(re_openai.search(title)) or any("openai" in k or "chatgpt" in k for k in kw_hits)
-        is_msft = bool(re_microsoft.search(title)) or any("microsoft" in k or "azure" in k for k in kw_hits)
-        is_amzn = bool(re_amazon.search(title)) or any("amazon" in k or "aws" in k for k in kw_hits)
-        is_meta_fb = bool(re_meta.search(title)) or any("meta" in k or "facebook" in k or "instagram" in k or "whatsapp" in k for k in kw_hits)
-        is_perp = bool(re_perplexity.search(title)) or any("perplexity" in k for k in kw_hits)
-        is_anth = bool(re_anthropic.search(title)) or any("anthropic" in k or "claude" in k for k in kw_hits)
-        is_mmi_map = bool(re_mmi.search(title)) or any("mapmyindia" in k or "mappls" in k for k in kw_hits)
-        is_paytm_app = bool(re_paytm.search(title)) or any("paytm" in k for k in kw_hits)
-        is_spokes = bool(re_spokesperson.search(title))
-        is_comp_crisis = bool(re_crisis.search(title))
-        
         # We classify if any of these match and it contains competitor elements
         if is_apple:
             grouped["Competition"]["Apple"].append(art)
@@ -2345,9 +2352,9 @@ def build_mailer_grouped_data(articles_list):
             grouped["Competition"]["MapMyIndia/Mappls"].append(art)
         if is_paytm_app:
             grouped["Competition"]["Paytm"].append(art)
-        if is_spokes:
+        if is_spokes and is_competitor:
             grouped["Competition"]["Spokesperson Related"].append(art)
-        if is_comp_crisis:
+        if is_comp_crisis and is_competitor:
             grouped["Competition"]["Crisis Related"].append(art)
             
         # --- 3. INDUSTRY CATEGORY ---
@@ -3203,7 +3210,7 @@ def run_heavy_automation_task(company_id: int):
                     "exec_intro": f"Key headline developments shaping the landscape today:",
                     "exec_bullets": exec_bullets,
                     "sections": sections,
-                    "signoff_name": f"{company_name} Intelligence Desk",
+                    "signoff_name": "THE MAVERICKS Intelligence Desk",
                     "signoff_sub": f"Daily News Coverage — {date.today().strftime('%d %B %Y')}",
                     "sections_covered": " | ".join(s["name"] for s in sections),
                     "disclaimer": f"This daily intelligence brief has been compiled from publicly available media sources for informational purposes only. The content herein represents the views of the cited third-party publications and does not constitute the official position of {company_name} or Alphabet Inc. All brand names and trademarks remain the property of their respective owners.",
@@ -3587,7 +3594,7 @@ def check_heavy_scheduled_sends():
                                 "sections": sections,
                                 "takeaways_intro": "Key intelligence insights from today's coverage:",
                                 "takeaways": takeaway_items,
-                                "signoff_name": f"{company.name} Intelligence Desk",
+                                "signoff_name": "THE MAVERICKS Intelligence Desk",
                                 "signoff_sub": f"Daily News Coverage — {run.started_at.strftime('%d %B %Y')}",
                                 "sections_covered": " | ".join(by_pillar_email_reconstructed.keys()),
                                 "disclaimer": f"This daily intelligence brief has been compiled from publicly available media sources for informational purposes only. The content herein represents the views of the cited third-party publications and does not constitute the official position of {company.name} or Alphabet Inc. All brand names and trademarks remain the property of their respective owners.",
