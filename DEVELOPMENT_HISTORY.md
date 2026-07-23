@@ -10,6 +10,7 @@ The following table tracks active commits, implementation authors, change summar
 
 | Date & Time (IST) | Commit Hash | Author | Scope / Feature Area | Deployment Status |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-07-23 15:00 | `f28a99b` | Divyansh Sharma | **Asset:** Updated system fallback Word template (`client_1_template.docx`) with the new Scapia design theme. | Deployed & Active |
 | 2026-07-23 14:20 | `e5bc244` | Divyansh Sharma | **Feature:** Added monthly takeaways Excel email scheduling inputs to the Schedule tab in frontend settings UI. | Deployed & Active |
 | 2026-07-23 14:15 | `7a13918` | Divyansh Sharma | **Fix & Feature:** Added mailer doc binary database storage backup, and added the "Cumulative Spreadsheet" button to Heavy Automation runs history UI. | Deployed & Active |
 | 2026-07-23 13:30 | `c846a42` | Divyansh Sharma | **Fix:** Made takeaways schedule Pydantic response schema robust to prevent validation failures on existing database entries. | Deployed & Active |
