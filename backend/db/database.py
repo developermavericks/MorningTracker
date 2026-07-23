@@ -318,6 +318,7 @@ class HeavyRun(Base):
     filtered_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     master_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     filtered_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    mailer_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     email_status: Mapped[Optional[str]] = mapped_column(String)  # sent|failed|pending|skipped
     progress_message: Mapped[Optional[str]] = mapped_column(Text)
     error: Mapped[Optional[str]] = mapped_column(Text)
@@ -518,7 +519,7 @@ async def init_db():
         except: pass
 
         # Automated Migration: Add HeavyRun file data columns if missing
-        for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data"]:
+        for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data", "mailer_doc_data"]:
             try:
                 if "postgresql" in engine.url.drivername:
                     await conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS {col} BYTEA"))
@@ -780,7 +781,7 @@ def init_db_sync():
     except: pass
 
     # Automated migration: Add HeavyRun file data columns if missing
-    for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data"]:
+    for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data", "mailer_doc_data"]:
         try:
             with engine_sync.begin() as conn:
                 if "postgresql" in engine_sync.url.drivername:

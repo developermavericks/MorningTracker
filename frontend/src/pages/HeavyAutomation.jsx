@@ -343,6 +343,29 @@ function RunHistory({ company }) {
                     🔗 Open Mailer Google Doc
                   </a>
                 )}
+                {company.takeaways_sheet_url && (
+                  <a
+                    href={company.takeaways_sheet_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      background: "rgba(244,180,0,0.12)",
+                      border: "1px solid rgba(244,180,0,0.35)",
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      color: "#F4B400",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                      fontSize: "13px"
+                    }}
+                  >
+                    📈 Cumulative Spreadsheet
+                  </a>
+                )}
               </div>
 
               {/* Progress parser & dynamic loader */}
