@@ -285,6 +285,11 @@ class HeavyCompany(Base):
     frequency: Mapped[str] = mapped_column(String, default="Daily")  # Daily|Weekly|Monthly|Custom
     days: Mapped[Optional[str]] = mapped_column(Text)  # JSON list e.g. '["MON","THU"]'
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    takeaways_sheet_url: Mapped[Optional[str]] = mapped_column(String)
+    send_monthly_takeaways_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    monthly_takeaways_day: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    monthly_takeaways_time: Mapped[str] = mapped_column(String, default="09:00", server_default="'09:00'")
+    last_monthly_takeaways_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -907,6 +912,13 @@ def init_db_sync():
                 conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS pooja_folder_filtering_enabled BOOLEAN DEFAULT FALSE"))
                 conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS email_status VARCHAR"))
                 conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN IF NOT EXISTS bucket VARCHAR"))
+                
+                # Takeaways scheduled monthly columns
+                conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS takeaways_sheet_url VARCHAR"))
+                conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS send_monthly_takeaways_enabled BOOLEAN DEFAULT FALSE"))
+                conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS monthly_takeaways_day INTEGER DEFAULT 1"))
+                conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS monthly_takeaways_time VARCHAR DEFAULT '09:00'"))
+                conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS last_monthly_takeaways_sent_at TIMESTAMP WITHOUT TIME ZONE"))
             else:
                 for col_sql in [
                     "ALTER TABLE heavy_companies ADD COLUMN updated_at DATETIME",
@@ -914,6 +926,13 @@ def init_db_sync():
                     "ALTER TABLE heavy_companies ADD COLUMN pooja_folder_filtering_enabled BOOLEAN DEFAULT 0",
                     "ALTER TABLE heavy_runs ADD COLUMN email_status VARCHAR",
                     "ALTER TABLE heavy_run_articles ADD COLUMN bucket VARCHAR",
+                    
+                    # Takeaways scheduled monthly columns
+                    "ALTER TABLE heavy_companies ADD COLUMN takeaways_sheet_url VARCHAR",
+                    "ALTER TABLE heavy_companies ADD COLUMN send_monthly_takeaways_enabled BOOLEAN DEFAULT 0",
+                    "ALTER TABLE heavy_companies ADD COLUMN monthly_takeaways_day INTEGER DEFAULT 1",
+                    "ALTER TABLE heavy_companies ADD COLUMN monthly_takeaways_time VARCHAR DEFAULT '09:00'",
+                    "ALTER TABLE heavy_companies ADD COLUMN last_monthly_takeaways_sent_at DATETIME",
                 ]:
                     try:
                         conn.execute(text(col_sql))
