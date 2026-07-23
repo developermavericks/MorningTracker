@@ -1,6 +1,6 @@
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -715,4 +715,281 @@ def upload_cumulative_excel_to_google_sheet(grouped_data: dict, client_name: str
         
     except Exception as e:
         logger.error(f"Failed to upload cumulative sheet to Google Drive: {e}", exc_info=True)
+        return None
+
+
+def append_daily_takeaways_to_sheet(company_name: str, run_date: Any, takeaways_text: str) -> Optional[str]:
+    """
+    Appends daily strategic takeaways to a dedicated Excel spreadsheet on Google Drive,
+    creating/syncing it in place, using separate tabs for each month (e.g. 'July 2026').
+    Does NOT email it automatically. Returns the web link to the Google Sheet.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    
+    if not takeaways_text:
+        logger.warning(f"[Takeaways Sheet] No takeaways to append for {company_name}")
+        return None
+        
+    service = get_drive_service()
+    if not service:
+        logger.error("[Takeaways Sheet] Google Drive service not initialized.")
+        return None
+        
+    local_path = ""
+    try:
+        folder_id = get_or_create_reports_folder(service, company_name)
+        file_name = f"{company_name} - Strategic Takeaways History"
+        
+        # 1. Search for existing spreadsheet
+        query = f"name = '{file_name}' and mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' and '{folder_id}' in parents and trashed = false"
+        results = service.files().list(
+            q=query, 
+            spaces='drive', 
+            fields='files(id, webViewLink)',
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        files = results.get('files', [])
+        
+        sheet_id = None
+        web_link = None
+        
+        temp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+        os.makedirs(temp_dir, exist_ok=True)
+        local_path = os.path.join(temp_dir, f"Takeaways_{company_name.replace(' ', '_')}.xlsx")
+        
+        if files:
+            sheet_id = files[0]['id']
+            web_link = files[0]['webViewLink']
+            logger.info(f"[Takeaways Sheet] Sheet exists (ID: {sheet_id}). Downloading...")
+            # Download file
+            from googleapiclient.http import MediaIoBaseDownload
+            import io
+            request = service.files().get_media(fileId=sheet_id)
+            fh = io.FileIO(local_path, 'wb')
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            fh.close()
+            wb = openpyxl.load_workbook(local_path)
+        else:
+            logger.info(f"[Takeaways Sheet] Creating new sheet...")
+            wb = openpyxl.Workbook()
+            # remove default sheet
+            default_sheet = wb.active
+            if default_sheet:
+                wb.remove(default_sheet)
+                
+        # 2. Determine month tab name
+        if isinstance(run_date, str):
+            try:
+                date_obj = datetime.strptime(run_date, "%Y-%m-%d").date()
+            except Exception:
+                try:
+                    date_obj = datetime.strptime(run_date, "%d %B %Y").date()
+                except Exception:
+                    date_obj = datetime.today().date()
+        elif isinstance(run_date, (datetime, date)):
+            date_obj = run_date
+        else:
+            date_obj = datetime.today().date()
+            
+        month_tab_name = date_obj.strftime("%B %Y")  # e.g., "July 2026"
+        date_str_iso = date_obj.strftime("%Y-%m-%d")
+        
+        # 3. Get or create month sheet
+        if month_tab_name in wb.sheetnames:
+            ws = wb[month_tab_name]
+        else:
+            ws = wb.create_sheet(title=month_tab_name)
+            # Write header
+            header_font = Font(name="Calibri", size=11, bold=True, color="ffffff")
+            header_fill = PatternFill(start_color="4285F4", end_color="4285F4", fill_type="solid")  # Google Blue
+            header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            
+            headers = ["Date", "Takeaway Title", "Details"]
+            for col_idx, header_text in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col_idx, value=header_text)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = header_align
+                
+            ws.row_dimensions[1].height = 25
+            
+        # 4. Parse daily takeaways text and append
+        lines = [l.strip().lstrip("-*•").strip() for l in takeaways_text.split("\n") if l.strip()]
+        
+        data_font = Font(name="Calibri", size=11)
+        align_left = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        align_center = Alignment(horizontal="center", vertical="top")
+        
+        thin_side = Side(border_style="thin", color="D3D3D3")
+        thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        
+        start_row = ws.max_row + 1
+        
+        added_any = False
+        for line in lines:
+            # Match titles split by "—" or ":"
+            parts = line.split("—", 1)
+            if len(parts) == 2:
+                title_part, text_part = parts[0].strip(), parts[1].strip()
+            else:
+                parts = line.split(":", 1)
+                if len(parts) == 2:
+                    title_part, text_part = parts[0].strip(), parts[1].strip()
+                else:
+                    title_part = "Key Insight"
+                    text_part = line.strip()
+                    
+            if not text_part:
+                continue
+                
+            # Append row
+            c_date = ws.cell(row=start_row, column=1, value=date_str_iso)
+            c_title = ws.cell(row=start_row, column=2, value=title_part)
+            c_text = ws.cell(row=start_row, column=3, value=text_part)
+            
+            # Formatting
+            for cell in (c_date, c_title, c_text):
+                cell.font = data_font
+                cell.border = thin_border
+                
+            c_date.alignment = align_center
+            c_title.alignment = align_left
+            c_text.alignment = align_left
+            
+            start_row += 1
+            added_any = True
+            
+        if not added_any:
+            # Fallback
+            c_date = ws.cell(row=start_row, column=1, value=date_str_iso)
+            c_title = ws.cell(row=start_row, column=2, value="Daily Takeaways Summary")
+            c_text = ws.cell(row=start_row, column=3, value=takeaways_text)
+            
+            for cell in (c_date, c_title, c_text):
+                cell.font = data_font
+                cell.border = thin_border
+            c_date.alignment = align_center
+            c_title.alignment = align_left
+            c_text.alignment = align_left
+            
+        # Adjust column widths
+        ws.column_dimensions["A"].width = 15
+        ws.column_dimensions["B"].width = 30
+        ws.column_dimensions["C"].width = 80
+        
+        # Save workbook locally
+        wb.save(local_path)
+        
+        # 5. Upload back to Google Drive
+        from googleapiclient.http import MediaFileUpload
+        media = MediaFileUpload(local_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+        
+        if sheet_id:
+            # Update existing file
+            service.files().update(
+                fileId=sheet_id,
+                media_body=media,
+                supportsAllDrives=True
+            ).execute()
+        else:
+            # Create new file
+            file_metadata = {
+                'name': file_name,
+                'parents': [folder_id],
+                'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            }
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id, webViewLink',
+                supportsAllDrives=True
+            ).execute()
+            sheet_id = file.get('id')
+            web_link = file.get('webViewLink')
+            
+        # Ensure public link sharing is enabled (anyone with link can read)
+        try:
+            public_permission = {
+                'type': 'anyone',
+                'role': 'reader'
+            }
+            service.permissions().create(
+                fileId=sheet_id,
+                body=public_permission,
+                supportsAllDrives=True
+            ).execute()
+        except Exception:
+            pass
+            
+        # Clean up local file safely
+        try:
+            if local_path and os.path.exists(local_path):
+                os.remove(local_path)
+        except Exception:
+            pass
+            
+        return web_link
+        
+    except Exception as e:
+        logger.error(f"[Takeaways Sheet] Error updating Google Sheet for {company_name}: {e}", exc_info=True)
+        if local_path and os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass
+        return None
+
+
+def download_takeaways_sheet_file(company_name: str) -> Optional[str]:
+    """
+    Searches for the takeaways history Excel sheet for the specified company on Google Drive,
+    downloads it locally to a temp path, and returns the path.
+    """
+    service = get_drive_service()
+    if not service:
+        logger.error("[Takeaways Sheet] Google Drive service not initialized.")
+        return None
+        
+    try:
+        folder_id = get_or_create_reports_folder(service, company_name)
+        file_name = f"{company_name} - Strategic Takeaways History"
+        
+        query = f"name = '{file_name}' and mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' and '{folder_id}' in parents and trashed = false"
+        results = service.files().list(
+            q=query, 
+            spaces='drive', 
+            fields='files(id)',
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        files = results.get('files', [])
+        
+        if not files:
+            logger.warning(f"[Takeaways Sheet] Takeaways sheet not found for {company_name}")
+            return None
+            
+        sheet_id = files[0]['id']
+        
+        temp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+        os.makedirs(temp_dir, exist_ok=True)
+        local_path = os.path.join(temp_dir, f"Takeaways_{company_name.replace(' ', '_')}_Download.xlsx")
+        
+        from googleapiclient.http import MediaIoBaseDownload
+        import io
+        request = service.files().get_media(fileId=sheet_id)
+        fh = io.FileIO(local_path, 'wb')
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        fh.close()
+        
+        return local_path
+    except Exception as e:
+        logger.error(f"[Takeaways Sheet] Failed to download takeaways sheet for {company_name}: {e}", exc_info=True)
         return None

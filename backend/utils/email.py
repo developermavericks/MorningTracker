@@ -220,3 +220,68 @@ def send_error_alert_email(client_name: str, error_details: str) -> bool:
         logger.error(f"Failed to send error alert email for {client_name}: {e}")
         return False
 
+
+def send_monthly_takeaways_report_email(recipient_emails: list, client_name: str, excel_path: str, google_sheet_url: str = None) -> bool:
+    """
+    Sends the monthly consolidated takeaways spreadsheet as an attachment
+    and includes the Google Sheet web link in the email body.
+    """
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = os.getenv("SMTP_PORT")
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    sender_email = os.getenv("SENDER_EMAIL")
+    
+    if not all([smtp_host, smtp_port, smtp_user, smtp_password, sender_email]):
+        logger.error("SMTP environment variables are not fully configured. Cannot send monthly report.")
+        return False
+        
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = ", ".join(recipient_emails)
+        
+        last_month = datetime.now()
+        date_str = last_month.strftime("%B %Y")
+        msg['Subject'] = f"Monthly Strategic Takeaways Report: {client_name} - {date_str}"
+        
+        body = (
+            f"Hello Team,\n\n"
+            f"Please find attached the monthly strategic takeaways report for {client_name} (Excel format) for {date_str}.\n\n"
+        )
+        if google_sheet_url:
+            body += f"📈 Strategic Takeaways Google Sheet (Historical Timeline):\n{google_sheet_url}\n\n"
+            
+        body += (
+            f"Best regards,\n"
+            f"THE MAVERICKS Intelligence Desk"
+        )
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Attach the Excel report file
+        if excel_path and os.path.exists(excel_path):
+            filename = os.path.basename(excel_path)
+            with open(excel_path, "rb") as attachment:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(attachment.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f"attachment; filename={filename}")
+                msg.attach(part)
+                
+        port = int(smtp_port)
+        if port == 465:
+            with smtplib.SMTP_SSL(smtp_host, port, timeout=30) as server:
+                server.login(smtp_user, smtp_password)
+                server.sendmail(sender_email, recipient_emails, msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_host, port, timeout=30) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_password)
+                server.sendmail(sender_email, recipient_emails, msg.as_string())
+                
+        logger.info(f"Successfully sent monthly takeaways report to {recipient_emails} for {client_name}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send monthly takeaways report for {client_name}: {e}")
+        return False
+

@@ -3129,6 +3129,26 @@ def run_heavy_automation_task(company_id: int):
                 run_rec.takeaways = takeaways
                 db.commit()
 
+        # Update takeaways Google Sheet in a non-blocking try-except block
+        if takeaways and takeaways.strip():
+            _update_progress("Updating strategic takeaways Google Sheet...")
+            try:
+                from utils.google_docs import append_daily_takeaways_to_sheet
+                sheet_url = append_daily_takeaways_to_sheet(company.name, date.today(), takeaways)
+                if sheet_url:
+                    _update_progress(f"Takeaways Google Sheet updated: {sheet_url}")
+                    # Update company takeaways_sheet_url in DB
+                    with get_db_sync() as db:
+                        comp_rec = db.execute(select(HeavyCompany).where(HeavyCompany.id == company.id)).scalar_one_or_none()
+                        if comp_rec:
+                            comp_rec.takeaways_sheet_url = sheet_url
+                            db.commit()
+                else:
+                    _update_progress("Warning: Takeaways Google Sheet was not updated.")
+            except Exception as sheet_err:
+                logger.error(f"[Heavy] Failed to update takeaways sheet: {sheet_err}", exc_info=True)
+                _update_progress(f"Warning: Takeaways sheet update failed: {sheet_err}")
+
         # Build and send email
         _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Sending intelligence brief email...")
 
@@ -3358,7 +3378,7 @@ def check_heavy_automation_schedules():
     from db.database import get_db_sync, HeavyCompany, HeavyRun
     from sqlalchemy import desc
     import pytz
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     logger.info("[Heavy] Checking automation schedules...")
 
@@ -3371,56 +3391,80 @@ def check_heavy_automation_schedules():
                     tz = pytz.timezone(company.timezone or "Asia/Kolkata")
                     now_tz = datetime.now(tz)
 
-                    # Parse scheduled time (HH:MM)
+                    # ─── SECTION A: Check and trigger daily/weekly/monthly scraper runs ───
                     sched_hour, sched_min = map(int, (company.fetch_time or "07:00").split(":"))
                     target = now_tz.replace(hour=sched_hour, minute=sched_min, second=0, microsecond=0)
 
-                    # Check if we're within 10 minutes after scheduled time
+                    # Check if we're within 10 minutes after daily/weekly schedule
                     diff_min = (now_tz - target).total_seconds() / 60.0
-                    if not (0 <= diff_min < 10):
-                        continue
+                    if 0 <= diff_min < 10:
+                        # Check frequency/days
+                        weekday = now_tz.strftime("%A")[:3].upper()
+                        month_day = now_tz.day
+                        days_list = [] if not company.days else json.loads(company.days)
 
-                    # Check frequency/days
-                    weekday = now_tz.strftime("%A")[:3].upper()
-                    month_day = now_tz.day
-                    days_list = [] if not company.days else json.loads(company.days)
+                        should_run = False
+                        if company.frequency == "Daily":
+                            should_run = True
+                        elif company.frequency == "Weekly" and weekday in days_list:
+                            should_run = True
+                        elif company.frequency == "Monthly" and str(month_day) in days_list:
+                            should_run = True
+                        elif company.frequency == "Custom" and weekday in days_list:
+                            should_run = True
 
-                    should_run = False
-                    if company.frequency == "Daily":
-                        should_run = True
-                    elif company.frequency == "Weekly" and weekday in days_list:
-                        should_run = True
-                    elif company.frequency == "Monthly" and str(month_day) in days_list:
-                        should_run = True
-                    elif company.frequency == "Custom" and weekday in days_list:
-                        should_run = True
+                        if should_run:
+                            # Check if already ran today
+                            last_run = db.execute(
+                                select(HeavyRun)
+                                .where(HeavyRun.company_id == company.id)
+                                .order_by(desc(HeavyRun.started_at))
+                                .limit(1)
+                            ).scalar_one_or_none()
 
-                    if not should_run:
-                        continue
+                            run_today = False
+                            if last_run:
+                                run_start = last_run.started_at or last_run.finished_at
+                                if run_start:
+                                    # database time is UTC, convert it to company's local timezone to compare dates correctly
+                                    run_start_local = run_start.replace(tzinfo=pytz.utc).astimezone(tz)
+                                    last_run_date = run_start_local.date()
+                                else:
+                                    last_run_date = None
 
-                    # Check if already ran today
-                    last_run = db.execute(
-                        select(HeavyRun)
-                        .where(HeavyRun.company_id == company.id)
-                        .order_by(desc(HeavyRun.started_at))
-                        .limit(1)
-                    ).scalar_one_or_none()
+                                if last_run_date == now_tz.date():
+                                    run_today = True
 
-                    if last_run:
-                        run_start = last_run.started_at or last_run.finished_at
-                        if run_start:
-                            # database time is UTC, convert it to company's local timezone to compare dates correctly
-                            run_start_local = run_start.replace(tzinfo=pytz.utc).astimezone(tz)
-                            last_run_date = run_start_local.date()
-                        else:
-                            last_run_date = None
+                            if not run_today:
+                                logger.info(f"[Heavy] Triggering daily/weekly run for {company.name}")
+                                celery_app.send_task("scraper.tasks.run_heavy_automation_task", args=[company.id])
 
-                        if last_run_date == now_tz.date():
-                            logger.info(f"[Heavy] {company.name} already ran today, skipping")
-                            continue
-
-                    logger.info(f"[Heavy] Triggering run for {company.name}")
-                    celery_app.send_task("scraper.tasks.run_heavy_automation_task", args=[company.id])
+                    # ─── SECTION B: Check and send monthly takeaways spreadsheet email ───
+                    send_monthly = getattr(company, "send_monthly_takeaways_enabled", False)
+                    if send_monthly:
+                        m_day = getattr(company, "monthly_takeaways_day", 1) or 1
+                        m_time = getattr(company, "monthly_takeaways_time", "09:00") or "09:00"
+                        
+                        try:
+                            m_hour, m_min = map(int, m_time.split(":"))
+                            m_target = now_tz.replace(day=m_day, hour=m_hour, minute=m_min, second=0, microsecond=0)
+                            
+                            m_diff_min = (now_tz - m_target).total_seconds() / 60.0
+                            if now_tz.day == m_day and (0 <= m_diff_min < 10):
+                                target_month_str = now_tz.strftime("%Y-%m")
+                                
+                                last_sent = company.last_monthly_takeaways_sent_at
+                                already_sent = False
+                                if last_sent:
+                                    last_sent_tz = last_sent.replace(tzinfo=pytz.utc).astimezone(tz)
+                                    if last_sent_tz.strftime("%Y-%m") == target_month_str:
+                                        already_sent = True
+                                        
+                                if not already_sent:
+                                    logger.info(f"[Heavy] Triggering monthly takeaways report send for {company.name}")
+                                    celery_app.send_task("scraper.tasks.send_monthly_takeaways_report_task", args=[company.id])
+                        except Exception as monthly_sched_err:
+                            logger.error(f"[Heavy] Monthly takeaways schedule check error for {company.name}: {monthly_sched_err}")
 
                 except Exception as e:
                     logger.error(f"[Heavy] Schedule check error for {company.name}: {e}")
@@ -3655,3 +3699,67 @@ def check_heavy_scheduled_sends():
 
     except Exception as e:
         logger.error(f"[Heavy] Scheduled sends check failed: {e}", exc_info=True)
+
+
+@celery_app.task(name="scraper.tasks.send_monthly_takeaways_report_task")
+def send_monthly_takeaways_report_task(company_id: int):
+    """
+    Downloads the takeaways Excel spreadsheet and emails it to all the company's recipients.
+    Updates company.last_monthly_takeaways_sent_at on success.
+    """
+    from db.database import get_db_sync, HeavyCompany, HeavyRecipient
+    from utils.google_docs import download_takeaways_sheet_file
+    from utils.email import send_monthly_takeaways_report_email
+    from datetime import datetime
+    
+    logger.info(f"[Heavy] Running send_monthly_takeaways_report_task for company ID {company_id}...")
+    
+    try:
+        with get_db_sync() as db:
+            company = db.execute(select(HeavyCompany).where(HeavyCompany.id == company_id)).scalar_one_or_none()
+            if not company:
+                logger.error(f"[Heavy] Company {company_id} not found.")
+                return False
+                
+            recipients = db.execute(select(HeavyRecipient).where(HeavyRecipient.company_id == company.id)).scalars().all()
+            recipient_emails = [r.email for r in recipients if r.email]
+            
+            if not recipient_emails:
+                logger.info(f"[Heavy] No recipients configured for company {company.name}. Skipping monthly takeaways send.")
+                return False
+                
+            sheet_url = company.takeaways_sheet_url
+            
+            # Download takeaways excel sheet
+            excel_path = download_takeaways_sheet_file(company.name)
+            if not excel_path or not os.path.exists(excel_path):
+                logger.error(f"[Heavy] Takeaways spreadsheet could not be downloaded for {company.name}.")
+                return False
+                
+            # Send monthly takeaways email
+            success = send_monthly_takeaways_report_email(
+                recipient_emails=recipient_emails,
+                client_name=company.name,
+                excel_path=excel_path,
+                google_sheet_url=sheet_url
+            )
+            
+            # Clean up local file
+            try:
+                os.remove(excel_path)
+            except Exception:
+                pass
+                
+            if success:
+                # Update sent timestamp
+                company.last_monthly_takeaways_sent_at = datetime.utcnow()
+                db.commit()
+                logger.info(f"[Heavy] Successfully completed monthly takeaways send for {company.name}")
+                return True
+            else:
+                logger.error(f"[Heavy] Failed to send monthly takeaways email for {company.name}")
+                return False
+                
+    except Exception as e:
+        logger.error(f"[Heavy] Error sending monthly takeaways for company {company_id}: {e}", exc_info=True)
+        return False

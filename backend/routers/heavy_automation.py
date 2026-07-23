@@ -53,6 +53,10 @@ class CompanyCreate(BaseModel):
     mail_send_time: Optional[str] = None
     frequency: str = "Daily"
     days: Optional[List[str]] = None
+    takeaways_sheet_url: Optional[str] = None
+    send_monthly_takeaways_enabled: bool = False
+    monthly_takeaways_day: int = 1
+    monthly_takeaways_time: str = "09:00"
     recipients: List[RecipientIn] = []
 
 class RecipientOut(BaseModel):
@@ -84,6 +88,10 @@ class CompanyOut(BaseModel):
     frequency: str
     days: Optional[List[str]]
     last_run_at: Optional[str]
+    takeaways_sheet_url: Optional[str]
+    send_monthly_takeaways_enabled: bool
+    monthly_takeaways_day: int
+    monthly_takeaways_time: str
     created_at: str
     recipients: List[RecipientOut]
 
@@ -160,6 +168,10 @@ async def _build_company_out(company: HeavyCompany, db: AsyncSession) -> Company
         frequency=company.frequency,
         days=days_val,
         last_run_at=_fmt_dt(company.last_run_at),
+        takeaways_sheet_url=company.takeaways_sheet_url,
+        send_monthly_takeaways_enabled=company.send_monthly_takeaways_enabled,
+        monthly_takeaways_day=company.monthly_takeaways_day,
+        monthly_takeaways_time=company.monthly_takeaways_time,
         created_at=_fmt_dt(company.created_at),
         recipients=recipients,
     )
@@ -209,6 +221,10 @@ async def create_company(
         mail_send_time=payload.mail_send_time,
         frequency=payload.frequency,
         days=json.dumps(payload.days) if payload.days else None,
+        takeaways_sheet_url=payload.takeaways_sheet_url,
+        send_monthly_takeaways_enabled=payload.send_monthly_takeaways_enabled,
+        monthly_takeaways_day=payload.monthly_takeaways_day,
+        monthly_takeaways_time=payload.monthly_takeaways_time,
     )
     db.add(company)
     await db.commit()
@@ -254,6 +270,10 @@ async def update_company(
     company.mail_send_time = payload.mail_send_time
     company.frequency = payload.frequency
     company.days = json.dumps(payload.days) if payload.days else None
+    company.takeaways_sheet_url = payload.takeaways_sheet_url
+    company.send_monthly_takeaways_enabled = payload.send_monthly_takeaways_enabled
+    company.monthly_takeaways_day = payload.monthly_takeaways_day
+    company.monthly_takeaways_time = payload.monthly_takeaways_time
     company.updated_at = datetime.now()
 
     await db.execute(delete(HeavyRecipient).where(HeavyRecipient.company_id == company_id))
@@ -296,6 +316,19 @@ async def trigger_run(
         args=[company_id],
     )
     return {"detail": "Heavy automation task triggered", "task_id": task.id}
+
+
+@router.get("/companies/{company_id}/takeaways-link")
+async def get_takeaways_link(
+    company_id: int,
+    db: AsyncSession = Depends(get_db_yield),
+    _: TokenData = Depends(get_admin_user),
+):
+    res = await db.execute(select(HeavyCompany).where(HeavyCompany.id == company_id))
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return {"takeaways_sheet_url": company.takeaways_sheet_url}
 
 
 @router.get("/companies/{company_id}/runs", response_model=List[RunOut])
