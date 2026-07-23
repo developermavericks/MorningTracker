@@ -586,6 +586,59 @@ function CompanySettings({ company, availableSectors, onSave, onDelete, onRunNow
                 <input type="time" value={form.mail_send_time || "08:00"} onChange={e => set("mail_send_time", e.target.value)} style={{ width: "160px", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px" }} />
               </div>
             )}
+
+            <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "10px 0" }} />
+
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "6px", color: "var(--muted)" }}>Monthly Takeaways Excel Email</label>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                background: form.send_monthly_takeaways_enabled ? "rgba(16, 185, 129, 0.05)" : "rgba(255, 255, 255, 0.02)",
+                border: form.send_monthly_takeaways_enabled ? "1px solid rgba(16, 185, 129, 0.2)" : "1px solid var(--border)",
+                borderRadius: "8px",
+                padding: "12px",
+                transition: "all 0.2s ease",
+                marginBottom: "12px"
+              }}>
+                <input
+                  type="checkbox"
+                  id="send_monthly_takeaways_enabled"
+                  checked={form.send_monthly_takeaways_enabled ?? false}
+                  onChange={e => set("send_monthly_takeaways_enabled", e.target.checked)}
+                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                />
+                <label htmlFor="send_monthly_takeaways_enabled" style={{ fontSize: "13px", fontWeight: "700", cursor: "pointer", flex: 1, color: form.send_monthly_takeaways_enabled ? "var(--success)" : "var(--muted)" }}>
+                  {form.send_monthly_takeaways_enabled ? "✓ Monthly Excel Email Enabled" : "✗ Monthly Excel Email Disabled"}
+                </label>
+              </div>
+            </div>
+
+            {form.send_monthly_takeaways_enabled && (
+              <div style={{ display: "flex", gap: "16px" }}>
+                <div>
+                  <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "6px", color: "var(--muted)" }}>Day of Month</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={form.monthly_takeaways_day ?? 1}
+                    onChange={e => set("monthly_takeaways_day", parseInt(e.target.value) || 1)}
+                    style={{ width: "120px", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: "6px", color: "var(--muted)" }}>Send Time</label>
+                  <input
+                    type="time"
+                    value={form.monthly_takeaways_time || "09:00"}
+                    onChange={e => set("monthly_takeaways_time", e.target.value)}
+                    style={{ width: "160px", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px" }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 
