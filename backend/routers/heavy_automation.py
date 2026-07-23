@@ -522,7 +522,8 @@ async def download_report(
                 data_bytes = run_rec.master_excel_data
             elif run_rec.filtered_excel_path and filename in run_rec.filtered_excel_path:
                 data_bytes = run_rec.filtered_excel_data
-            # mailer_doc has no separate blob store; it lives on disk only
+            elif run_rec.mailer_doc_path and filename in run_rec.mailer_doc_path:
+                data_bytes = run_rec.mailer_doc_data
 
             if data_bytes:
                 try:

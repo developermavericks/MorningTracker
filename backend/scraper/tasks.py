@@ -3117,6 +3117,15 @@ def run_heavy_automation_task(company_id: int):
         else:
             _update_progress("Google Drive credentials not set or no recipients, skipping Google Docs upload.")
 
+        # Read mailer doc bytes
+        mailer_data = None
+        if mailer_path and os.path.exists(mailer_path):
+            try:
+                with open(mailer_path, "rb") as f:
+                    mailer_data = f.read()
+            except Exception as e:
+                logger.error(f"[Heavy] Failed to read mailer document for db backup: {e}")
+
         # Save paths and summaries to database
         with get_db_sync() as db:
             run_rec = db.execute(select(HeavyRun).where(HeavyRun.id == run_id)).scalar_one_or_none()
@@ -3125,6 +3134,7 @@ def run_heavy_automation_task(company_id: int):
                 run_rec.master_excel_path = master_excel_path
                 run_rec.google_doc_url = google_doc_url
                 run_rec.mailer_doc_path = mailer_path
+                run_rec.mailer_doc_data = mailer_data
                 run_rec.executive_summary = exec_summary
                 run_rec.takeaways = takeaways
                 db.commit()
