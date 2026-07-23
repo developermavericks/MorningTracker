@@ -549,6 +549,13 @@ async def init_db():
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS google_doc_url TEXT"))
                 await conn.execute(text("ALTER TABLE heavy_runs ADD COLUMN IF NOT EXISTS mailer_doc_path TEXT"))
                 await conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN IF NOT EXISTS bucket VARCHAR"))
+                
+                # Takeaways scheduled monthly columns
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS takeaways_sheet_url VARCHAR"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS send_monthly_takeaways_enabled BOOLEAN DEFAULT FALSE"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS monthly_takeaways_day INTEGER DEFAULT 1"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS monthly_takeaways_time VARCHAR DEFAULT '09:00'"))
+                await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS last_monthly_takeaways_sent_at TIMESTAMP WITHOUT TIME ZONE"))
             else:
                 try:
                     await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN updated_at DATETIME"))
@@ -585,6 +592,23 @@ async def init_db():
                 except Exception: pass
                 try:
                     await conn.execute(text("ALTER TABLE heavy_run_articles ADD COLUMN bucket VARCHAR"))
+                except Exception: pass
+                
+                # Takeaways scheduled monthly columns
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN takeaways_sheet_url VARCHAR"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN send_monthly_takeaways_enabled BOOLEAN DEFAULT FALSE"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN monthly_takeaways_day INTEGER DEFAULT 1"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN monthly_takeaways_time VARCHAR DEFAULT '09:00'"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN last_monthly_takeaways_sent_at DATETIME"))
                 except Exception: pass
         except Exception as e:
             print(f"Migration Notice (Heavy Automation Schema): {e}")
