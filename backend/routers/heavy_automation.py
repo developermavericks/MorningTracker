@@ -88,10 +88,10 @@ class CompanyOut(BaseModel):
     frequency: str
     days: Optional[List[str]]
     last_run_at: Optional[str]
-    takeaways_sheet_url: Optional[str]
-    send_monthly_takeaways_enabled: bool
-    monthly_takeaways_day: int
-    monthly_takeaways_time: str
+    takeaways_sheet_url: Optional[str] = None
+    send_monthly_takeaways_enabled: Optional[bool] = False
+    monthly_takeaways_day: Optional[int] = 1
+    monthly_takeaways_time: Optional[str] = "09:00"
     created_at: str
     recipients: List[RecipientOut]
 
@@ -169,9 +169,9 @@ async def _build_company_out(company: HeavyCompany, db: AsyncSession) -> Company
         days=days_val,
         last_run_at=_fmt_dt(company.last_run_at),
         takeaways_sheet_url=company.takeaways_sheet_url,
-        send_monthly_takeaways_enabled=company.send_monthly_takeaways_enabled,
-        monthly_takeaways_day=company.monthly_takeaways_day,
-        monthly_takeaways_time=company.monthly_takeaways_time,
+        send_monthly_takeaways_enabled=bool(company.send_monthly_takeaways_enabled) if company.send_monthly_takeaways_enabled is not None else False,
+        monthly_takeaways_day=int(company.monthly_takeaways_day) if company.monthly_takeaways_day is not None else 1,
+        monthly_takeaways_time=str(company.monthly_takeaways_time) if company.monthly_takeaways_time else "09:00",
         created_at=_fmt_dt(company.created_at),
         recipients=recipients,
     )
