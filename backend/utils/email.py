@@ -45,13 +45,14 @@ def send_report_email(recipient_emails: list, client_name: str, docx_path_filter
             
         if docx_path_filtered or docx_path_master or excel_path_filtered or excel_path_master:
             body += f"Please find attached the daily news monitoring briefings (Word and Excel formats) for {client_name} generated on {date_str}.\n\n"
-        
-        if google_doc_url_filtered:
-            label = "Mailer Google Doc" if "google" in client_name.lower() else "Filtered Report (Relevant Articles Only)"
-            body += f"📝 {label}:\n{google_doc_url_filtered}\n\n"
-        if google_doc_url_master:
-            label = "Master Report Google Doc" if "google" in client_name.lower() else "Master Report (All Search Matches)"
-            body += f"📝 {label}:\n{google_doc_url_master}\n\n"
+
+        # [COMMENTED OUT] Sending Google Doc links in email - can be re-enabled if needed
+        # if google_doc_url_filtered:
+        #     label = "Mailer Google Doc" if "google" in client_name.lower() else "Filtered Report (Relevant Articles Only)"
+        #     body += f"📝 {label}:\n{google_doc_url_filtered}\n\n"
+        # if google_doc_url_master:
+        #     label = "Master Report Google Doc" if "google" in client_name.lower() else "Master Report (All Search Matches)"
+        #     body += f"📝 {label}:\n{google_doc_url_master}\n\n"
         if cumulative_sheet_url:
             body += f"📈 Cumulative Google Sheet (All Filtered Articles by Date):\n{cumulative_sheet_url}\n\n"
             

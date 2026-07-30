@@ -3271,7 +3271,7 @@ def run_heavy_automation_task(company_id: int):
                             docx_path_master=None,
                             has_articles=bool(mailer_relevant),
                             brief_content=exec_summary,
-                            google_doc_url_filtered=google_doc_url,
+                            # google_doc_url_filtered=google_doc_url,  # [COMMENTED OUT] Disabled sending Google Doc links in emails
                             html_body=html_body if send_html else None,
                         )
 
@@ -3287,7 +3287,7 @@ def run_heavy_automation_task(company_id: int):
                             brief_content=exec_summary,
                             excel_path_filtered=filtered_excel_path,
                             excel_path_master=excel_master,
-                            google_doc_url_filtered=google_doc_url,
+                            # google_doc_url_filtered=google_doc_url,  # [COMMENTED OUT] Disabled sending Google Doc links in emails
                             html_body=html_body if send_html else None,
                         )
                         
