@@ -9,6 +9,12 @@ def test_match_publication_category_a():
     assert match_publication_category("Moneycontrol", "https://moneycontrol.com/news") == "A"
     assert match_publication_category("The Ken", "https://the-ken.com/article1") == "A"
     assert match_publication_category("Indulge (The New Indian Express)", "https://indulgeexpress.com/life") == "A"
+    assert match_publication_category("Autocar", "https://autocarindia.com/news") == "A"
+    assert match_publication_category("Autocar Professional", "https://autocarpro.in/news") == "A"
+    assert match_publication_category("Bike India", "https://bikeindia.in/news") == "A"
+    assert match_publication_category("Overdrive", "https://overdrive.in/news") == "A"
+    assert match_publication_category("PowerDrift", "https://powerdrift.com/news") == "A"
+    assert match_publication_category("Zigwheels", "https://zigwheels.com/news") == "A"
 
 def test_match_publication_category_b():
     # Category B checks by name and url
