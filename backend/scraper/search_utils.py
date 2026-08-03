@@ -140,7 +140,8 @@ def match_publication_category(agency_name: str, url: str) -> str:
             r"story18",
             r"peoplematters", r"people matters",
             r"ians\.in", r"\bians\b",
-            r"indulgeexpress", r"indulge \(the new indian express\)", r"indulge"
+            r"indulgeexpress", r"indulge \(the new indian express\)", r"indulge",
+            r"autocar", r"bike india", r"bikeindia", r"overdrive", r"powerdrift", r"zigwheels"
         ]
     ]
 
