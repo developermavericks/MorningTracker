@@ -2485,7 +2485,7 @@ def run_heavy_automation_task(company_id: int):
         import requests as _requests
         import time as _time
 
-        nexus_base = os.getenv("NEXUS_FEED_URL", "http://35.240.197.209")
+        nexus_base = os.getenv("NEXUS_FEED_URL", "http://34.142.240.96")
         nexus_key  = os.getenv("NEXUS_SERVICE_KEY", "nexus_sk_fb74eaae34cd3e53f6ac2031479337cb")
         FETCH_TIMEOUT = int(os.getenv("NEXUS_FETCH_TIMEOUT", "60"))   # seconds per request
         FETCH_RETRIES = int(os.getenv("NEXUS_FETCH_RETRIES", "3"))     # attempts before giving up

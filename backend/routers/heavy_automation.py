@@ -587,7 +587,7 @@ async def get_nexus_stats(_: TokenData = Depends(get_admin_user)):
     """
     import httpx
     import asyncio
-    base_url = "http://35.240.197.209"
+    base_url = "http://34.142.240.96"
     api_key = os.getenv("NEXUS_SERVICE_KEY", "nexus_sk_fb74eaae34cd3e53f6ac2031479337cb")
 
     from datetime import datetime, timedelta

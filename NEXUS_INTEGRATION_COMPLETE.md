@@ -182,5 +182,5 @@ Heavy Automation is **production-ready and fully integrated with NEXUS**. The sy
 
 **Last Updated:** 2026-06-30  
 **Integration Version:** 1.0  
-**NEXUS Base URL:** http://35.240.197.209  
+**NEXUS Base URL:** http://34.142.240.96/  
 **API Key Auth:** ✅ Implemented
