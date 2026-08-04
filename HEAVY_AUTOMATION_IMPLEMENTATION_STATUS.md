@@ -16,7 +16,7 @@ Heavy Automation is a complete, production-grade news intelligence system that a
 
 ```
 Production Deployment:
-├─ Backend: FastAPI + Celery on Railway (35.240.197.209)
+├─ Backend: FastAPI + Celery on Railway (34.142.240.96)
 ├─ Frontend: React + Vite on Vercel  
 ├─ Database: PostgreSQL (Cloud)
 ├─ Message Queue: Redis (Cloud)
@@ -142,8 +142,8 @@ SENDER_EMAIL=your-email@gmail.com
 HEAVY_LLM_CAP_AMBIGUOUS=30  # Max ambiguous articles to judge
 
 # Frontend
-VITE_API_URL=http://35.240.197.209/api/
-VITE_NEXUS_BASE_URL=http://35.240.197.209
+VITE_API_URL=http://34.142.240.96/api/
+VITE_NEXUS_BASE_URL=http://34.142.240.96
 VITE_NEXUS_SERVICE_KEY=nexus_sk_...
 ```
 

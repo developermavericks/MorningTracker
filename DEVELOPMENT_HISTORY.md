@@ -10,6 +10,7 @@ The following table tracks active commits, implementation authors, change summar
 
 | Date & Time (IST) | Commit Hash | Author | Scope / Feature Area | Deployment Status |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-08-04 09:14 | `b56b724` | Antigravity | **Config:** Updated Nexus feed server base IP address from `35.240.197.209` to `34.142.240.96`. | Completed & Local |
 | 2026-08-03 11:05 | `7aac7be` | Antigravity | **Scraper:** Added Autocar, Autocar Professional, Bike India, Overdrive, PowerDrift, and Zigwheels to Category A publications. | Completed & Tested |
 | 2026-07-30 12:32 | `98572da` | Antigravity | **Mailer:** Commented out sending Google Doc links in emails. | Deployed & Active |
 | 2026-07-27 16:22 | `818bd82` | Antigravity | **Asset:** Removed static logo to test fallback template compilation. | Deployed & Active |

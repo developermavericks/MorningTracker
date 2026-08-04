@@ -837,7 +837,7 @@ function BackupStatus() {
         return;
       }
       try {
-        const baseUrl = import.meta.env.VITE_NEXUS_BASE_URL || "http://35.240.197.209";
+        const baseUrl = import.meta.env.VITE_NEXUS_BASE_URL || "http://34.142.240.96";
         const response = await fetch(`${baseUrl}/api/backup-status`, { headers: { "X-Service-Key": "nexus_sk_fb74eaae34cd3e53f6ac2031479337cb" } });
         if (response.ok) {
           const data = await response.json();
