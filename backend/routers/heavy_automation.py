@@ -569,7 +569,9 @@ SECTOR_VARIANTS = {
 }
 
 NEXUS_SECTORS = [
-    'ai', 'automobile', 'consultancies', 'education', 'fintech', 'foods and drinks', 'google', 'healthcare',
+    'ai', 'automobile', 
+    'boston company', 'boston competition landscape', 'boston imp laws', 'boston industry', 'boston therapies / product',
+    'consultancies', 'education', 'fintech', 'foods and drinks', 'google', 'healthcare',
     'lifestyle', 'media and entertainment', 'policies', 'real estate', 'startups', 'stock market', 'tech', 'travel'
 ]
 
