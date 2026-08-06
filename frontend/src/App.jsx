@@ -13,6 +13,7 @@ import AdminUserDetail from "./pages/AdminUserDetail";
 import AdminJobDetail from "./pages/AdminJobDetail";
 import ClientReports from "./pages/ClientReports";
 import HeavyAutomation from "./pages/HeavyAutomation";
+import RobustAutomation from "./pages/RobustAutomation";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -24,6 +25,7 @@ const NAV = [
   { id: "articles", label: "Articles", icon: "≡", adminOnly: true },
   { id: "client-reports", label: "Client Automation", icon: "⚡", adminOnly: true },
   { id: "heavy-automation", label: "Heavy Automation", icon: "🔬", adminOnly: true },
+  { id: "robust-automation", label: "Robust Automation", icon: "💎", adminOnly: true },
   { id: "brands", label: "Keyword Setup", icon: "🏢" },
   { id: "jobs", label: "Tracker", icon: "◎" },
   { id: "admin", label: "Admin Portal", icon: "⚙", adminOnly: true },
@@ -187,6 +189,7 @@ function ProtectedApp() {
         {page === "articles" && <ArticlesBrowser initialFilters={navContext} />}
         {page === "client-reports" && <ClientReports />}
         {page === "heavy-automation" && <HeavyAutomation />}
+        {page === "robust-automation" && <RobustAutomation />}
         {page === "brands" && <BrandTracker onNavigate={navigateWithContext} initialFilters={navContext} />}
         {page === "jobs" && <Jobs />}
         {page === "diagnostics" && <Diagnostics />}

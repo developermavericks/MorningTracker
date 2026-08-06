@@ -10,6 +10,8 @@ The following table tracks active commits, implementation authors, change summar
 
 | Date & Time (IST) | Commit Hash | Author | Scope / Feature Area | Deployment Status |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-08-06 15:55 | `Pending` | Antigravity | **Fix & Feature:** Added Search Mode (Title/Body) and Pooja Filtering Logic toggles to Robust Automation; implemented green-on-black console log trace console and per-stage intermediate file downloads; resolved report downloads by implementing case-insensitive path comparisons during dynamic database restoration. | Completed & Tested |
+| 2026-08-06 14:50 | `Pending` | Antigravity | **Feature:** Implemented complete **Robust Automation** tab and pipeline. Adds dynamic keywords/priority media Excel uploads, LLM provider selection for verification/summaries/exec synthesis, checkbox toggles for mailers/docx/excel, and direct production database article queries. | Completed & Tested |
 | 2026-08-04 09:14 | `b56b724` | Antigravity | **Config:** Updated Nexus feed server base IP address from `35.240.197.209` to `34.142.240.96`. | Completed & Local |
 | 2026-08-03 11:05 | `7aac7be` | Antigravity | **Scraper:** Added Autocar, Autocar Professional, Bike India, Overdrive, PowerDrift, and Zigwheels to Category A publications. | Completed & Tested |
 | 2026-07-30 12:32 | `98572da` | Antigravity | **Mailer:** Commented out sending Google Doc links in emails. | Deployed & Active |
@@ -51,6 +53,15 @@ The following table tracks active commits, implementation authors, change summar
 * **Openpyxl Tabbed Spreadsheets:** Appends daily strategic takeaways to a spreadsheet titled `"{company_name} - Strategic Takeaways History"` inside Google Drive. Each month is separated dynamically into a tab named after the current month (e.g. `"July 2026"`).
 * **Dual-Schedule Beat Runner:** Refactored the Celery Beat scheduler checking loop to run Section A (daily scrapers) and Section B (monthly takeaways scheduler check) independently.
 * **REST API Settings:** Added schema options for monthly takeaways scheduling (`enabled`, `day`, `time`) and exposed a private `GET /companies/{company_id}/takeaways-link` endpoint for admin dashboard downloads.
+
+### Phase D: Robust Automation Pipeline & Multi-Tenant Features (August 6, 2026)
+* **Custom Excel Parsers:** Uploaded Excel sheets for keywords (`keywords_file_data`) and priority media lists (`priority_media_file_data`) are stored as BLOBs in the database and processed dynamically in-memory using `openpyxl` & `io.BytesIO`.
+* **Dynamic LLM Switchboard:** Admins can select None, Claude, or Groq individually for verification, summarization, and executive briefings.
+* **Granular Output Selection:** Toggles are exposed on the frontend to selectively mail or attach HTML mailers, Master DOCX/Excel reports, or Google Drive uploads.
+* **Search Mode & Pooja Algo Toggles:** Added options to toggle the custom Pooja filtering logic and switch search modes between Title Only vs. Title & Full Body.
+* **Console Logs & Stage-Wise Downloads:** Designed a terminal-like console log viewer (green-on-black color scheme) with clickable download triggers for intermediate stages (fetch, dedup, Pooja filtering, LLM verification).
+* **Case-Insensitive File Restoration:** Standardized comparison paths on the backend download router to be case-insensitive, fixing file recovery failures when files are deleted from server disks.
+
 
 ---
 

@@ -75,6 +75,9 @@ app.conf.update(
         # Long-running report tasks → dedicated reports queue (1 worker)
         "scraper.tasks.run_client_report_task": {"queue": "reports"},
         "scraper.tasks.run_heavy_automation_task": {"queue": "reports"},
+        "scraper.tasks.run_robust_automation_task": {"queue": "reports"},
+        "scraper.tasks.check_robust_automation_schedules": {"queue": "celery"},
+        "scraper.tasks.check_robust_scheduled_sends": {"queue": "celery"},
     },
     beat_schedule={
         "complete-stale-jobs-every-5-min": {
@@ -91,6 +94,14 @@ app.conf.update(
         },
         "check-heavy-scheduled-sends-every-5-min": {
             "task": "scraper.tasks.check_heavy_scheduled_sends",
+            "schedule": 5 * 60,  # Every 5 minutes
+        },
+        "check-robust-automation-schedules-every-5-min": {
+            "task": "scraper.tasks.check_robust_automation_schedules",
+            "schedule": 5 * 60,  # Every 5 minutes
+        },
+        "check-robust-scheduled-sends-every-5-min": {
+            "task": "scraper.tasks.check_robust_scheduled_sends",
             "schedule": 5 * 60,  # Every 5 minutes
         },
     }

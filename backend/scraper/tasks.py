@@ -3773,3 +3773,1010 @@ def send_monthly_takeaways_report_task(company_id: int):
     except Exception as e:
         logger.error(f"[Heavy] Error sending monthly takeaways for company {company_id}: {e}", exc_info=True)
         return False
+
+
+# ==============================================================================
+# ─── ROBUST AUTOMATION CELERY TASKS ───────────────────────────────────────────
+# ==============================================================================
+
+@celery_app.task(name="scraper.tasks.check_robust_automation_schedules")
+def check_robust_automation_schedules():
+    """
+    Beat task: Checks all enabled RobustCompany configurations every 5 min.
+    If timezone, frequency, and time match, triggers run_robust_automation_task.
+    """
+    from db.database import get_db_sync, RobustCompany, RobustRun
+    from sqlalchemy import desc
+    import pytz
+    from datetime import datetime, timedelta
+
+    logger.info("[Robust] Checking automation schedules...")
+    try:
+        with get_db_sync() as db:
+            companies = db.execute(select(RobustCompany).where(RobustCompany.enabled == True)).scalars().all()
+            for company in companies:
+                try:
+                    tz = pytz.timezone(company.timezone or "Asia/Kolkata")
+                    now_tz = datetime.now(tz)
+
+                    # Trigger daily/weekly/monthly runs
+                    sched_hour, sched_min = map(int, (company.fetch_time or "07:00").split(":"))
+                    target = now_tz.replace(hour=sched_hour, minute=sched_min, second=0, microsecond=0)
+                    
+                    diff_min = (now_tz - target).total_seconds() / 60.0
+                    if 0 <= diff_min < 10:
+                        weekday = now_tz.strftime("%A")[:3].upper()
+                        month_day = now_tz.day
+                        days_list = [] if not company.days else json.loads(company.days)
+
+                        should_run = False
+                        if company.frequency == "Daily":
+                            should_run = True
+                        elif company.frequency == "Weekly" and weekday in days_list:
+                            should_run = True
+                        elif company.frequency == "Monthly" and str(month_day) in days_list:
+                            should_run = True
+                        elif company.frequency == "Custom" and weekday in days_list:
+                            should_run = True
+
+                        if should_run:
+                            # Check if already ran today
+                            last_run = db.execute(
+                                select(RobustRun)
+                                .where(RobustRun.company_id == company.id)
+                                .order_by(desc(RobustRun.started_at))
+                                .limit(1)
+                            ).scalar_one_or_none()
+
+                            run_today = False
+                            if last_run:
+                                run_start = last_run.started_at or last_run.finished_at
+                                if run_start:
+                                    run_start_local = run_start.replace(tzinfo=pytz.utc).astimezone(tz)
+                                    if run_start_local.date() == now_tz.date():
+                                        run_today = True
+
+                            if not run_today:
+                                logger.info(f"[Robust] Triggering schedule run for {company.name}")
+                                celery_app.send_task("scraper.tasks.run_robust_automation_task", args=[company.id])
+
+                    # Trigger monthly takeaways spreadsheet email
+                    send_monthly = getattr(company, "send_monthly_takeaways_enabled", False)
+                    if send_monthly:
+                        m_day = getattr(company, "monthly_takeaways_day", 1) or 1
+                        m_time = getattr(company, "monthly_takeaways_time", "09:00") or "09:00"
+                        try:
+                            m_hour, m_min = map(int, m_time.split(":"))
+                            m_target = now_tz.replace(day=m_day, hour=m_hour, minute=m_min, second=0, microsecond=0)
+                            m_diff_min = (now_tz - m_target).total_seconds() / 60.0
+                            if now_tz.day == m_day and (0 <= m_diff_min < 10):
+                                target_month_str = now_tz.strftime("%Y-%m")
+                                last_sent = company.last_monthly_takeaways_sent_at
+                                already_sent = False
+                                if last_sent:
+                                    last_sent_tz = last_sent.replace(tzinfo=pytz.utc).astimezone(tz)
+                                    if last_sent_tz.strftime("%Y-%m") == target_month_str:
+                                        already_sent = True
+                                        
+                                if not already_sent:
+                                    logger.info(f"[Robust] Triggering monthly takeaways send for {company.name}")
+                                    celery_app.send_task("scraper.tasks.send_robust_monthly_takeaways_report_task", args=[company.id])
+                        except Exception as monthly_sched_err:
+                            logger.error(f"[Robust] Monthly takeaways check error for {company.name}: {monthly_sched_err}")
+                except Exception as e:
+                    logger.error(f"[Robust] Schedule check error for {company.name}: {e}")
+    except Exception as e:
+        logger.error(f"[Robust] Schedule check failed: {e}", exc_info=True)
+
+
+@celery_app.task(name="scraper.tasks.check_robust_scheduled_sends")
+def check_robust_scheduled_sends():
+    """
+    Beat task: checks for pending robust runs scheduled for delayed send.
+    """
+    from db.database import get_db_sync, RobustRun, RobustCompany, RobustRecipient
+    from utils.email import send_report_email, send_error_alert_email
+    import pytz
+    from datetime import datetime
+
+    logger.info("[Robust] Checking scheduled sends...")
+    try:
+        with get_db_sync() as db:
+            pending_runs = db.execute(
+                select(RobustRun).where(RobustRun.email_status == "pending")
+            ).scalars().all()
+
+            for run in pending_runs:
+                try:
+                    company = db.execute(
+                        select(RobustCompany).where(RobustCompany.id == run.company_id)
+                    ).scalar_one_or_none()
+
+                    if not company or company.mail_send_mode != "Scheduled":
+                        continue
+
+                    tz = pytz.timezone(company.timezone or "Asia/Kolkata")
+                    now_tz = datetime.now(tz)
+                    sched_hour, sched_min = map(int, (company.mail_send_time or "08:00").split(":"))
+                    send_target = now_tz.replace(hour=sched_hour, minute=sched_min, second=0, microsecond=0)
+
+                    if now_tz < send_target:
+                        continue  # Not time yet
+
+                    # Send email
+                    recipients = db.execute(
+                        select(RobustRecipient).where(RobustRecipient.company_id == company.id)
+                    ).scalars().all()
+                    brief_emails = [r.email for r in recipients if r.role == "brief"]
+                    master_emails = [r.email for r in recipients if r.role == "master_doc"]
+
+                    success_brief = True
+                    success_master = True
+
+                    # Generate inline HTML mailer if toggled
+                    html_body = None
+                    if company.send_html_mailer:
+                        # Render html body from run object
+                        html_body = render_robust_html_body(run, company.name)
+
+                    if company.send_email and (brief_emails or master_emails):
+                        if brief_emails:
+                            success_brief = send_report_email(
+                                recipient_emails=brief_emails,
+                                client_name=company.name,
+                                docx_path_filtered=run.mailer_doc_path if company.send_mailer_doc else None,
+                                docx_path_master=None,
+                                has_articles=run.relevant_count > 0,
+                                brief_content=run.executive_summary,
+                                html_body=html_body,
+                            )
+                        if master_emails:
+                            success_master = send_report_email(
+                                recipient_emails=master_emails,
+                                client_name=company.name,
+                                docx_path_filtered=run.mailer_doc_path if company.send_mailer_doc else None,
+                                docx_path_master=run.master_doc_path if company.send_report_doc else None,
+                                has_articles=run.relevant_count > 0,
+                                brief_content=run.executive_summary,
+                                excel_path_master=run.master_excel_path if company.send_report_excel else None,
+                                html_body=html_body,
+                            )
+
+                    run.email_status = "sent" if (success_brief and success_master) else "failed"
+                    db.commit()
+                    logger.info(f"[Robust] Scheduled email sent for run {run.id} status: {run.email_status}")
+                except Exception as e:
+                    logger.error(f"[Robust] Scheduled email send failed for run {run.id}: {e}")
+                    run.email_status = "failed"
+                    run.error = str(e)
+                    db.commit()
+    except Exception as e:
+        logger.error(f"[Robust] Scheduled sends check failed: {e}", exc_info=True)
+
+
+@celery_app.task(name="scraper.tasks.send_robust_monthly_takeaways_report_task")
+def send_robust_monthly_takeaways_report_task(company_id: int):
+    """
+    Emails the generated takeaways sheet of the company.
+    """
+    from db.database import get_db_sync, RobustCompany, RobustRecipient
+    from utils.email import send_report_email
+    from scraper.tasks import download_takeaways_sheet_file, send_monthly_takeaways_report_email
+    
+    try:
+        with get_db_sync() as db:
+            company = db.execute(select(RobustCompany).where(RobustCompany.id == company_id)).scalar_one_or_none()
+            if not company or not company.takeaways_sheet_url:
+                logger.error(f"[Robust] Company {company_id} takeaways sheet URL not found.")
+                return False
+
+            recipients = db.execute(
+                select(RobustRecipient).where(RobustRecipient.company_id == company_id)
+            ).scalars().all()
+            recipient_emails = list(set(r.email for r in recipients))
+            if not recipient_emails:
+                logger.error(f"[Robust] No recipients for company {company_id}.")
+                return False
+
+            excel_path = download_takeaways_sheet_file(company.name)
+            if not excel_path or not os.path.exists(excel_path):
+                logger.error(f"[Robust] Takeaways spreadsheet download failed for {company.name}.")
+                return False
+
+            success = send_monthly_takeaways_report_email(
+                recipient_emails=recipient_emails,
+                client_name=company.name,
+                excel_path=excel_path,
+                google_sheet_url=company.takeaways_sheet_url
+            )
+            try:
+                os.remove(excel_path)
+            except Exception: pass
+
+            if success:
+                company.last_monthly_takeaways_sent_at = datetime.utcnow()
+                db.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"[Robust] Error in monthly takeaways send for company {company_id}: {e}", exc_info=True)
+        return False
+
+
+def _call_robust_llm_provider(messages: list, provider: str, max_tokens: int = 150, temperature: float = 0.2, system_prompt: str = None) -> Optional[str]:
+    """Helper to route LLM queries to the requested provider."""
+    from scraper.heavy_llm import _call_groq, _call_claude, _call_llm
+    if not provider or provider.lower() == "none":
+        return None
+    try:
+        if provider.lower() == "claude":
+            return _call_claude(messages, system_prompt=system_prompt, max_tokens=max_tokens, temperature=temperature)
+        elif provider.lower() == "groq":
+            if system_prompt:
+                messages = [{"role": "system", "content": system_prompt}] + messages
+            return _call_groq(messages, max_tokens=max_tokens, temperature=temperature)
+    except Exception as e:
+        logger.error(f"[Robust LLM] Provider {provider} call failed: {e}")
+    return None
+
+
+@celery_app.task(name="scraper.tasks.run_robust_automation_task", time_limit=3600, soft_time_limit=3300)
+def run_robust_automation_task(company_id: int):
+    """
+    Robust pipeline execution task: direct DB articles polling, in-memory openpyxl,
+    conditional LLMs, customizable outputs.
+    """
+    from db.database import get_db_sync, RobustCompany, RobustRun, RobustRunArticle, RobustRecipient, Article as DBArticle
+    from scraper.heavy_filter import exact_dedup, near_dedup
+    from scraper.report_generator import generate_organized_docx_report, generate_excel_report, generate_mailer_docx_report
+    from utils.email import send_report_email, send_error_alert_email
+    import io
+    import openpyxl
+    import pytz
+    from datetime import date, datetime, timedelta
+
+    company_name = f"Company ID {company_id}"
+    run_id = None
+
+    with get_db_sync() as db:
+        company = db.execute(select(RobustCompany).where(RobustCompany.id == company_id)).scalar_one_or_none()
+        if not company:
+            logger.error(f"[Robust] Company {company_id} not found.")
+            return False
+
+        run = RobustRun(company_id=company_id, status="running", started_at=datetime.utcnow())
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+
+        run_id = run.id
+        company_name = company.name
+        sector_match = company.sector_match
+        window_hours = company.window_hours
+
+    try:
+        def _update_progress(msg: str):
+            try:
+                with get_db_sync() as db:
+                    run_rec = db.execute(select(RobustRun).where(RobustRun.id == run_id)).scalar_one_or_none()
+                    if run_rec:
+                        run_rec.progress_message = (run_rec.progress_message or "") + msg + "\n"
+                        db.commit()
+            except Exception as e:
+                logger.warning(f"[Robust] Progress update failed: {e}")
+
+        def save_intermediate_csv(filename, articles_list, extra_headers=[]):
+            import csv
+            reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+            os.makedirs(reports_dir, exist_ok=True)
+            file_path = os.path.join(reports_dir, filename)
+            headers = ["Title", "URL", "Agency", "Published_At"] + extra_headers
+            try:
+                with open(file_path, "w", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(headers)
+                    for a in articles_list:
+                        row = [
+                            a.get("title", ""),
+                            a.get("url", ""),
+                            a.get("agency", ""),
+                            str(a.get("published_at", ""))
+                        ]
+                        for h in extra_headers:
+                            if h == "Matched_Keyword":
+                                kw_hits = a.get("_keyword_hits", [])
+                                row.append(", ".join(kw_hits) if isinstance(kw_hits, list) else str(kw_hits))
+                            elif h == "Sector":
+                                row.append(a.get("_pillar", ""))
+                            elif h == "Sub_Category":
+                                row.append(a.get("_sub_category", ""))
+                            else:
+                                row.append("")
+                        writer.writerow(row)
+                return filename
+            except Exception as ex:
+                logger.error(f"[Robust] Failed to save intermediate CSV {filename}: {ex}")
+                return None
+
+        # 1. Fetch from Nexus Remote Feed
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching articles from Nexus remote feed...")
+        sectors = [s.strip().lower() for s in sector_match.split(",") if s.strip()]
+        cutoff_dt = datetime.utcnow() - timedelta(hours=window_hours)
+        cutoff_date = cutoff_dt.date().isoformat()
+
+        import requests as _requests
+        import time as _time
+
+        nexus_base = os.getenv("NEXUS_FEED_URL", "http://34.142.240.96")
+        nexus_key  = os.getenv("NEXUS_SERVICE_KEY", "nexus_sk_fb74eaae34cd3e53f6ac2031479337cb")
+        FETCH_TIMEOUT = int(os.getenv("NEXUS_FETCH_TIMEOUT", "60"))
+        FETCH_RETRIES = int(os.getenv("NEXUS_FETCH_RETRIES", "3"))
+        FETCH_RETRY_DELAY = 2
+
+        SECTOR_DB_MAPPING = {
+            "travel": ["travel", "travell"],
+            "tech": ["tech", "techhh"],
+            "foods and drinks": ["foods and drinks", "foods"],
+        }
+
+        # Resolve variants
+        query_variants = []
+        for sec in sectors:
+            variants = SECTOR_DB_MAPPING.get(sec, [sec])
+            query_variants.extend(variants)
+
+        # De-duplicate while preserving order
+        unique_variants = []
+        seen = set()
+        for v in query_variants:
+            if v.lower() not in seen:
+                seen.add(v.lower())
+                unique_variants.append(v)
+
+        fetched = []
+        seen_ids = set()
+
+        def _fetch_with_retry(url: str, params: dict) -> dict | None:
+            for attempt in range(1, FETCH_RETRIES + 1):
+                try:
+                    resp = _requests.get(url, params=params, timeout=FETCH_TIMEOUT)
+                    resp.raise_for_status()
+                    return resp.json()
+                except Exception as ex:
+                    if attempt < FETCH_RETRIES:
+                        _time.sleep(FETCH_RETRY_DELAY)
+                    else:
+                        logger.error(f"[Robust] Fetch failed for {url} with params {params}: {ex}")
+                        return None
+
+        for v in unique_variants:
+            _update_progress(f"  → Fetching sector: {v}")
+            page = 1
+            while True:
+                data = _fetch_with_retry(
+                    f"{nexus_base}/api/feed",
+                    {
+                        "api_key":   nexus_key,
+                        "sector":    v,
+                        "date_from": cutoff_date,
+                        "page":      page,
+                        "page_size": 500,
+                    },
+                )
+                if data is None:
+                    break
+
+                for a in data.get("articles", []):
+                    # We match article's published_at date/time against cutoff_dt
+                    pub_at_str = a.get("published_at")
+                    pub_dt = None
+                    if pub_at_str:
+                        try:
+                            from dateutil.parser import parse as parse_date
+                            pub_dt = parse_date(pub_at_str).replace(tzinfo=None)
+                            if pub_dt < cutoff_dt:
+                                continue
+                        except Exception:
+                            pass
+
+                    uid = a.get("id") or a.get("url")
+                    if uid and uid not in seen_ids:
+                        seen_ids.add(uid)
+                        fetched.append({
+                            "id":           a.get("id"),
+                            "title":        a.get("title"),
+                            "url":          a.get("resolved_url") or a.get("url"),
+                            "published_at": pub_dt,
+                            "full_body":    a.get("full_body"),
+                            "summary":      a.get("summary"),
+                            "agency":       a.get("agency"),
+                            "author":       a.get("author"),
+                            "source_feed":  a.get("sector") or v,
+                        })
+
+                total_pages = data.get("total_pages", 1)
+                if page >= total_pages:
+                    break
+                page += 1
+
+        # Deduplicate fetched list by URL
+        seen_urls = set()
+        unique_fetched = []
+        for a in fetched:
+            if a["url"] not in seen_urls:
+                seen_urls.add(a["url"])
+                unique_fetched.append(a)
+        fetched = unique_fetched
+
+        _update_progress(f"Fetched {len(fetched)} articles matching sectors: {', '.join(sectors)}")
+        fetched_fn = f"Robust_Fetched_Articles_Run_{run_id}.csv"
+        save_intermediate_csv(fetched_fn, fetched)
+        _update_progress(f"Step 1: Fetched {len(fetched)} articles from Nexus feed. Downloadable output: /api/robust-automation/reports/{fetched_fn}")
+
+        if not fetched:
+            with get_db_sync() as db:
+                run_rec = db.execute(select(RobustRun).where(RobustRun.id == run_id)).scalar_one_or_none()
+                if run_rec:
+                    run_rec.status = "completed"
+                    run_rec.finished_at = datetime.utcnow()
+                    db.commit()
+            return True
+
+        # 2. Exact & Near Deduplication within agency
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Exact deduplication...")
+        deduped_exact = exact_dedup(fetched)
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Near-duplicate TF-IDF clustering...")
+        deduped = near_dedup(deduped_exact, threshold=0.80)
+
+        deduped_fn = f"Robust_Deduplicated_Articles_Run_{run_id}.csv"
+        save_intermediate_csv(deduped_fn, deduped)
+        _update_progress(f"Step 2: After deduplication: {len(deduped)} articles. Downloadable output: /api/robust-automation/reports/{deduped_fn}")
+
+        # 3. Dynamic Excel Parsing
+        keyword_index = None
+        priority_publications = None
+
+        if company.keywords_file_data:
+            _update_progress("Parsing uploaded keywords Excel sheet...")
+            try:
+                wb = openpyxl.load_workbook(io.BytesIO(company.keywords_file_data), data_only=True)
+                ws = wb.active
+                SUBCATEGORY_LABELS = {
+                    "brand names", "india-specific", "common misspellings",
+                    "leadership/personnel", "company keywords", "competition keywords",
+                    "competition brand keywords", "industry keywords", "competitor keywords",
+                }
+                
+                # Pooja's keywords sheet parser
+                parsed_sectors = {}
+                current_sec = None
+                for row in ws.iter_rows(min_row=1, values_only=True):
+                    col_a = str(row[0]).strip() if row[0] else ""
+                    col_b = str(row[1]).strip() if row[1] else ""
+                    if not col_a and not col_b:
+                        continue
+                    col_a_lower = col_a.lower().strip()
+                    
+                    is_sector_header = False
+                    if col_a and col_a_lower not in SUBCATEGORY_LABELS:
+                        if not col_b or col_b.lower() == "keywords" or col_b.lower().startswith("keywords ("):
+                            is_sector_header = True
+                            
+                    if is_sector_header:
+                        current_sec = col_a.strip()
+                        if current_sec not in parsed_sectors:
+                            parsed_sectors[current_sec] = {}
+                        continue
+                        
+                    if col_a_lower in SUBCATEGORY_LABELS and col_b:
+                        # Extract keywords
+                        from Pooja_filtering_Logic_for_heavy_automation_final.filter_by_keywords import extract_keywords
+                        kws = extract_keywords(col_b)
+                        if current_sec and kws:
+                            parsed_sectors[current_sec].setdefault(col_a.strip(), []).extend(kws)
+                
+                # Build keyword index
+                keyword_index = []
+                for sec_name, sub_cats in parsed_sectors.items():
+                    for sub_cat, kw_list in sub_cats.items():
+                        for kw in kw_list:
+                            keyword_index.append((kw, sec_name, sub_cat))
+                keyword_index.sort(key=lambda x: -len(x[0]))
+                _update_progress(f"Loaded {len(keyword_index)} custom keyword rules.")
+            except Exception as e:
+                logger.error(f"[Robust] Keywords Excel parse error: {e}")
+                _update_progress(f"Warning: Keywords file parsing failed: {e}")
+
+        # Parse manual keywords list if available
+        if company.manual_keywords:
+            _update_progress("Parsing manually entered keywords...")
+            try:
+                import re as _re
+                normalized_text = company.manual_keywords.replace("\n", ",")
+                raw_kws = [k.strip() for k in normalized_text.split(",") if k.strip()]
+                
+                if keyword_index is None:
+                    keyword_index = []
+                
+                for raw_kw in raw_kws:
+                    cleaned_kw = _re.sub(r'^\d+[\s\.\)-]*', '', raw_kw).strip()
+                    if cleaned_kw:
+                        # Append as keyword
+                        keyword_index.append((cleaned_kw, company.name, "Manual Keywords"))
+                
+                # Deduplicate and sort by length descending
+                keyword_index = list(set(keyword_index))
+                keyword_index.sort(key=lambda x: -len(x[0]))
+                _update_progress(f"Loaded {len(keyword_index)} total keyword rules (including manual).")
+            except Exception as e:
+                logger.error(f"[Robust] Manual keywords parse error: {e}")
+                _update_progress(f"Warning: Manual keywords parsing failed: {e}")
+
+        if company.priority_media_file_data:
+            _update_progress("Parsing uploaded priority publications Excel sheet...")
+            try:
+                wb = openpyxl.load_workbook(io.BytesIO(company.priority_media_file_data), read_only=True, data_only=True)
+                ws = wb.active
+                strict, lenient = [], []
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    cells = list(row) + [None, None]
+                    serial, pub_name = cells[0], cells[1]
+                    if not pub_name:
+                        continue
+                    cname = str(pub_name).strip().split("\n")[0].strip()
+                    if cname.lower() in ("", "name", "publication", "publications", "media") or len(cname) > 120:
+                        continue
+                    lenient.append(cname)
+                    if isinstance(serial, (int, float)):
+                        strict.append(cname)
+                priority_publications = strict if strict else lenient
+                # deduplicate
+                seen_p = set()
+                unique_p = []
+                for p in priority_publications:
+                    if p.lower() not in seen_p:
+                        seen_p.add(p.lower())
+                        unique_p.append(p)
+                priority_publications = unique_p
+                _update_progress(f"Loaded {len(priority_publications)} custom priority publications.")
+            except Exception as e:
+                logger.error(f"[Robust] Priority media Excel parse error: {e}")
+                _update_progress(f"Warning: Priority media list parsing failed: {e}")
+
+        # Helper to match publication against loaded list
+        def is_agency_priority(agency: str, publications: list[str]) -> bool:
+            if not agency or not publications:
+                return False
+            a = agency.lower().strip()
+            from Pooja_filtering_Logic_for_heavy_automation_final.filter_priority_media import KNOWN_ALIASES
+            seen = set()
+            pairs = []
+            
+            def add_pat(pattern, pub):
+                p = pattern.lower().strip()
+                if p and p not in seen:
+                    seen.add(p)
+                    pairs.append((p, pub))
+                    
+            for pub in publications:
+                add_pat(pub, pub)
+                for alias in KNOWN_ALIASES.get(pub, []):
+                    add_pat(alias, pub)
+                    
+            import re
+            for p, pub in pairs:
+                esc = re.escape(p)
+                left = r"(?<!\w)" if p[:1].isalnum() else r""
+                right = r"(?!\w)" if p[-1:].isalnum() else r""
+                rx = re.compile(left + esc + right, re.IGNORECASE)
+                if rx.search(a):
+                    return True
+            return False
+
+        def match_title_against_index(title: str, index: list) -> tuple:
+            title_lower = title.lower()
+            import re
+            for kw, sec, sub in index:
+                kw_lower = kw.lower()
+                # Support "+" logic (AND match)
+                if "+" in kw:
+                    parts = [p.strip().lower() for p in kw.split("+") if p.strip()]
+                    if parts and all(p in title_lower for p in parts):
+                        return kw, sec, sub
+                    continue
+
+                words = kw_lower.split()
+                if len(words) > 1:
+                    if all(w in title_lower for w in words):
+                        return kw, sec, sub
+                else:
+                    if len(kw_lower) <= 3:
+                        if re.search(r'\b' + re.escape(kw_lower) + r'\b', title_lower):
+                            return kw, sec, sub
+                    else:
+                        if kw_lower in title_lower:
+                            return kw, sec, sub
+            return None, None, None
+
+        # 4. Pooja's Filtering & Keyword Relevance Matches
+        relevant_list = []
+        discard_list = []
+
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Applying custom filtering rules...")
+        for art in deduped:
+            # If pooja_algo_enabled is False, bypass all filtering checks and keep all articles
+            if not getattr(company, "pooja_algo_enabled", True):
+                art["_pillar"] = "General"
+                art["_sub_category"] = "General"
+                art["_keyword_hits"] = []
+                art["_is_priority"] = True
+                art["_relevance_score"] = 1.0
+                art["_bucket"] = "clear_keep"
+                relevant_list.append(art)
+                continue
+
+            # If priority publications list is uploaded, match against it
+            is_pri = True
+            if priority_publications is not None:
+                is_pri = is_agency_priority(art.get("agency") or "", priority_publications)
+
+            # If keywords file is uploaded, match against it
+            has_kw = True
+            matched_kw, pillar, sub_cat = None, None, None
+            if keyword_index is not None:
+                match_text = art.get("title") or ""
+                if getattr(company, "search_mode", "title") == "body":
+                    match_text = f"{match_text}\n{art.get('full_body') or ''}"
+                matched_kw, pillar, sub_cat = match_title_against_index(match_text, keyword_index)
+                has_kw = matched_kw is not None
+
+            # Combined rules: must match both filters if both are present
+            if is_pri and has_kw:
+                art["_pillar"] = pillar or "General"
+                art["_sub_category"] = sub_cat or "General"
+                art["_keyword_hits"] = [matched_kw] if matched_kw else []
+                art["_is_priority"] = is_pri
+                art["_relevance_score"] = 1.0
+                art["_bucket"] = "clear_keep"
+                relevant_list.append(art)
+            else:
+                discard_list.append(art)
+
+        _update_progress(f"Matches before LLM validation: {len(relevant_list)} relevant, {len(discard_list)} discarded")
+        pooja_filtered_fn = f"Robust_Pooja_Filtered_Articles_Run_{run_id}.csv"
+        save_intermediate_csv(pooja_filtered_fn, relevant_list, ["Matched_Keyword", "Sector", "Sub_Category"])
+        _update_progress(f"Step 3: Pooja filtered matches (before LLM verification): {len(relevant_list)} articles. Downloadable output: /api/robust-automation/reports/{pooja_filtered_fn}")
+
+        # 5. Conditional LLM Verification
+        llm_verify = company.llm_verification_provider
+        if llm_verify and llm_verify.lower() != "none" and relevant_list:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Validating article relevance using {llm_verify}...")
+            verified_list = []
+            for art in relevant_list:
+                title = art.get("title") or ""
+                kw_hits = art.get("_keyword_hits", [])
+                keyword = kw_hits[0] if kw_hits else ""
+                
+                # Check with LLM
+                system_prompt = "You are a precise news filtering assistant. Decide if the news article title is genuinely relevant to the matched keyword."
+                prompt = f"""Article Title: {title}\nMatched Keyword: {keyword}\n\nDecide if this article is relevant. Respond ONLY with "yes" or "no"."""
+                resp = _call_robust_llm_provider([{"role": "user", "content": prompt}], llm_verify, max_tokens=10, temperature=0.1, system_prompt=system_prompt)
+                
+                is_valid = True
+                if resp:
+                    is_valid = "yes" in resp.lower()
+                
+                if is_valid:
+                    verified_list.append(art)
+                else:
+                    discard_list.append(art)
+            relevant_list = verified_list
+            _update_progress(f"Matches after LLM validation: {len(relevant_list)} verified")
+
+        # 6. Conditional Summarization
+        llm_summary = company.llm_summary_provider
+        if llm_summary and llm_summary.lower() != "none" and relevant_list:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating article summaries using {llm_summary}...")
+            for art in relevant_list:
+                title = art.get("title") or ""
+                body = art.get("full_body") or art.get("summary") or ""
+                prompt = f"Summarize this news article in 30-40 words.\n\nTitle: {title}\nBody:\n{body[:2000]}\n\nRespond with ONLY the summary."
+                resp = _call_robust_llm_provider([{"role": "user", "content": prompt}], llm_summary, max_tokens=100, temperature=0.3)
+                if resp:
+                    art["_summary"] = resp.strip()
+                    art["summary"] = resp.strip()
+                else:
+                    art["_summary"] = art.get("summary") or body[:200]
+        else:
+            for art in relevant_list:
+                art["_summary"] = art.get("summary") or (art.get("full_body") or "")[:200]
+
+        # Save Stage 4 verified list
+        llm_verified_fn = f"Robust_LLM_Verified_Articles_Run_{run_id}.csv"
+        save_intermediate_csv(llm_verified_fn, relevant_list, ["Matched_Keyword", "Sector", "Sub_Category"])
+        _update_progress(f"Step 4: Verified relevant articles: {len(relevant_list)} articles. Downloadable output: /api/robust-automation/reports/{llm_verified_fn}")
+
+        # 7. Executive Synthesis (Summary & Takeaways)
+        exec_summary = None
+        takeaways = None
+        llm_exec = company.llm_executive_provider
+        if llm_exec and llm_exec.lower() != "none" and relevant_list:
+            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating Executive Summary & Takeaways using {llm_exec}...")
+            
+            # Sort priority media first
+            sorted_arts = sorted(relevant_list, key=lambda x: 1 if x.get("_is_priority") else 0, reverse=True)
+            text_lines = []
+            for idx, a in enumerate(sorted_arts[:15], start=1):
+                text_lines.append(f"#{idx} [{a.get('agency') or 'Normal'}] Title: {a.get('title')}\nSummary: {a.get('_summary')}\n")
+            context_text = "\n".join(text_lines)
+
+            # Executive summary prompt
+            system_summary = f"You are a premium news intelligence editor. Write a concise briefing summary for the daily {company.name} news."
+            prompt_summary = f"""Based on these news articles, generate an executive summary as a bulleted list of 4-5 key developments.
+Each bullet point MUST be strictly under 15 words. Keep it concise.
+Articles:
+{context_text}
+Return ONLY the bulleted list (each line starting with `-`). No introduction."""
+            exec_summary = _call_robust_llm_provider([{"role": "user", "content": prompt_summary}], llm_exec, max_tokens=300, temperature=0.2, system_prompt=system_summary)
+
+            # Takeaways prompt
+            system_takeaways = f"You are a premium strategic intelligence advisor. Extract takeaways for {company.name} from news coverage."
+            prompt_takeaways = f"""Based on these news articles, formulate exactly six key strategic takeaways/insights for {company.name}.
+Each takeaway must start with a bold key concept title, followed by a dash (—) and a 1-2 sentence analytical implication.
+Articles:
+{context_text}
+Return ONLY the six takeaways. No introduction."""
+            takeaways = _call_robust_llm_provider([{"role": "user", "content": prompt_takeaways}], llm_exec, max_tokens=1000, temperature=0.2, system_prompt=system_takeaways)
+        else:
+            exec_summary = "Executive Summary skipped (LLM executive synthesis is disabled)."
+            takeaways = "Strategic Takeaways skipped (LLM executive synthesis is disabled)."
+
+        # 8. Report Compilation
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Compiling reports...")
+        
+        # Group articles for reports
+        def group_articles_for_report(articles_list):
+            grouped = {}
+            for a in articles_list:
+                # Group by pillar and sub_category
+                master = a.get("_pillar") or "General News"
+                sub = a.get("_sub_category") or "General"
+                grouped.setdefault(master, {}).setdefault(sub, [])
+                if a["url"] not in [x["url"] for x in grouped[master][sub]]:
+                    grouped[master][sub].append(a)
+            return grouped
+
+        all_grouped = group_articles_for_report(relevant_list)
+        
+        today_str = date.today().strftime("%Y-%m-%d")
+        reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+
+        master_doc_filename = f"Robust_{company.name}_Master_{today_str}_{run_id}.docx"
+        master_doc_path = os.path.join(reports_dir, master_doc_filename)
+        generate_organized_docx_report(company.name, "Master Intelligence Report", today_str, all_grouped, master_doc_path)
+
+        master_excel_filename = f"Robust_{company.name}_Master_{today_str}_{run_id}.xlsx"
+        master_excel_path = os.path.join(reports_dir, master_excel_filename)
+        generate_excel_report(company.name, "Master Excel Report", today_str, all_grouped, master_excel_path)
+
+        mailer_doc_filename = f"Robust_{company.name}_Mailer_{today_str}_{run_id}.docx"
+        mailer_doc_path = os.path.join(reports_dir, mailer_doc_filename)
+        generate_mailer_docx_report(company.name, "Daily Brief Mailer", today_str, exec_summary, takeaways, all_grouped, mailer_doc_path)
+
+        # Upload Mailer Doc to Google Docs
+        google_doc_url = None
+        with get_db_sync() as db:
+            recips = db.execute(select(RobustRecipient).where(RobustRecipient.company_id == company.id)).scalars().all()
+        all_emails = list(set(r.email for r in recips))
+
+        if company.upload_to_google_drive and os.environ.get("GOOGLE_CREDENTIALS_JSON") and all_emails:
+            _update_progress("Uploading briefing doc to Google Drive...")
+            try:
+                from utils.google_docs import upload_docx_to_google_doc
+                google_doc_url = upload_docx_to_google_doc(
+                    docx_path=mailer_path,
+                    client_name=company.name,
+                    date_str=today_str,
+                    recipients=all_emails,
+                    doc_suffix="Briefing"
+                )
+            except Exception as e:
+                logger.error(f"[Robust] Google Drive upload failed: {e}")
+
+        # Update Takeaways Sheet
+        if company.update_takeaways_sheet and takeaways:
+            _update_progress("Updating Takeaways Google Sheet...")
+            try:
+                from utils.google_docs import append_daily_takeaways_to_sheet
+                sheet_url = append_daily_takeaways_to_sheet(company.name, date.today(), takeaways)
+                if sheet_url:
+                    company.takeaways_sheet_url = sheet_url
+            except Exception as e:
+                logger.error(f"[Robust] Takeaways sheet update failed: {e}")
+
+        # Save binary outputs
+        with open(master_doc_path, "rb") as f: master_doc_data = f.read()
+        with open(master_excel_path, "rb") as f: master_excel_data = f.read()
+        with open(mailer_doc_path, "rb") as f: mailer_doc_data = f.read()
+
+        with get_db_sync() as db:
+            run_rec = db.execute(select(RobustRun).where(RobustRun.id == run_id)).scalar_one_or_none()
+            if run_rec:
+                run_rec.master_doc_path = master_doc_path
+                run_rec.master_excel_path = master_excel_path
+                run_rec.mailer_doc_path = mailer_doc_path
+                run_rec.google_doc_url = google_doc_url
+                run_rec.master_doc_data = master_doc_data
+                run_rec.master_excel_data = master_excel_data
+                run_rec.mailer_doc_data = mailer_doc_data
+                run_rec.executive_summary = exec_summary
+                run_rec.takeaways = takeaways
+                db.commit()
+
+        # Audit Trail
+        _update_progress("Saving article audit trail...")
+        with get_db_sync() as db:
+            for art in relevant_list:
+                audit = RobustRunArticle(
+                    run_id=run_id,
+                    source_article_id=art.get("id"),
+                    title=art.get("title"),
+                    url=art.get("url"),
+                    published_at=art.get("published_at"),
+                    relevance_score=art.get("_relevance_score"),
+                    included_in_brief=True,
+                    pillar=art.get("_pillar"),
+                    sub_category=art.get("_sub_category"),
+                    matched_keywords=json.dumps(art.get("_keyword_hits", [])),
+                    llm_summary=art.get("_summary"),
+                    bucket=art.get("_bucket")
+                )
+                db.add(audit)
+            db.commit()
+
+        # 9. Email Dispatch
+        email_status = "skipped"
+        if company.send_email and all_emails:
+            if company.mail_send_mode == "Immediate":
+                _update_progress("Sending daily news email briefing...")
+                
+                # Render HTML mailer if enabled
+                html_body = None
+                if company.send_html_mailer:
+                    html_body = render_robust_html_body(run_rec, company.name)
+
+                brief_emails = [r.email for r in recips if r.role == "brief"]
+                master_emails = [r.email for r in recips if r.role == "master_doc"]
+
+                success_brief = True
+                success_master = True
+
+                if brief_emails:
+                    success_brief = send_report_email(
+                        recipient_emails=brief_emails,
+                        client_name=company.name,
+                        docx_path_filtered=mailer_doc_path if company.send_mailer_doc else None,
+                        docx_path_master=None,
+                        has_articles=len(relevant_list) > 0,
+                        brief_content=exec_summary,
+                        html_body=html_body,
+                    )
+
+                if master_emails:
+                    success_master = send_report_email(
+                        recipient_emails=master_emails,
+                        client_name=company.name,
+                        docx_path_filtered=mailer_doc_path if company.send_mailer_doc else None,
+                        docx_path_master=master_doc_path if company.send_report_doc else None,
+                        has_articles=len(relevant_list) > 0,
+                        brief_content=exec_summary,
+                        excel_path_master=master_excel_path if company.send_report_excel else None,
+                        html_body=html_body,
+                    )
+
+                email_status = "sent" if (success_brief and success_master) else "failed"
+            else:
+                _update_progress(f"Email scheduled for delayed dispatch at {company.mail_send_time}")
+                email_status = "pending"
+
+        with get_db_sync() as db:
+            run_rec = db.execute(select(RobustRun).where(RobustRun.id == run_id)).scalar_one_or_none()
+            if run_rec:
+                run_rec.status = "completed"
+                run_rec.fetched_count = len(fetched)
+                run_rec.deduped_count = len(deduped)
+                run_rec.relevant_count = len(relevant_list)
+                run_rec.email_status = email_status
+                run_rec.finished_at = datetime.utcnow()
+                db.commit()
+
+        # Update last run timestamp in company record
+        with get_db_sync() as db:
+            comp_rec = db.execute(select(RobustCompany).where(RobustCompany.id == company.id)).scalar_one_or_none()
+            if comp_rec:
+                comp_rec.last_run_at = datetime.utcnow()
+                db.commit()
+
+        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Run complete!")
+        return True
+
+    except Exception as e:
+        logger.error(f"[Robust] Execution failed: {e}", exc_info=True)
+        try:
+            with get_db_sync() as db:
+                run_rec = db.execute(select(RobustRun).where(RobustRun.id == run_id)).scalar_one_or_none()
+                if run_rec:
+                    run_rec.status = "failed"
+                    run_rec.error = str(e)
+                    run_rec.finished_at = datetime.utcnow()
+                    db.commit()
+            send_error_alert_email(company_name, str(e))
+        except Exception as alert_err:
+            logger.error(f"[Robust] Failed to log failure details: {alert_err}")
+        return False
+
+
+def render_robust_html_body(run, company_name: str) -> str:
+    """Helper to generate HTML mailer content."""
+    try:
+        from utils.mailer import render_brief_html
+        from datetime import date
+        
+        # Pull audit articles to display
+        from db.database import get_db_sync, RobustRunArticle
+        with get_db_sync() as db:
+            articles = db.execute(
+                select(RobustRunArticle).where(RobustRunArticle.run_id == run.id)
+            ).scalars().all()
+            
+        exec_bullets = []
+        if run.executive_summary:
+            for line in run.executive_summary.split("\n"):
+                line = line.strip()
+                if line.startswith("-") or line.startswith("*") or line.startswith("•"):
+                    clean = line.strip("-*• ").strip()
+                    # Limit to 15 words strictly
+                    words = clean.split()
+                    if len(words) > 15:
+                        clean = " ".join(words[:15]) + "..."
+                    exec_bullets.append(clean)
+                    
+        sections = []
+        # Group by pillar and select top 30 to prevent Gmail clipping
+        by_pillar = {}
+        for a in articles[:30]:
+            by_pillar.setdefault(a.pillar or "General", []).append({
+                "title": a.title,
+                "url": a.url,
+                "agency": a.pillar or "News", # fallback
+                "summary": a.llm_summary or ""
+            })
+            
+        colors = ["#4285F4", "#EA4335", "#FBBC04", "#34A853"]
+        for idx, (pillar, arts) in enumerate(by_pillar.items()):
+            sections.append({
+                "name": pillar.upper(),
+                "accent": colors[idx % len(colors)],
+                "articles": arts
+            })
+            
+        brief_data = {
+            "brand": company_name,
+            "subtitle": "DAILY BRIEF BRIEFING",
+            "date_str": date.today().strftime("%d %B %Y").upper(),
+            "top_tags": list(by_pillar.keys())[:5],
+            "exec_intro": "Key headline developments compiled today:",
+            "exec_bullets": exec_bullets,
+            "sections": sections,
+            "signoff_name": "THE MAVERICKS Intelligence Desk",
+            "signoff_sub": f"Daily Brief Coverage — {date.today().strftime('%d %B %Y')}",
+            "sections_covered": " | ".join(by_pillar.keys()),
+            "disclaimer": "This briefing is compiled from public media sources. All trademarks remain property of their respective owners.",
+            "topic_tags": [f"#{p.replace(' ', '')}" for p in by_pillar.keys()][:5]
+        }
+        return render_brief_html(brief_data)
+    except Exception as e:
+        logger.error(f"[Robust] Failed to render HTML brief: {e}", exc_info=True)
+        return f"<p>Daily briefing compilation complete. Executive Summary:<br>{run.executive_summary}</p>"
+
