@@ -4412,6 +4412,7 @@ def run_robust_automation_task(company_id: int):
                 art["_keyword_hits"] = []
                 art["_is_priority"] = True
                 art["_relevance_score"] = 1.0
+                art["confidence_score"] = 10
                 art["_bucket"] = "clear_keep"
                 relevant_list.append(art)
                 continue
@@ -4438,6 +4439,7 @@ def run_robust_automation_task(company_id: int):
                 art["_keyword_hits"] = [matched_kw] if matched_kw else []
                 art["_is_priority"] = is_pri
                 art["_relevance_score"] = 1.0
+                art["confidence_score"] = 10
                 art["_bucket"] = "clear_keep"
                 relevant_list.append(art)
             else:
