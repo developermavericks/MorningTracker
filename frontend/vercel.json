@@ -8,6 +8,10 @@
         {
           "key": "Content-Security-Policy",
           "value": "frame-ancestors 'self' https://anexar-9820c.web.app https://anexar-9820c.firebaseapp.com http://localhost:4000;"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": ""
         }
       ]
     }
