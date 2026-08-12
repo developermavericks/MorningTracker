@@ -374,6 +374,7 @@ class RobustCompany(Base):
     manual_keywords: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     search_mode: Mapped[str] = mapped_column(String, default="title", server_default="'title'")
     pooja_algo_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    group_by_source_sector: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     
     # Output delivery toggles
     send_email: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
@@ -436,6 +437,10 @@ class RobustRun(Base):
     master_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     filtered_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     mailer_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    fetched_csv_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    deduped_csv_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    pooja_csv_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    verified_csv_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     
     # Email and progress log status
     email_status: Mapped[Optional[str]] = mapped_column(String)  # sent|failed|pending|skipped
@@ -502,6 +507,31 @@ async def init_db():
             else:
                 await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
         except: pass
+
+        # Automated Migration: Add group_by_source_sector if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE robust_companies ADD COLUMN IF NOT EXISTS group_by_source_sector BOOLEAN DEFAULT FALSE"))
+            else:
+                await conn.execute(text("ALTER TABLE robust_companies ADD COLUMN group_by_source_sector BOOLEAN DEFAULT FALSE"))
+        except: pass
+
+        # Automated Migration: Add missing binary and summary columns to robust_runs table if missing
+        for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data", "mailer_doc_data", "fetched_csv_data", "deduped_csv_data", "pooja_csv_data", "verified_csv_data"]:
+            try:
+                if "postgresql" in engine.url.drivername:
+                    await conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {col} BYTEA"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {col} BLOB"))
+            except Exception: pass
+
+        for col in ["executive_summary", "takeaways"]:
+            try:
+                if "postgresql" in engine.url.drivername:
+                    await conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {col} TEXT"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {col} TEXT"))
+            except Exception: pass
 
         # Automated Migration: Add audit columns to irrelevant_articles table
         try:
@@ -924,6 +954,52 @@ def init_db_sync():
                             conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN {col} TEXT"))
                         except Exception: pass
             except: pass
+
+    # Automated migration: Add RobustRun intermediate CSV data columns if missing
+    for col in ["fetched_csv_data", "deduped_csv_data", "pooja_csv_data", "verified_csv_data"]:
+        try:
+            with engine_sync.begin() as conn:
+                if "postgresql" in engine_sync.url.drivername:
+                    conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {col} BYTEA"))
+                else:
+                    try:
+                        conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {col} BLOB"))
+                    except Exception: pass
+        except: pass
+
+        # Automated migration: Add missing binary/summary columns to robust_runs table if missing
+        for rcol in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data", "mailer_doc_data"]:
+            try:
+                with engine_sync.begin() as conn:
+                    if "postgresql" in engine_sync.url.drivername:
+                        conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {rcol} BYTEA"))
+                    else:
+                        try:
+                            conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {rcol} BLOB"))
+                        except Exception: pass
+            except: pass
+
+        for rcol in ["executive_summary", "takeaways"]:
+            try:
+                with engine_sync.begin() as conn:
+                    if "postgresql" in engine_sync.url.drivername:
+                        conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {rcol} TEXT"))
+                    else:
+                        try:
+                            conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {rcol} TEXT"))
+                        except Exception: pass
+            except: pass
+
+        # Automated migration: Add group_by_source_sector to robust_companies table if missing
+        try:
+            with engine_sync.begin() as conn:
+                if "postgresql" in engine_sync.url.drivername:
+                    conn.execute(text("ALTER TABLE robust_companies ADD COLUMN IF NOT EXISTS group_by_source_sector BOOLEAN DEFAULT FALSE"))
+                else:
+                    try:
+                        conn.execute(text("ALTER TABLE robust_companies ADD COLUMN group_by_source_sector BOOLEAN DEFAULT FALSE"))
+                    except Exception: pass
+        except: pass
 
         # Automated Migration: Heavy Automation tables schema updates
         try:

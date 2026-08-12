@@ -45,7 +45,8 @@ def check_db_schema():
             robust_required = [
                 "manual_keywords",
                 "search_mode",
-                "pooja_algo_enabled"
+                "pooja_algo_enabled",
+                "group_by_source_sector"
             ]
             robust_missing = [r for r in robust_required if r not in robust_columns]
             if not robust_missing:

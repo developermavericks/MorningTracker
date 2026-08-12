@@ -46,6 +46,7 @@ const DEFAULT_COMPANY = {
   monthly_takeaways_time: "09:00",
   search_mode: "title",
   pooja_algo_enabled: true,
+  group_by_source_sector: false,
 
   recipients: [],
 };
@@ -574,10 +575,14 @@ export default function RobustAutomation() {
                     <option value="body">Search in Title & Full Body</option>
                   </select>
                 </div>
-                <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "18px" }}>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "8px", marginTop: "18px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <input type="checkbox" id="pooja_algo_enabled" checked={formData.pooja_algo_enabled ?? true} onChange={e => setFormData({ ...formData, pooja_algo_enabled: e.target.checked })} style={{ width: "16px", height: "16px", cursor: "pointer" }} />
                     <label htmlFor="pooja_algo_enabled" style={{ fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>Enable Pooja Filtering Logic</label>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input type="checkbox" id="group_by_source_sector" checked={formData.group_by_source_sector ?? false} onChange={e => setFormData({ ...formData, group_by_source_sector: e.target.checked })} style={{ width: "16px", height: "16px", cursor: "pointer" }} />
+                    <label htmlFor="group_by_source_sector" style={{ fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>Categorize by Polled Sector</label>
                   </div>
                 </div>
               </div>

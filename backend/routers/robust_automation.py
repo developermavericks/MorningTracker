@@ -68,6 +68,7 @@ class CompanyCreate(BaseModel):
     manual_keywords: Optional[str] = None
     search_mode: str = "title"
     pooja_algo_enabled: bool = True
+    group_by_source_sector: bool = False
     recipients: List[RecipientIn] = []
 
 class RecipientOut(BaseModel):
@@ -117,6 +118,7 @@ class CompanyOut(BaseModel):
     manual_keywords: Optional[str]
     search_mode: str
     pooja_algo_enabled: bool
+    group_by_source_sector: bool
     
     created_at: str
     recipients: List[RecipientOut]
@@ -202,6 +204,7 @@ async def _build_company_out(company: RobustCompany, db: AsyncSession) -> Compan
         manual_keywords=company.manual_keywords,
         search_mode=company.search_mode,
         pooja_algo_enabled=company.pooja_algo_enabled,
+        group_by_source_sector=company.group_by_source_sector,
         created_at=_fmt_dt(company.created_at),
         recipients=recipients,
     )
@@ -256,6 +259,7 @@ async def create_company(body: CompanyCreate, db: AsyncSession = Depends(get_db_
         manual_keywords=body.manual_keywords,
         search_mode=body.search_mode,
         pooja_algo_enabled=body.pooja_algo_enabled,
+        group_by_source_sector=body.group_by_source_sector,
     )
     db.add(company)
     await db.commit()
@@ -312,6 +316,7 @@ async def update_company_endpoint(id: int, body: CompanyCreate, db: AsyncSession
     company.manual_keywords = body.manual_keywords
     company.search_mode = body.search_mode
     company.pooja_algo_enabled = body.pooja_algo_enabled
+    company.group_by_source_sector = body.group_by_source_sector
 
     # Synchronize recipients
     await db.execute(delete(RobustRecipient).where(RobustRecipient.company_id == id))
@@ -452,18 +457,35 @@ async def download_report_file(filename: str, db: AsyncSession = Depends(get_db_
 
     if not os.path.exists(file_path):
         # Dynamically restore from DB
-        stmt = select(RobustRun).where(
-            (RobustRun.master_doc_path.like(f"%{filename}%")) |
-            (RobustRun.filtered_doc_path.like(f"%{filename}%")) |
-            (RobustRun.master_excel_path.like(f"%{filename}%")) |
-            (RobustRun.filtered_excel_path.like(f"%{filename}%")) |
-            (RobustRun.mailer_doc_path.like(f"%{filename}%"))
-        )
-        res = await db.execute(stmt)
-        run_rec = res.scalar_one_or_none()
+        run_rec = None
+        import re
+        m = re.search(r"_Run_(\d+)\.csv", filename, re.IGNORECASE)
+        if m:
+            run_id = int(m.group(1))
+            res = await db.execute(select(RobustRun).where(RobustRun.id == run_id))
+            run_rec = res.scalar_one_or_none()
+        else:
+            stmt = select(RobustRun).where(
+                (RobustRun.master_doc_path.like(f"%{filename}%")) |
+                (RobustRun.filtered_doc_path.like(f"%{filename}%")) |
+                (RobustRun.master_excel_path.like(f"%{filename}%")) |
+                (RobustRun.filtered_excel_path.like(f"%{filename}%")) |
+                (RobustRun.mailer_doc_path.like(f"%{filename}%"))
+            )
+            res = await db.execute(stmt)
+            run_rec = res.scalar_one_or_none()
+
         if run_rec:
             data_bytes = None
-            if run_rec.master_doc_path and filename.lower() in run_rec.master_doc_path.lower():
+            if "Robust_Fetched_Articles_Run_" in filename:
+                data_bytes = run_rec.fetched_csv_data
+            elif "Robust_Deduplicated_Articles_Run_" in filename:
+                data_bytes = run_rec.deduped_csv_data
+            elif "Robust_Pooja_Filtered_Articles_Run_" in filename:
+                data_bytes = run_rec.pooja_csv_data
+            elif "Robust_LLM_Verified_Articles_Run_" in filename:
+                data_bytes = run_rec.verified_csv_data
+            elif run_rec.master_doc_path and filename.lower() in run_rec.master_doc_path.lower():
                 data_bytes = run_rec.master_doc_data
             elif run_rec.filtered_doc_path and filename.lower() in run_rec.filtered_doc_path.lower():
                 data_bytes = run_rec.filtered_doc_data

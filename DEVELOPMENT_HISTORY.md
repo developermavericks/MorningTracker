@@ -10,6 +10,7 @@ The following table tracks active commits, implementation authors, change summar
 
 | Date & Time (IST) | Commit Hash | Author | Scope / Feature Area | Deployment Status |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-08-12 10:11 | `Pending` | Antigravity | **Feature:** Added "Categorize by Polled Sector" toggle to Robust Automation. When active, all generated deliverables (Master DOCX, Excel spreadsheets, Mailer DOCX, database audits, and inline HTML templates) categorize articles by title-cased remote polled sector names instead of keyword pillars; added robust runs schema migrations to both startup initializers; registered columns check in `diagnose_takeaways_scheduler.py` and created `rollback_polled_sector_categorization.ps1` rollback recipe. | Completed & Local |
 | 2026-08-10 17:31 | `52d475f` | Antigravity | **Config:** Overrode default Vercel X-Frame-Options security header with an empty value to prevent header conflicts with Content-Security-Policy. | Deployed & Active |
 | 2026-08-10 16:22 | `4f05a05` | Antigravity | **Config:** Added Vercel headers for Content-Security-Policy (frame-ancestors) to permit Anexar portal and localhost framing. | Deployed & Active |
 | 2026-08-06 15:55 | `Pending` | Antigravity | **Fix & Feature:** Added Search Mode (Title/Body) and Pooja Filtering Logic toggles to Robust Automation; implemented green-on-black console log trace console and per-stage intermediate file downloads; resolved report downloads by implementing case-insensitive path comparisons during dynamic database restoration. | Completed & Tested |

@@ -4409,6 +4409,10 @@ def run_robust_automation_task(company_id: int):
             if not getattr(company, "pooja_algo_enabled", True):
                 art["_pillar"] = "General"
                 art["_sub_category"] = "General"
+                if getattr(company, "group_by_source_sector", False):
+                    source_sec = art.get("source_feed")
+                    art["_pillar"] = source_sec.title() if source_sec else "General News"
+                    art["_sub_category"] = "General"
                 art["_keyword_hits"] = []
                 art["_is_priority"] = True
                 art["_relevance_score"] = 1.0
@@ -4436,6 +4440,10 @@ def run_robust_automation_task(company_id: int):
             if is_pri and has_kw:
                 art["_pillar"] = pillar or "General"
                 art["_sub_category"] = sub_cat or "General"
+                if getattr(company, "group_by_source_sector", False):
+                    source_sec = art.get("source_feed")
+                    art["_pillar"] = source_sec.title() if source_sec else "General News"
+                    art["_sub_category"] = "General"
                 art["_keyword_hits"] = [matched_kw] if matched_kw else []
                 art["_is_priority"] = is_pri
                 art["_relevance_score"] = 1.0
@@ -4603,6 +4611,27 @@ Return ONLY the six takeaways. No introduction."""
         with open(master_excel_path, "rb") as f: master_excel_data = f.read()
         with open(mailer_doc_path, "rb") as f: mailer_doc_data = f.read()
 
+        # Save intermediate CSV binary outputs
+        fetched_csv_data = None
+        fetched_csv_path = os.path.join(reports_dir, f"Robust_Fetched_Articles_Run_{run_id}.csv")
+        if os.path.exists(fetched_csv_path):
+            with open(fetched_csv_path, "rb") as f: fetched_csv_data = f.read()
+
+        deduped_csv_data = None
+        deduped_csv_path = os.path.join(reports_dir, f"Robust_Deduplicated_Articles_Run_{run_id}.csv")
+        if os.path.exists(deduped_csv_path):
+            with open(deduped_csv_path, "rb") as f: deduped_csv_data = f.read()
+
+        pooja_csv_data = None
+        pooja_csv_path = os.path.join(reports_dir, f"Robust_Pooja_Filtered_Articles_Run_{run_id}.csv")
+        if os.path.exists(pooja_csv_path):
+            with open(pooja_csv_path, "rb") as f: pooja_csv_data = f.read()
+
+        verified_csv_data = None
+        verified_csv_path = os.path.join(reports_dir, f"Robust_LLM_Verified_Articles_Run_{run_id}.csv")
+        if os.path.exists(verified_csv_path):
+            with open(verified_csv_path, "rb") as f: verified_csv_data = f.read()
+
         with get_db_sync() as db:
             run_rec = db.execute(select(RobustRun).where(RobustRun.id == run_id)).scalar_one_or_none()
             if run_rec:
@@ -4613,6 +4642,10 @@ Return ONLY the six takeaways. No introduction."""
                 run_rec.master_doc_data = master_doc_data
                 run_rec.master_excel_data = master_excel_data
                 run_rec.mailer_doc_data = mailer_doc_data
+                run_rec.fetched_csv_data = fetched_csv_data
+                run_rec.deduped_csv_data = deduped_csv_data
+                run_rec.pooja_csv_data = pooja_csv_data
+                run_rec.verified_csv_data = verified_csv_data
                 run_rec.executive_summary = exec_summary
                 run_rec.takeaways = takeaways
                 db.commit()
