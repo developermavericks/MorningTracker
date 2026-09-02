@@ -353,7 +353,133 @@ class HeavyRunArticle(Base):
         Index("idx_heavy_run_articles_run_id", "run_id"),
     )
 
+
+# ─── Robust Automation Models ─────────────────────────────────────────────────
+
+class RobustCompany(Base):
+    __tablename__ = "robust_companies"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    sector_match: Mapped[str] = mapped_column(String, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    timezone: Mapped[str] = mapped_column(String, default="Asia/Kolkata")
+    fetch_time: Mapped[str] = mapped_column(String, default="07:00")
+    window_hours: Mapped[int] = mapped_column(Integer, default=24)
+    
+    # Uploaded Files
+    keywords_file_name: Mapped[Optional[str]] = mapped_column(String)
+    keywords_file_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    priority_media_file_name: Mapped[Optional[str]] = mapped_column(String)
+    priority_media_file_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    manual_keywords: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    search_mode: Mapped[str] = mapped_column(String, default="title", server_default="'title'")
+    pooja_algo_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    group_by_source_sector: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    
+    # Output delivery toggles
+    send_email: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    send_html_mailer: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    send_mailer_doc: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    send_report_doc: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    send_report_excel: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    upload_to_google_drive: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    update_takeaways_sheet: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    
+    # LLM Settings (Strings: "none" | "claude" | "groq")
+    llm_verification_provider: Mapped[str] = mapped_column(String, default="none", server_default="'none'")
+    llm_summary_provider: Mapped[str] = mapped_column(String, default="none", server_default="'none'")
+    llm_executive_provider: Mapped[str] = mapped_column(String, default="none", server_default="'none'")
+    
+    # Schedulers
+    mail_send_mode: Mapped[str] = mapped_column(String, default="Immediate")  # Immediate|Scheduled
+    mail_send_time: Mapped[Optional[str]] = mapped_column(String, default="08:00")
+    frequency: Mapped[str] = mapped_column(String, default="Daily")  # Daily|Weekly|Monthly|Custom
+    days: Mapped[Optional[str]] = mapped_column(Text)  # JSON list e.g. '["MON","THU"]'
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    
+    # Takeaways Google Sheet updates
+    takeaways_sheet_url: Mapped[Optional[str]] = mapped_column(String)
+    send_monthly_takeaways_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    monthly_takeaways_day: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    monthly_takeaways_time: Mapped[str] = mapped_column(String, default="09:00", server_default="'09:00'")
+    last_monthly_takeaways_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class RobustRecipient(Base):
+    __tablename__ = "robust_recipients"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("robust_companies.id", ondelete="CASCADE"), nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String, default="brief")  # brief|master_doc
+
+class RobustRun(Base):
+    __tablename__ = "robust_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("robust_companies.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String, default="running")  # running|completed|failed
+    fetched_count: Mapped[int] = mapped_column(Integer, default=0)
+    deduped_count: Mapped[int] = mapped_column(Integer, default=0)
+    relevant_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # File paths on server
+    master_doc_path: Mapped[Optional[str]] = mapped_column(Text)
+    filtered_doc_path: Mapped[Optional[str]] = mapped_column(Text)
+    master_excel_path: Mapped[Optional[str]] = mapped_column(Text)
+    filtered_excel_path: Mapped[Optional[str]] = mapped_column(Text)
+    google_doc_url: Mapped[Optional[str]] = mapped_column(Text)
+    mailer_doc_path: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # File raw binary data
+    master_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    filtered_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    master_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    filtered_excel_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    mailer_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    fetched_csv_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    deduped_csv_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    pooja_csv_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    verified_csv_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    
+    # Email and progress log status
+    email_status: Mapped[Optional[str]] = mapped_column(String)  # sent|failed|pending|skipped
+    progress_message: Mapped[Optional[str]] = mapped_column(Text)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    executive_summary: Mapped[Optional[str]] = mapped_column(Text)
+    takeaways: Mapped[Optional[str]] = mapped_column(Text)
+    
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("idx_robust_runs_company_id", "company_id"),
+        Index("idx_robust_runs_started_at", "started_at"),
+    )
+
+class RobustRunArticle(Base):
+    __tablename__ = "robust_run_articles"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(Integer, ForeignKey("robust_runs.id", ondelete="CASCADE"), nullable=False)
+    source_article_id: Mapped[Optional[int]] = mapped_column(Integer)
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    url: Mapped[Optional[str]] = mapped_column(Text)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    dedup_cluster_id: Mapped[Optional[str]] = mapped_column(String)
+    relevance_score: Mapped[Optional[float]] = mapped_column(Float)
+    included_in_brief: Mapped[bool] = mapped_column(Boolean, default=False)
+    pillar: Mapped[Optional[str]] = mapped_column(String)
+    sub_category: Mapped[Optional[str]] = mapped_column(String)
+    matched_keywords: Mapped[Optional[str]] = mapped_column(Text)  # JSON list
+    llm_summary: Mapped[Optional[str]] = mapped_column(Text)
+    bucket: Mapped[Optional[str]] = mapped_column(String)  # clear_keep|ambiguous_middle|clear_discard
+
+    __table_args__ = (
+        Index("idx_robust_run_articles_run_id", "run_id"),
+    )
+
 # ─── Initialization ───────────────────────────────────────────────────────────
+
 
 async def init_db():
     async with engine.begin() as conn:
@@ -381,6 +507,31 @@ async def init_db():
             else:
                 await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
         except: pass
+
+        # Automated Migration: Add group_by_source_sector if missing
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE robust_companies ADD COLUMN IF NOT EXISTS group_by_source_sector BOOLEAN DEFAULT FALSE"))
+            else:
+                await conn.execute(text("ALTER TABLE robust_companies ADD COLUMN group_by_source_sector BOOLEAN DEFAULT FALSE"))
+        except: pass
+
+        # Automated Migration: Add missing binary and summary columns to robust_runs table if missing
+        for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data", "mailer_doc_data", "fetched_csv_data", "deduped_csv_data", "pooja_csv_data", "verified_csv_data"]:
+            try:
+                if "postgresql" in engine.url.drivername:
+                    await conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {col} BYTEA"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {col} BLOB"))
+            except Exception: pass
+
+        for col in ["executive_summary", "takeaways"]:
+            try:
+                if "postgresql" in engine.url.drivername:
+                    await conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {col} TEXT"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {col} TEXT"))
+            except Exception: pass
 
         # Automated Migration: Add audit columns to irrelevant_articles table
         try:
@@ -803,6 +954,52 @@ def init_db_sync():
                             conn.execute(text(f"ALTER TABLE heavy_runs ADD COLUMN {col} TEXT"))
                         except Exception: pass
             except: pass
+
+    # Automated migration: Add RobustRun intermediate CSV data columns if missing
+    for col in ["fetched_csv_data", "deduped_csv_data", "pooja_csv_data", "verified_csv_data"]:
+        try:
+            with engine_sync.begin() as conn:
+                if "postgresql" in engine_sync.url.drivername:
+                    conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {col} BYTEA"))
+                else:
+                    try:
+                        conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {col} BLOB"))
+                    except Exception: pass
+        except: pass
+
+        # Automated migration: Add missing binary/summary columns to robust_runs table if missing
+        for rcol in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data", "mailer_doc_data"]:
+            try:
+                with engine_sync.begin() as conn:
+                    if "postgresql" in engine_sync.url.drivername:
+                        conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {rcol} BYTEA"))
+                    else:
+                        try:
+                            conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {rcol} BLOB"))
+                        except Exception: pass
+            except: pass
+
+        for rcol in ["executive_summary", "takeaways"]:
+            try:
+                with engine_sync.begin() as conn:
+                    if "postgresql" in engine_sync.url.drivername:
+                        conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN IF NOT EXISTS {rcol} TEXT"))
+                    else:
+                        try:
+                            conn.execute(text(f"ALTER TABLE robust_runs ADD COLUMN {rcol} TEXT"))
+                        except Exception: pass
+            except: pass
+
+        # Automated migration: Add group_by_source_sector to robust_companies table if missing
+        try:
+            with engine_sync.begin() as conn:
+                if "postgresql" in engine_sync.url.drivername:
+                    conn.execute(text("ALTER TABLE robust_companies ADD COLUMN IF NOT EXISTS group_by_source_sector BOOLEAN DEFAULT FALSE"))
+                else:
+                    try:
+                        conn.execute(text("ALTER TABLE robust_companies ADD COLUMN group_by_source_sector BOOLEAN DEFAULT FALSE"))
+                    except Exception: pass
+        except: pass
 
         # Automated Migration: Heavy Automation tables schema updates
         try:

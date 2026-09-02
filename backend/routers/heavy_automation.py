@@ -514,15 +514,15 @@ async def download_report(
         if run_rec:
             # Determine which column matches
             data_bytes = None
-            if run_rec.master_doc_path and filename in run_rec.master_doc_path:
+            if run_rec.master_doc_path and filename.lower() in run_rec.master_doc_path.lower():
                 data_bytes = run_rec.master_doc_data
-            elif run_rec.filtered_doc_path and filename in run_rec.filtered_doc_path:
+            elif run_rec.filtered_doc_path and filename.lower() in run_rec.filtered_doc_path.lower():
                 data_bytes = run_rec.filtered_doc_data
-            elif run_rec.master_excel_path and filename in run_rec.master_excel_path:
+            elif run_rec.master_excel_path and filename.lower() in run_rec.master_excel_path.lower():
                 data_bytes = run_rec.master_excel_data
-            elif run_rec.filtered_excel_path and filename in run_rec.filtered_excel_path:
+            elif run_rec.filtered_excel_path and filename.lower() in run_rec.filtered_excel_path.lower():
                 data_bytes = run_rec.filtered_excel_data
-            elif run_rec.mailer_doc_path and filename in run_rec.mailer_doc_path:
+            elif run_rec.mailer_doc_path and filename.lower() in run_rec.mailer_doc_path.lower():
                 data_bytes = run_rec.mailer_doc_data
 
             if data_bytes:
@@ -569,7 +569,9 @@ SECTOR_VARIANTS = {
 }
 
 NEXUS_SECTORS = [
-    'ai', 'automobile', 'consultancies', 'education', 'fintech', 'foods and drinks', 'google', 'healthcare',
+    'ai', 'automobile', 
+    'boston company', 'boston competition landscape', 'boston imp laws', 'boston industry', 'boston therapies / product',
+    'consultancies', 'education', 'fintech', 'foods and drinks', 'google', 'healthcare',
     'lifestyle', 'media and entertainment', 'policies', 'real estate', 'startups', 'stock market', 'tech', 'travel'
 ]
 
@@ -577,6 +579,7 @@ NEXUS_SECTORS = [
 async def get_nexus_sectors(_: TokenData = Depends(get_admin_user)):
     """Return the list of available sectors from the Nexus production feed."""
     return {"sectors": NEXUS_SECTORS}
+
 
 
 @router.get("/nexus-stats")

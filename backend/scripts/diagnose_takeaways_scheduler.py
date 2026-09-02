@@ -17,11 +17,11 @@ logger = logging.getLogger("Diagnostics")
 def check_db_schema():
     logger.info("Checking Database Table Schema...")
     try:
-        from db.database import get_db_sync, HeavyCompany
+        from db.database import get_db_sync, HeavyCompany, RobustCompany
         from sqlalchemy import select, inspect
         
         with get_db_sync() as db:
-            # Inspect columns
+            # Inspect heavy_companies columns
             inspector = inspect(db.bind)
             columns = [col["name"] for col in inspector.get_columns("heavy_companies")]
             
@@ -35,12 +35,26 @@ def check_db_schema():
             
             missing = [r for r in required if r not in columns]
             if not missing:
-                logger.info("[SUCCESS] Database has all required takeaways configuration columns.")
+                logger.info("[SUCCESS] Database has all required takeaways configuration columns in heavy_companies.")
             else:
-                logger.error(f"[FAILURE] Database is missing columns: {missing}")
-                logger.error("Please run: python init_db.py to create missing columns.")
+                logger.error(f"[FAILURE] Database heavy_companies is missing columns: {missing}")
                 return False
                 
+            # Inspect robust_companies columns
+            robust_columns = [col["name"] for col in inspector.get_columns("robust_companies")]
+            robust_required = [
+                "manual_keywords",
+                "search_mode",
+                "pooja_algo_enabled",
+                "group_by_source_sector"
+            ]
+            robust_missing = [r for r in robust_required if r not in robust_columns]
+            if not robust_missing:
+                logger.info("[SUCCESS] Database has all required columns in robust_companies.")
+            else:
+                logger.error(f"[FAILURE] Database robust_companies is missing columns: {robust_missing}")
+                return False
+
             # Query all enabled schedules
             companies = db.execute(select(HeavyCompany)).scalars().all()
             logger.info(f"Total Heavy Companies in DB: {len(companies)}")
@@ -50,6 +64,16 @@ def check_db_schema():
                     f"Takeaways Sheet: {c.takeaways_sheet_url or 'None'} | "
                     f"Monthly Scheduled Send: {'ENABLED' if c.send_monthly_takeaways_enabled else 'DISABLED'} "
                     f"(Day: {c.monthly_takeaways_day}, Time: {c.monthly_takeaways_time})"
+                )
+            
+            # Query all robust companies
+            robust_companies = db.execute(select(RobustCompany)).scalars().all()
+            logger.info(f"Total Robust Companies in DB: {len(robust_companies)}")
+            for rc in robust_companies:
+                logger.info(
+                    f" - Robust Profile: '{rc.name}' (ID: {rc.id}) | "
+                    f"Search Mode: {rc.search_mode} | "
+                    f"Pooja Logic: {'ENABLED' if rc.pooja_algo_enabled else 'DISABLED'}"
                 )
         return True
     except Exception as e:
