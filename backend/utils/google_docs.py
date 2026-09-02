@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from typing import Any, Optional
 from datetime import datetime, date
@@ -16,6 +17,23 @@ from docx.oxml.ns import qn, nsmap
 # Register VML namespaces for horizontal vector shapes
 nsmap['v'] = 'urn:schemas-microsoft-com:vml'
 nsmap['o'] = 'urn:schemas-microsoft-com:office:office'
+
+# Match characters invalid in XML 1.0 specification (e.g. NULL bytes, control chars)
+_XML_ILLEGAL_CHAR_RE = re.compile(
+    r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F'
+    r'\uD800-\uDFFF\uFFFE\uFFFF]'
+)
+
+def sanitize_for_xml(text: Any) -> str:
+    """
+    Sanitizes string to remove NULL bytes, control characters, and non-XML compatible Unicode characters.
+    Preserves standard formatting characters like \n, \r, and \t.
+    """
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    return _XML_ILLEGAL_CHAR_RE.sub("", text)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +63,8 @@ def add_horizontal_line(paragraph):
 
 def add_hyperlink(paragraph, url, text, color="1155cc", underline=True):
     """Adds a hyperlink with custom style (Calibri, blue, bold, underline) to a paragraph."""
+    text = sanitize_for_xml(text)
+    url = sanitize_for_xml(url)
     part = paragraph.part
     r_id = part.relate_to(url, docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
     

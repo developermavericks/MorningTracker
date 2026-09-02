@@ -1,4 +1,6 @@
 import os
+import re
+from typing import Any
 from datetime import datetime
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
@@ -10,6 +12,23 @@ import docx
 # Register VML namespaces for horizontal vector shapes
 nsmap['v'] = 'urn:schemas-microsoft-com:vml'
 nsmap['o'] = 'urn:schemas-microsoft-com:office:office'
+
+# Match characters invalid in XML 1.0 specification (e.g. NULL bytes, control chars)
+_XML_ILLEGAL_CHAR_RE = re.compile(
+    r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F'
+    r'\uD800-\uDFFF\uFFFE\uFFFF]'
+)
+
+def sanitize_for_xml(text: Any) -> str:
+    """
+    Sanitizes string to remove NULL bytes, control characters, and non-XML compatible Unicode characters.
+    Preserves standard formatting characters like \n, \r, and \t.
+    """
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    return _XML_ILLEGAL_CHAR_RE.sub("", text)
 
 def add_horizontal_line(paragraph):
     """Adds a thin template-matching horizontal divider line to the paragraph using paragraph bottom border."""
@@ -34,6 +53,8 @@ def add_hyperlink(paragraph, url, text, color="1155cc", underline=True):
     """
     Inserts a clickable hyperlink run into a paragraph.
     """
+    text = sanitize_for_xml(text)
+    url = sanitize_for_xml(url)
     part = paragraph.part
     r_id = part.relate_to(url, docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
     
@@ -81,6 +102,8 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
     Generates a professionally formatted DOCX report for a client with outline headers & hyperlinked headlines.
     Matches the format of the provided reference Scapia Tracker.docx document.
     """
+    client_name = sanitize_for_xml(client_name)
+    date_str = sanitize_for_xml(date_str)
     # Ensure directory exists
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
@@ -207,10 +230,10 @@ def generate_docx_report(client_name: str, date_str: str, data: dict, output_pat
             cat_p.paragraph_format.space_after = Pt(12)
 
             for i, article in enumerate(cat_list):
-                title = article.get("title", "No Title")
-                agency = article.get("agency") or "Unknown Publication"
-                summary = article.get("summary") or "No summary available."
-                url = article.get("url") or article.get("resolved_url") or "#"
+                title = sanitize_for_xml(article.get("title", "No Title"))
+                agency = sanitize_for_xml(article.get("agency") or "Unknown Publication")
+                summary = sanitize_for_xml(article.get("summary") or "No summary available.")
+                url = sanitize_for_xml(article.get("url") or article.get("resolved_url") or "#")
                 
                 # Single paragraph for the entire article block (Calibri 10pt)
                 art_p = doc.add_paragraph()
@@ -265,6 +288,9 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
     """
     Generates a professionally formatted DOCX report grouped by Master Heading and Sub Heading.
     """
+    client_name = sanitize_for_xml(client_name)
+    report_type = sanitize_for_xml(report_type)
+    date_str = sanitize_for_xml(date_str)
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     doc = Document()
     
@@ -307,7 +333,7 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
     for master, subs in grouped_data.items():
         # Add Master Heading (H1)
         m_p = doc.add_paragraph()
-        m_run = m_p.add_run(master)
+        m_run = m_p.add_run(sanitize_for_xml(master))
         m_run.font.name = 'Calibri'
         m_run.font.size = Pt(14)
         m_run.font.bold = True
@@ -321,7 +347,7 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
                 continue
             # Add Sub Heading (H2)
             s_p = doc.add_paragraph()
-            s_run = s_p.add_run(sub)
+            s_run = s_p.add_run(sanitize_for_xml(sub))
             s_run.font.name = 'Calibri'
             s_run.font.size = Pt(12)
             s_run.font.bold = True
@@ -336,8 +362,8 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
                 art_p.paragraph_format.space_before = Pt(6)
                 art_p.paragraph_format.space_after = Pt(2)
                 
-                title_text = art.get("title", "Untitled Article")
-                url = art.get("url", "#")
+                title_text = sanitize_for_xml(art.get("title", "Untitled Article"))
+                url = sanitize_for_xml(art.get("url", "#"))
                 
                 try:
                     add_hyperlink(art_p, url, title_text, color="1155cc", underline=True)
@@ -353,8 +379,8 @@ def generate_organized_docx_report(client_name: str, report_type: str, date_str:
                 meta_p.paragraph_format.space_before = Pt(0)
                 meta_p.paragraph_format.space_after = Pt(8)
                 
-                pub_name = art.get("agency") or "Unknown Publication"
-                pub_author = art.get("author") or art.get("journalist")
+                pub_name = sanitize_for_xml(art.get("agency") or "Unknown Publication")
+                pub_author = sanitize_for_xml(art.get("author") or art.get("journalist"))
                 if not pub_author or str(pub_author).strip().upper() in ("N/A", "NONE", "NULL", ""):
                     pub_author = "N/A"
                 
@@ -394,6 +420,9 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
+    client_name = sanitize_for_xml(client_name)
+    report_type = sanitize_for_xml(report_type)
+    date_str = sanitize_for_xml(date_str)
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -453,7 +482,7 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
 
         # Add Master Heading Row (Merged A to G)
         ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols)
-        c_master = ws.cell(row=current_row, column=1, value=master)
+        c_master = ws.cell(row=current_row, column=1, value=sanitize_for_xml(master))
         c_master.font = master_font
         c_master.fill = master_fill
         c_master.alignment = Alignment(vertical="center", indent=1)
@@ -466,7 +495,7 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
 
             # Add Sub Heading Row (Merged A to G)
             ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols)
-            c_sub = ws.cell(row=current_row, column=1, value=sub)
+            c_sub = ws.cell(row=current_row, column=1, value=sanitize_for_xml(sub))
             c_sub.font = sub_font
             c_sub.fill = sub_fill
             c_sub.alignment = Alignment(vertical="center", indent=2)
@@ -485,10 +514,10 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
 
             # Add articles
             for art in articles:
-                title = art.get("title", "Untitled Article")
-                url = art.get("url") or art.get("resolved_url") or "#"
-                author = art.get("author") or "N/A"
-                pub_name = art.get("agency") or "Unknown Publication"
+                title = sanitize_for_xml(art.get("title", "Untitled Article"))
+                url = sanitize_for_xml(art.get("url") or art.get("resolved_url") or "#")
+                author = sanitize_for_xml(art.get("author") or "N/A")
+                pub_name = sanitize_for_xml(art.get("agency") or "Unknown Publication")
                 pub_date = art.get("published_at")
                 
                 date_text = "N/A"
@@ -529,7 +558,7 @@ def generate_excel_report(client_name: str, report_type: str, date_str: str, gro
                     summary_col = 6
                 else:
                     summary_col = 7
-                summary_text = art.get("summary") or art.get("_summary") or art.get("full_body") or ""
+                summary_text = sanitize_for_xml(art.get("summary") or art.get("_summary") or art.get("full_body") or "")
                 c_summary = ws.cell(row=current_row, column=summary_col, value=summary_text)
 
                 # Borders and alignment
@@ -576,6 +605,9 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
     Title -> Executive Summary -> Strategic Takeaways -> Grouped Articles.
     """
     import re
+    client_name = sanitize_for_xml(client_name)
+    report_type = sanitize_for_xml(report_type)
+    date_str = sanitize_for_xml(date_str)
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     doc = Document()
     
@@ -619,7 +651,7 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
 
         # Parse and write lines
         for line in exec_summary.split("\n"):
-            line = line.strip()
+            line = sanitize_for_xml(line.strip())
             if not line:
                 continue
 
@@ -669,7 +701,7 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
         for master, subs in grouped_data.items():
             # Add Master Heading (H1)
             m_p = doc.add_paragraph()
-            m_run = m_p.add_run(master)
+            m_run = m_p.add_run(sanitize_for_xml(master))
             m_run.font.name = 'Calibri'
             m_run.font.size = Pt(14)
             m_run.font.bold = True
@@ -683,7 +715,7 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
                     continue
                 # Add Sub Heading (H2)
                 s_p = doc.add_paragraph()
-                s_run = s_p.add_run(sub)
+                s_run = s_p.add_run(sanitize_for_xml(sub))
                 s_run.font.name = 'Calibri'
                 s_run.font.size = Pt(12)
                 s_run.font.bold = True
@@ -697,8 +729,8 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
                     art_p = doc.add_paragraph()
                     art_p.paragraph_format.space_before = Pt(6)
                     art_p.paragraph_format.space_after = Pt(2)
-                    title_text = art.get("title", "Untitled Article")
-                    url = art.get("url", "#")
+                    title_text = sanitize_for_xml(art.get("title", "Untitled Article"))
+                    url = sanitize_for_xml(art.get("url", "#"))
                     try:
                         add_hyperlink(art_p, url, title_text, color="1155cc", underline=True)
                     except Exception:
@@ -713,14 +745,14 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
                     meta_p.paragraph_format.space_before = Pt(0)
                     meta_p.paragraph_format.space_after = Pt(6)
                     
-                    pub_name = art.get("agency") or "Unknown Publication"
-                    pub_author = art.get("author") or art.get("journalist")
+                    pub_name = sanitize_for_xml(art.get("agency") or "Unknown Publication")
+                    pub_author = sanitize_for_xml(art.get("author") or art.get("journalist"))
                     if pub_author and str(pub_author).strip().upper() not in ("N/A", "NONE", "NULL", ""):
                         byline_str = f"{pub_name} | {pub_author}"
                     else:
                         byline_str = f"syndicated by the {pub_name}"
                         
-                    meta_run = meta_p.add_run(byline_str)
+                    meta_run = meta_p.add_run(sanitize_for_xml(byline_str))
                     meta_run.font.name = 'Calibri'
                     meta_run.font.size = Pt(9.5)
                     meta_run.font.color.rgb = RGBColor(128, 128, 128)
@@ -729,7 +761,7 @@ def generate_mailer_docx_report(client_name: str, report_type: str, date_str: st
                     sum_p = doc.add_paragraph()
                     sum_p.paragraph_format.space_before = Pt(0)
                     sum_p.paragraph_format.space_after = Pt(10)
-                    sum_text = art.get("summary") or art.get("full_body") or ""
+                    sum_text = sanitize_for_xml(art.get("summary") or art.get("full_body") or "")
                     sum_run = sum_p.add_run(sum_text)
                     sum_run.font.name = 'Calibri'
                     sum_run.font.size = Pt(10)
