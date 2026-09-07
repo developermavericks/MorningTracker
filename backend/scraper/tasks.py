@@ -4460,18 +4460,45 @@ def run_robust_automation_task(company_id: int):
 
         # 5. Conditional LLM Verification
         llm_verify = company.llm_verification_provider
+        doc_text = getattr(company, "verification_doc_text", None) or ""
+        doc_filename = getattr(company, "verification_doc_filename", None) or ""
+        
         if llm_verify and llm_verify.lower() != "none" and relevant_list:
-            _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Validating article relevance using {llm_verify}...")
+            if doc_text:
+                _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Validating article relevance using {llm_verify} with attached context doc ({doc_filename})...")
+            else:
+                _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Validating article relevance using {llm_verify}...")
+            
             verified_list = []
+            custom_sys = getattr(company, "verification_system_prompt", None)
+            custom_usr = getattr(company, "verification_user_prompt", None)
+
+            default_sys = "You are a precise news relevance auditor. Decide if the news article is genuinely relevant to the matched keyword and client topic."
+            default_usr = "Article Title: {title}\nMatched Keyword: {keyword}\n\nSupporting Brand/Topic Context:\n{brand_context}\n\nDecide if this article is genuinely relevant to {company_name} and the specified brand context/topic, or if it is just a random/irrelevant keyword hit. Respond ONLY with 'yes' or 'no'."
+
+            sys_tmpl = custom_sys.strip() if custom_sys and custom_sys.strip() else default_sys
+            usr_tmpl = custom_usr.strip() if custom_usr and custom_usr.strip() else default_usr
+
+            brand_ctx_str = doc_text if doc_text.strip() else "General industry & client topic guidelines."
+
             for art in relevant_list:
                 title = art.get("title") or ""
                 kw_hits = art.get("_keyword_hits", [])
                 keyword = kw_hits[0] if kw_hits else ""
-                
-                # Check with LLM
-                system_prompt = "You are a precise news filtering assistant. Decide if the news article title is genuinely relevant to the matched keyword."
-                prompt = f"""Article Title: {title}\nMatched Keyword: {keyword}\n\nDecide if this article is relevant. Respond ONLY with "yes" or "no"."""
-                resp = _call_robust_llm_provider([{"role": "user", "content": prompt}], llm_verify, max_tokens=10, temperature=0.1, system_prompt=system_prompt)
+                snippet = (art.get("full_body") or art.get("summary") or "")[:500]
+
+                # Format prompts with variables
+                formatted_usr = usr_tmpl.replace("{title}", title)\
+                                        .replace("{keyword}", keyword)\
+                                        .replace("{brand_context}", brand_ctx_str)\
+                                        .replace("{company_name}", company.name)\
+                                        .replace("{snippet}", snippet)\
+                                        .replace("{body}", snippet)
+
+                formatted_sys = sys_tmpl.replace("{company_name}", company.name)\
+                                        .replace("{brand_context}", brand_ctx_str)
+
+                resp = _call_robust_llm_provider([{"role": "user", "content": formatted_usr}], llm_verify, max_tokens=20, temperature=0.1, system_prompt=formatted_sys)
                 
                 is_valid = True
                 if resp:
@@ -4486,13 +4513,19 @@ def run_robust_automation_task(company_id: int):
 
         # 6. Conditional Summarization
         llm_summary = company.llm_summary_provider
+        custom_sum_usr = getattr(company, "summary_user_prompt", None)
+        default_sum_usr = "Summarize this news article in 30-40 words.\n\nTitle: {title}\nBody:\n{body}\n\nRespond with ONLY the summary."
+        sum_usr_tmpl = custom_sum_usr.strip() if custom_sum_usr and custom_sum_usr.strip() else default_sum_usr
+
         if llm_summary and llm_summary.lower() != "none" and relevant_list:
             _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Generating article summaries using {llm_summary}...")
             for art in relevant_list:
                 title = art.get("title") or ""
                 body = art.get("full_body") or art.get("summary") or ""
-                prompt = f"Summarize this news article in 30-40 words.\n\nTitle: {title}\nBody:\n{body[:2000]}\n\nRespond with ONLY the summary."
-                resp = _call_robust_llm_provider([{"role": "user", "content": prompt}], llm_summary, max_tokens=100, temperature=0.3)
+                formatted_sum_prompt = sum_usr_tmpl.replace("{title}", title)\
+                                                   .replace("{body}", body[:2000])\
+                                                   .replace("{company_name}", company.name)
+                resp = _call_robust_llm_provider([{"role": "user", "content": formatted_sum_prompt}], llm_summary, max_tokens=100, temperature=0.3)
                 if resp:
                     art["_summary"] = resp.strip()
                     art["summary"] = resp.strip()
