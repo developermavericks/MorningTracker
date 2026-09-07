@@ -181,7 +181,7 @@ def build_keyword_index(sectors):
 def match_title(title, keyword_index):
     """
     Check if any keyword appears in the title (case-insensitive).
-    For multi-word keywords with '+' (now spaces), ALL words must appear.
+    For multi-word keywords with '+' (now spaces), ALL words must appear as standalone words.
     Returns (matched_keyword, sector, sub_category) or (None, None, None).
     """
     title_lower = title.lower()
@@ -189,18 +189,13 @@ def match_title(title, keyword_index):
     for kw, sector, sub_cat in keyword_index:
         words = kw.split()
         if len(words) > 1:
-            # All words must appear in the title
-            if all(w in title_lower for w in words):
+            # All words must appear as standalone words in the title
+            if all(re.search(r'(?<!\w)' + re.escape(w) + r'(?!\w)', title_lower) for w in words):
                 return kw, sector, sub_cat
         else:
-            # Single word/phrase: check if it appears as-is in the title
-            # Use word boundary matching for very short keywords (<=3 chars)
-            if len(kw) <= 3:
-                if re.search(r'\b' + re.escape(kw) + r'\b', title_lower):
-                    return kw, sector, sub_cat
-            else:
-                if kw in title_lower:
-                    return kw, sector, sub_cat
+            # Single word/phrase: check if it appears as a standalone word/phrase in the title
+            if re.search(r'(?<!\w)' + re.escape(kw) + r'(?!\w)', title_lower):
+                return kw, sector, sub_cat
 
     return None, None, None
 

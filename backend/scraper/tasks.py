@@ -4382,21 +4382,17 @@ def run_robust_automation_task(company_id: int):
                 # Support "+" logic (AND match)
                 if "+" in kw:
                     parts = [p.strip().lower() for p in kw.split("+") if p.strip()]
-                    if parts and all(p in title_lower for p in parts):
+                    if parts and all(re.search(r'(?<!\w)' + re.escape(p) + r'(?!\w)', title_lower) for p in parts):
                         return kw, sec, sub
                     continue
 
                 words = kw_lower.split()
                 if len(words) > 1:
-                    if all(w in title_lower for w in words):
+                    if all(re.search(r'(?<!\w)' + re.escape(w) + r'(?!\w)', title_lower) for w in words):
                         return kw, sec, sub
                 else:
-                    if len(kw_lower) <= 3:
-                        if re.search(r'\b' + re.escape(kw_lower) + r'\b', title_lower):
-                            return kw, sec, sub
-                    else:
-                        if kw_lower in title_lower:
-                            return kw, sec, sub
+                    if re.search(r'(?<!\w)' + re.escape(kw_lower) + r'(?!\w)', title_lower):
+                        return kw, sec, sub
             return None, None, None
 
         # 4. Pooja's Filtering & Keyword Relevance Matches
@@ -4620,7 +4616,7 @@ Return ONLY the six takeaways. No introduction."""
             try:
                 from utils.google_docs import upload_docx_to_google_doc
                 google_doc_url = upload_docx_to_google_doc(
-                    docx_path=mailer_path,
+                    docx_path=mailer_doc_path,
                     client_name=company.name,
                     date_str=today_str,
                     recipients=all_emails,
