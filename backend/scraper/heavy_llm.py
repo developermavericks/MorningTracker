@@ -33,9 +33,9 @@ _HF_MODEL = os.getenv("HF_MODEL_ID", "meta-llama/Llama-3.1-8B-Instruct")
 _HF_URL = "https://router.huggingface.co/v1/chat/completions"
 
 
-def _call_groq(messages: List[dict], max_tokens: int = 150, temperature: float = 0.2) -> Optional[str]:
+def _call_groq(messages: List[dict], max_tokens: int = 250, temperature: float = 0.2) -> Optional[str]:
     """
-    Make a single Groq API call. Returns text response or None on failure.
+    Make a single Groq API call. Handles reasoning and content payloads cleanly.
     """
     if not _GROQ_API_KEYS:
         logger.warning("[Heavy LLM] No Groq API keys configured")
@@ -44,17 +44,26 @@ def _call_groq(messages: List[dict], max_tokens: int = 150, temperature: float =
     try:
         api_key = random.choice(_GROQ_API_KEYS)
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        
+        # Reasoning models on Groq require sufficient token window (>=250) for reasoning + final answer
+        effective_max_tokens = max(max_tokens, 250)
+        
         payload = {
             "model": _GROQ_HAIKU_MODEL,
             "messages": messages,
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max_tokens,
             "temperature": temperature,
         }
 
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=30) as client:
             resp = client.post(_GROQ_URL, headers=headers, json=payload)
             if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"].strip()
+                data = resp.json()
+                msg = data["choices"][0]["message"]
+                content = msg.get("content") or msg.get("reasoning") or ""
+                import re
+                clean_text = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                return clean_text if clean_text else (content.strip() if content else None)
             elif resp.status_code == 429:
                 time.sleep(2)
                 return None

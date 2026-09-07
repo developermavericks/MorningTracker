@@ -4498,11 +4498,12 @@ def run_robust_automation_task(company_id: int):
                 formatted_sys = sys_tmpl.replace("{company_name}", company.name)\
                                         .replace("{brand_context}", brand_ctx_str)
 
-                resp = _call_robust_llm_provider([{"role": "user", "content": formatted_usr}], llm_verify, max_tokens=20, temperature=0.1, system_prompt=formatted_sys)
+                resp = _call_robust_llm_provider([{"role": "user", "content": formatted_usr}], llm_verify, max_tokens=250, temperature=0.1, system_prompt=formatted_sys)
                 
                 is_valid = True
                 if resp:
                     is_valid = "yes" in resp.lower()
+                    logger.info(f"[Robust LLM Verify] Title: '{title[:50]}' | Provider: {llm_verify} | Resp: '{resp[:50]}' | Valid: {is_valid}")
                 
                 if is_valid:
                     verified_list.append(art)
