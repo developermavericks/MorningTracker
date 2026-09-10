@@ -54,7 +54,8 @@ def check_db_schema():
                 "verification_system_prompt",
                 "verification_user_prompt",
                 "summary_user_prompt",
-                "executive_user_prompt"
+                "executive_user_prompt",
+                "direct_llm_verification"
             ]
             robust_missing = [r for r in robust_required if r not in robust_columns]
             if not robust_missing:

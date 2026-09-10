@@ -52,6 +52,7 @@ const DEFAULT_COMPANY = {
   verification_user_prompt: "",
   summary_user_prompt: "",
   executive_user_prompt: "",
+  direct_llm_verification: false,
 
   recipients: [],
 };
@@ -837,11 +838,38 @@ export default function RobustAutomation() {
                     <p style={{ fontSize: "11px", color: "var(--muted)", margin: "0 0 12px 0" }}>Attach topic PDFs (e.g. <code>Brand Details.pdf</code>) and refine prompts to reject random keyword hits.</p>
 
                     <label style={{ display: "block", fontSize: "11px", fontWeight: 700, marginBottom: "4px" }}>Verification Provider</label>
-                    <select value={formData.llm_verification_provider} onChange={e => setFormData({ ...formData, llm_verification_provider: e.target.value })} style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", marginBottom: "16px" }}>
+                    <select value={formData.llm_verification_provider} onChange={e => setFormData({ ...formData, llm_verification_provider: e.target.value })} style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", marginBottom: "12px" }}>
                       <option value="none">None (Keep all keyword matches without verifying)</option>
                       <option value="claude">Claude (Recommended for precision & brand audit)</option>
                       <option value="groq">Groq (Recommended for speed)</option>
                     </select>
+
+                    {/* Direct LLM Verification Toggle */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(74,158,255,0.06)", border: "1px solid rgba(74,158,255,0.2)", borderRadius: "6px", padding: "10px 12px", marginBottom: "16px" }}>
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text)" }}>⚡ Direct LLM Verification Mode (Bypass Keyword Pre-filter)</div>
+                        <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px" }}>When enabled, all deduplicated sector articles are verified directly by the LLM against Brand Context without dropping non-keyword industry news.</div>
+                      </div>
+                      <label style={{ position: "relative", display: "inline-block", width: "38px", height: "20px", flexShrink: 0, marginLeft: "12px" }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.direct_llm_verification}
+                          onChange={e => setFormData({ ...formData, direct_llm_verification: e.target.checked })}
+                          style={{ opacity: 0, width: 0, height: 0 }}
+                        />
+                        <span style={{
+                          position: "absolute", cursor: "pointer", top: 0, left: 0, right: 0, bottom: 0,
+                          backgroundColor: formData.direct_llm_verification ? "var(--accent)" : "#333",
+                          borderRadius: "20px", transition: "0.2s"
+                        }}>
+                          <span style={{
+                            position: "absolute", content: '""', height: "14px", width: "14px", left: "3px", bottom: "3px",
+                            backgroundColor: "#fff", borderRadius: "50%", transition: "0.2s",
+                            transform: formData.direct_llm_verification ? "translateX(18px)" : "none"
+                          }} />
+                        </span>
+                      </label>
+                    </div>
 
                     {/* Supporting Document Upload Card */}
                     <div style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", borderRadius: "6px", padding: "12px", marginBottom: "16px" }}>
@@ -894,7 +922,7 @@ export default function RobustAutomation() {
                         rows={2}
                         value={formData.verification_system_prompt || ""}
                         onChange={e => setFormData({ ...formData, verification_system_prompt: e.target.value })}
-                        placeholder="Default: You are a precise news relevance auditor. Decide if the news article is genuinely relevant to the matched keyword and client topic."
+                        placeholder="Default: You are a precise news relevance auditor. Decide if the news article is genuinely relevant to the client topic, key competitors, or strategic brand context. End your response with DECISION: yes or DECISION: no."
                         style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", fontSize: "12px", fontFamily: "monospace" }}
                       />
                     </div>
@@ -909,7 +937,7 @@ export default function RobustAutomation() {
                         rows={4}
                         value={formData.verification_user_prompt || ""}
                         onChange={e => setFormData({ ...formData, verification_user_prompt: e.target.value })}
-                        placeholder="Default: Article Title: {title}&#10;Matched Keyword: {keyword}&#10;&#10;Supporting Brand/Topic Context:&#10;{brand_context}&#10;&#10;Decide if this article is genuinely relevant to {company_name}. Respond ONLY with 'yes' or 'no'."
+                        placeholder="Default: Article Title: {title}&#10;Matched Keyword/Sector: {keyword}&#10;&#10;Supporting Brand/Topic Context:&#10;{brand_context}&#10;&#10;Decide if this article is genuinely relevant to {company_name}, its key competitors, or specified brand topics/therapies defined in the context. End your answer with DECISION: yes or DECISION: no."
                         style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", fontSize: "12px", fontFamily: "monospace" }}
                       />
                     </div>

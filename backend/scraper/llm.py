@@ -340,11 +340,12 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
         f"Target Keywords/Topics: {', '.join(keywords)}\n\n"
         f"Article Title: {title}\n"
         f"Article Content: {body[:5000]}\n\n"
-        f"Determine if this article is relevant to '{client_name}' based on the context, guidelines, and target keywords.\n"
-        f"RELEVANCE RULES:\n"
-        f"1. Return 'relevant' ONLY if the article is clearly on-topic for the client's described sections and would be genuinely useful to the client's teams.\n"
-        f"2. Return 'not_relevant' if the article is off-topic, only tangentially related, or not actionable/useful for the client.\n"
-        f"3. Return 'uncertain' ONLY for genuinely borderline cases — not as a default for weak or indirect matches.\n\n"
+        f"Determine if this article is relevant to '{client_name}' based on the provided context, guidelines, and target keywords.\n"
+        f"RELEVANCE EVALUATION RULES:\n"
+        f"1. Priority Rule: Strictly follow any custom section rules, requirements, exclusions, and disambiguation instructions provided in the CLIENT CONTEXT above as your highest priority.\n"
+        f"2. Return 'relevant' if the article clearly matches the client's section rules or target keywords and would be useful to the client.\n"
+        f"3. Return 'not_relevant' if the article is off-topic, violates explicit exclusions, or is not actionable/useful for the client.\n"
+        f"4. Return 'uncertain' ONLY for genuinely borderline cases.\n\n"
         f"You MUST output strictly in JSON format. Do not write any explanations outside the JSON structure. Response format:\n"
         f'{{"verdict": "relevant" | "not_relevant" | "uncertain", "reason": "concise explanation", "score": float between 0.0 and 1.0}}'
     )
@@ -490,8 +491,12 @@ def check_relevance_with_groq(title: str, body: str, keywords: List[str], client
     """
     verdict = "uncertain"
     reason = ""
-    score = 0.5
-    
+    if client_context:
+        ctx_lower = client_context.lower()
+        if "pass all" in ctx_lower or "let all" in ctx_lower or "no filtering" in ctx_lower:
+            log(f"Pass-all directive detected in client context for '{title}'. Automatically marking relevant.")
+            return True, "relevant", "Pass-all directive active in client context", 1.0
+
     # --- STAGE 1: Primary Model (70B) ---
     try:
         verdict, reason, score = check_relevance_with_groq_oss(title, body, keywords, client_name, client_context, use_120b=False)

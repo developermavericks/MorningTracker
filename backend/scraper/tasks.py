@@ -327,14 +327,48 @@ def load_priority_media_list(filepath):
         logger.error(f"Error loading priority media list: {e}")
         return []
 
-def is_priority_publication(agency_name, priority_list):
+PUBLICATION_ALIASES = {
+    "economic times": ["economic times", "economictimes", "et", "et tech", "et prime", "et cio", "et ciso", "et bfsi", "et now", "et retail", "etdisrupt", "et brand equity", "et edge", "ettelecom", "ettravelworld"],
+    "analytics india magazine": ["analytics india magazine", "analyticsindiamagazine", "analyticsindiamag", "aim", "analyticsindiamag.com", "analytics insight", "analytics insight magazine"],
+    "ndtv": ["ndtv", "ndtv profit", "ndtv.com", "ndtv india", "ndtv business"],
+    "business today": ["business today", "businesstoday", "bt", "bt tv"],
+    "zee news": ["zee news", "zeenews", "zee business", "zeebiz"],
+    "financial express": ["financial express", "financialexpress", "fe", "fe brandwagon"],
+    "hindustan times": ["hindustan times", "hindustantimes", "ht", "ht tech", "ht auto", "ht digital", "htbrunch"],
+    "times of india": ["times of india", "timesofindia", "toi", "delhi times", "mumbai times", "bombay times"],
+    "indian express": ["indian express", "indianexpress", "the indian express", "new indian express", "newindianexpress"],
+    "the hindu": ["the hindu", "thehindu", "hindu business line", "thehindubusinessline", "business line"],
+    "forbes india": ["forbes india", "forbesindia", "forbes"],
+    "fortune india": ["fortune india", "fortuneindia", "fortune"],
+}
+
+def is_priority_publication(agency_name: str, priority_list: list) -> bool:
     if not agency_name or not priority_list:
         return False
+    
     norm_agency = normalize_publication_name(agency_name)
+    if not norm_agency:
+        return False
+        
     for p in priority_list:
+        if not p or not p.strip():
+            continue
         norm_p = normalize_publication_name(p)
+        if not norm_p:
+            continue
+            
+        # 1. Direct exact or substring match
         if norm_p == norm_agency or norm_p in norm_agency or norm_agency in norm_p:
             return True
+            
+        # 2. Alias family group matching
+        for family_key, aliases in PUBLICATION_ALIASES.items():
+            norm_aliases = [normalize_publication_name(a) for a in aliases]
+            # If the user's priority media entry belongs to this family
+            if norm_p in norm_aliases or normalize_publication_name(family_key) in norm_p:
+                if any(alias in norm_agency or norm_agency in alias for alias in norm_aliases):
+                    return True
+                    
     return False
 
 def group_articles_by_sections(articles: list[dict], company_name: str) -> dict[str, list[dict]]:
@@ -1745,9 +1779,8 @@ def run_client_report_task(client_id: int):
                                             
                                     passed_priority = True
                                     if priority_media_list:
-                                        allowed_pubs = [normalize_publication_name(p) for p in priority_media_list.split(",") if p.strip()]
-                                        art_pub_norm = normalize_publication_name(art_agency)
-                                        if art_pub_norm not in allowed_pubs:
+                                        allowed_pubs = [p.strip() for p in priority_media_list.split(",") if p.strip()]
+                                        if not is_priority_publication(art_agency, allowed_pubs):
                                             passed_priority = False
                                             
                                     if passed_region and passed_priority:
@@ -4395,59 +4428,73 @@ def run_robust_automation_task(company_id: int):
                         return kw, sec, sub
             return None, None, None
 
-        # 4. Pooja's Filtering & Keyword Relevance Matches
+        # 4. Keyword Filtering or Direct LLM Verification
         relevant_list = []
         discard_list = []
 
-        _update_progress(f"[{datetime.now().strftime('%H:%M:%S')}] Applying custom filtering rules...")
-        for art in deduped:
-            # If pooja_algo_enabled is False, bypass all filtering checks and keep all articles
-            if not getattr(company, "pooja_algo_enabled", True):
-                art["_pillar"] = "General"
+        is_direct_llm = getattr(company, "direct_llm_verification", False) or False
+        llm_verify = company.llm_verification_provider
+        
+        # If Direct LLM Verification mode is ON and an LLM provider is active, bypass keyword filtering
+        if is_direct_llm and llm_verify and llm_verify.lower() != "none":
+            _update_progress("⚡ Direct LLM Verification Mode Enabled: Bypassing keyword pre-filter to evaluate all deduplicated sector articles.")
+            for art in deduped:
+                source_sec = art.get("source_feed")
+                art["_pillar"] = source_sec.title() if source_sec else "General News"
                 art["_sub_category"] = "General"
-                if getattr(company, "group_by_source_sector", False):
-                    source_sec = art.get("source_feed")
-                    art["_pillar"] = source_sec.title() if source_sec else "General News"
-                    art["_sub_category"] = "General"
-                art["_keyword_hits"] = []
+                art["_keyword_hits"] = [source_sec] if source_sec else []
                 art["_is_priority"] = True
                 art["_relevance_score"] = 1.0
                 art["confidence_score"] = 10
                 art["_bucket"] = "clear_keep"
                 relevant_list.append(art)
-                continue
+        else:
+            for art in deduped:
+                # If no custom rules uploaded, keep all deduplicated articles
+                if priority_publications is None and keyword_index is None:
+                    if getattr(company, "group_by_source_sector", False):
+                        source_sec = art.get("source_feed")
+                        art["_pillar"] = source_sec.title() if source_sec else "General News"
+                        art["_sub_category"] = "General"
+                    art["_keyword_hits"] = []
+                    art["_is_priority"] = True
+                    art["_relevance_score"] = 1.0
+                    art["confidence_score"] = 10
+                    art["_bucket"] = "clear_keep"
+                    relevant_list.append(art)
+                    continue
 
-            # If priority publications list is uploaded, match against it
-            is_pri = True
-            if priority_publications is not None:
-                is_pri = is_agency_priority(art.get("agency") or "", priority_publications)
+                # If priority publications list is uploaded, match against it
+                is_pri = True
+                if priority_publications is not None:
+                    is_pri = is_agency_priority(art.get("agency") or "", priority_publications)
 
-            # If keywords file is uploaded, match against it
-            has_kw = True
-            matched_kw, pillar, sub_cat = None, None, None
-            if keyword_index is not None:
-                match_text = art.get("title") or ""
-                if getattr(company, "search_mode", "title") == "body":
-                    match_text = f"{match_text}\n{art.get('full_body') or ''}"
-                matched_kw, pillar, sub_cat = match_title_against_index(match_text, keyword_index)
-                has_kw = matched_kw is not None
+                # If keywords file is uploaded, match against it
+                has_kw = True
+                matched_kw, pillar, sub_cat = None, None, None
+                if keyword_index is not None:
+                    match_text = art.get("title") or ""
+                    if getattr(company, "search_mode", "title") == "body":
+                        match_text = f"{match_text}\n{art.get('full_body') or ''}"
+                    matched_kw, pillar, sub_cat = match_title_against_index(match_text, keyword_index)
+                    has_kw = matched_kw is not None
 
-            # Combined rules: must match both filters if both are present
-            if is_pri and has_kw:
-                art["_pillar"] = pillar or "General"
-                art["_sub_category"] = sub_cat or "General"
-                if getattr(company, "group_by_source_sector", False):
-                    source_sec = art.get("source_feed")
-                    art["_pillar"] = source_sec.title() if source_sec else "General News"
-                    art["_sub_category"] = "General"
-                art["_keyword_hits"] = [matched_kw] if matched_kw else []
-                art["_is_priority"] = is_pri
-                art["_relevance_score"] = 1.0
-                art["confidence_score"] = 10
-                art["_bucket"] = "clear_keep"
-                relevant_list.append(art)
-            else:
-                discard_list.append(art)
+                # Combined rules: must match both filters if both are present
+                if is_pri and has_kw:
+                    art["_pillar"] = pillar or "General"
+                    art["_sub_category"] = sub_cat or "General"
+                    if getattr(company, "group_by_source_sector", False):
+                        source_sec = art.get("source_feed")
+                        art["_pillar"] = source_sec.title() if source_sec else "General News"
+                        art["_sub_category"] = "General"
+                    art["_keyword_hits"] = [matched_kw] if matched_kw else []
+                    art["_is_priority"] = is_pri
+                    art["_relevance_score"] = 1.0
+                    art["confidence_score"] = 10
+                    art["_bucket"] = "clear_keep"
+                    relevant_list.append(art)
+                else:
+                    discard_list.append(art)
 
         _update_progress(f"Matches before LLM validation: {len(relevant_list)} relevant, {len(discard_list)} discarded")
         pooja_filtered_fn = f"Robust_Pooja_Filtered_Articles_Run_{run_id}.csv"
@@ -4455,7 +4502,6 @@ def run_robust_automation_task(company_id: int):
         _update_progress(f"Step 3: Pooja filtered matches (before LLM verification): {len(relevant_list)} articles. Downloadable output: /api/robust-automation/reports/{pooja_filtered_fn}")
 
         # 5. Conditional LLM Verification
-        llm_verify = company.llm_verification_provider
         doc_text = getattr(company, "verification_doc_text", None) or ""
         doc_filename = getattr(company, "verification_doc_filename", None) or ""
         
@@ -4469,8 +4515,8 @@ def run_robust_automation_task(company_id: int):
             custom_sys = getattr(company, "verification_system_prompt", None)
             custom_usr = getattr(company, "verification_user_prompt", None)
 
-            default_sys = "You are a precise news relevance auditor. Decide if the news article is genuinely relevant to the matched keyword and client topic."
-            default_usr = "Article Title: {title}\nMatched Keyword: {keyword}\n\nSupporting Brand/Topic Context:\n{brand_context}\n\nDecide if this article is genuinely relevant to {company_name} and the specified brand context/topic, or if it is just a random/irrelevant keyword hit. Respond ONLY with 'yes' or 'no'."
+            default_sys = "You are a precise news relevance auditor. Decide if the news article is genuinely relevant to the client topic, key competitors, or strategic brand context. End your response with DECISION: yes or DECISION: no."
+            default_usr = "Article Title: {title}\nMatched Keyword/Sector: {keyword}\n\nSupporting Brand/Topic Context:\n{brand_context}\n\nDecide if this article is genuinely relevant to {company_name}, its key competitors, or specified brand topics/therapies defined in the context. End your answer with DECISION: yes or DECISION: no."
 
             sys_tmpl = custom_sys.strip() if custom_sys and custom_sys.strip() else default_sys
             usr_tmpl = custom_usr.strip() if custom_usr and custom_usr.strip() else default_usr
@@ -4480,7 +4526,7 @@ def run_robust_automation_task(company_id: int):
             for art in relevant_list:
                 title = art.get("title") or ""
                 kw_hits = art.get("_keyword_hits", [])
-                keyword = kw_hits[0] if kw_hits else ""
+                keyword = kw_hits[0] if kw_hits else (art.get("source_feed") or "")
                 snippet = (art.get("full_body") or art.get("summary") or "")[:500]
 
                 # Format prompts with variables
@@ -4494,11 +4540,17 @@ def run_robust_automation_task(company_id: int):
                 formatted_sys = sys_tmpl.replace("{company_name}", company.name)\
                                         .replace("{brand_context}", brand_ctx_str)
 
-                resp = _call_robust_llm_provider([{"role": "user", "content": formatted_usr}], llm_verify, max_tokens=250, temperature=0.1, system_prompt=formatted_sys)
+                resp = _call_robust_llm_provider([{"role": "user", "content": formatted_usr}], llm_verify, max_tokens=600, temperature=0.1, system_prompt=formatted_sys)
                 
                 is_valid = True
                 if resp:
-                    is_valid = "yes" in resp.lower()
+                    resp_lower = resp.lower()
+                    if "decision: yes" in resp_lower or resp_lower.strip().endswith("yes") or "yes" in resp_lower[-50:]:
+                        is_valid = True
+                    elif "decision: no" in resp_lower or resp_lower.strip().endswith("no") or "no" in resp_lower[-50:]:
+                        is_valid = False
+                    else:
+                        is_valid = "yes" in resp_lower
                     logger.info(f"[Robust LLM Verify] Title: '{title[:50]}' | Provider: {llm_verify} | Resp: '{resp[:50]}' | Valid: {is_valid}")
                 
                 if is_valid:

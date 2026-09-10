@@ -59,6 +59,7 @@ class CompanyCreate(BaseModel):
     verification_user_prompt: Optional[str] = None
     summary_user_prompt: Optional[str] = None
     executive_user_prompt: Optional[str] = None
+    direct_llm_verification: bool = False
     
     # Schedulers
     mail_send_mode: str = "Immediate"
@@ -117,6 +118,7 @@ class CompanyOut(BaseModel):
     verification_user_prompt: Optional[str]
     summary_user_prompt: Optional[str]
     executive_user_prompt: Optional[str]
+    direct_llm_verification: bool = False
     
     # Schedulers
     mail_send_mode: str
@@ -239,6 +241,7 @@ async def _build_company_out(company: RobustCompany, db: AsyncSession) -> Compan
         search_mode=company.search_mode,
         pooja_algo_enabled=company.pooja_algo_enabled,
         group_by_source_sector=company.group_by_source_sector,
+        direct_llm_verification=getattr(company, "direct_llm_verification", False) or False,
         created_at=_fmt_dt(company.created_at),
         recipients=recipients,
     )
@@ -294,6 +297,7 @@ async def create_company(body: CompanyCreate, db: AsyncSession = Depends(get_db_
         search_mode=body.search_mode,
         pooja_algo_enabled=body.pooja_algo_enabled,
         group_by_source_sector=body.group_by_source_sector,
+        direct_llm_verification=body.direct_llm_verification,
     )
     db.add(company)
     await db.commit()
@@ -351,6 +355,7 @@ async def update_company_endpoint(id: int, body: CompanyCreate, db: AsyncSession
     company.search_mode = body.search_mode
     company.pooja_algo_enabled = body.pooja_algo_enabled
     company.group_by_source_sector = body.group_by_source_sector
+    company.direct_llm_verification = body.direct_llm_verification
 
     # Check prompt history tracking for changes
     if body.verification_user_prompt and body.verification_user_prompt != company.verification_user_prompt:

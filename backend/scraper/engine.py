@@ -202,6 +202,26 @@ def quote_keyword(kw: str) -> str:
         return kw
     return kw
 
+def sanitize_search_keyword(kw: str) -> str:
+    """Sanitize keyword for search engines dynamically without hardcoding or altering UI configuration."""
+    kw = kw.strip()
+    # Filter out single-character noise like "I" or isolated punctuation
+    if len(kw) <= 1 or not any(c.isalnum() for c in kw):
+        return ""
+        
+    # Handle compound "Term A + Term B" syntax safely for RSS query URLs
+    if "+" in kw and not kw.startswith("+"):
+        parts = [p.strip() for p in kw.split("+") if len(p.strip()) > 1]
+        if len(parts) > 1:
+            return "(" + " AND ".join(f'"{p}"' if " " in p else p for p in parts) + ")"
+            
+    # Clean up unsupported search operators or extra spaces
+    cleaned = re.sub(r'[\+\*\?\^\$]', ' ', kw).strip()
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    if len(cleaned) <= 1 or not any(c.isalnum() for c in cleaned):
+        return ""
+    return cleaned
+
 # ─── Discovery Phase
 def discover_articles(keywords: List[str], day: Optional[date], geo: str, region_name: str, job_id: str, cumulative: set = None, is_brand_track: bool = False, sector: str = "Unknown") -> List[dict]:
     articles = []
@@ -294,7 +314,14 @@ def discover_articles(keywords: List[str], day: Optional[date], geo: str, region
 
     # Build queries programmatically as smaller, validated chunks
     window_queries = []
-    cleaned_kws = list(dict.fromkeys([kw.strip() for kw in keywords if kw.strip()]))
+    raw_cleaned = [kw.strip() for kw in keywords if kw.strip()]
+    cleaned_kws = []
+    for kw in raw_cleaned:
+        s_kw = sanitize_search_keyword(kw)
+        if s_kw and s_kw not in cleaned_kws:
+            cleaned_kws.append(s_kw)
+    if not cleaned_kws and raw_cleaned:
+        cleaned_kws = raw_cleaned
     
     if is_brand_track:
         # Core Tier: Direct brand keywords (never drop or AND them with anything)
