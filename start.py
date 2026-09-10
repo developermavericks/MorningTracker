@@ -45,6 +45,28 @@ def main():
     except Exception as e:
         print(f"      -> Warning: Could not purge queues: {e}")
 
+    def ensure_port_free(port):
+        import socket
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex(('127.0.0.1', port)) == 0:
+                    print(f"      -> Port {port} is occupied. Clearing stale process...")
+                    if os.name == 'nt':
+                        res = subprocess.run(f'netstat -aon | findstr :{port} | findstr LISTENING', shell=True, capture_output=True, text=True)
+                        if res.stdout:
+                            for l in res.stdout.strip().splitlines():
+                                parts = l.split()
+                                if len(parts) >= 5:
+                                    pid = parts[-1]
+                                    subprocess.run(f'taskkill /F /PID {pid}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    time.sleep(1)
+        except Exception:
+            pass
+
+    ensure_port_free(8000)
+    ensure_port_free(5173)
+
     print("[1/3] Starting Backend (port 8000)...")
     backend_log = open(os.path.join(backend_dir, "api.log"), "a", encoding="utf-8")
     backend_proc = subprocess.Popen(

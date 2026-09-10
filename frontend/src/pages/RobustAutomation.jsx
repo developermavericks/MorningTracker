@@ -46,7 +46,12 @@ const DEFAULT_COMPANY = {
   monthly_takeaways_time: "09:00",
   search_mode: "title",
   pooja_algo_enabled: true,
-  group_by_source_sector: false,
+  verification_doc_filename: "",
+  verification_doc_text: "",
+  verification_system_prompt: "",
+  verification_user_prompt: "",
+  summary_user_prompt: "",
+  executive_user_prompt: "",
 
   recipients: [],
 };
@@ -59,6 +64,14 @@ async function deleteCompany(id) { return await api.delete(`${BASE}/companies/${
 async function triggerRun(id) { return await api.post(`${BASE}/companies/${id}/run`); }
 async function fetchRuns(id) { return await api.get(`${BASE}/companies/${id}/runs`); }
 async function fetchRunArticles(runId) { return await api.get(`${BASE}/runs/${runId}/articles`); }
+async function uploadSupportingDoc(id, file) {
+  const data = new FormData();
+  data.append("file", file);
+  return await api.post(`${BASE}/companies/${id}/upload-doc`, data);
+}
+async function deleteSupportingDoc(id) { return await api.delete(`${BASE}/companies/${id}/doc`); }
+async function fetchPromptHistory(id) { return await api.get(`${BASE}/companies/${id}/prompt-history`); }
+async function restorePromptVersion(id, historyId) { return await api.post(`${BASE}/companies/${id}/restore-prompt`, { history_id: historyId }); }
 
 function StatusPill({ status }) {
   const styles = {
@@ -226,6 +239,81 @@ export default function RobustAutomation() {
   const [showArticlesModal, setShowArticlesModal] = useState(false);
   const [fileUploading, setFileUploading] = useState({ keywords: false, media: false });
   const [availableSectors, setAvailableSectors] = useState([]);
+  
+  // Prompt History & Supporting Doc states
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [historyStageFilter, setHistoryStageFilter] = useState("all");
+  const [docUploading, setDocUploading] = useState(false);
+  const [showDocPreview, setShowDocPreview] = useState(false);
+  const [showPdfModal, setShowPdfModal] = useState(false);
+
+  const handleUploadDoc = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!selectedCompany?.id) {
+      alert("Please save or select a company configuration first.");
+      return;
+    }
+    setDocUploading(true);
+    try {
+      const updated = await uploadSupportingDoc(selectedCompany.id, file);
+      setFormData(updated);
+      setSelectedCompany(updated);
+      setCompanies(companies.map(c => c.id === updated.id ? updated : c));
+      alert(`Supporting document '${file.name}' attached and parsed successfully!`);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload document: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setDocUploading(false);
+    }
+  };
+
+  const handleDeleteDoc = async () => {
+    if (!selectedCompany?.id) return;
+    if (!confirm("Are you sure you want to remove the supporting document?")) return;
+    try {
+      const updated = await deleteSupportingDoc(selectedCompany.id);
+      setFormData(updated);
+      setSelectedCompany(updated);
+      setCompanies(companies.map(c => c.id === updated.id ? updated : c));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to remove document: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleOpenPromptHistory = async () => {
+    if (!selectedCompany?.id) {
+      alert("Please save or select a company configuration first.");
+      return;
+    }
+    try {
+      const res = await fetchPromptHistory(selectedCompany.id);
+      setHistoryItems(res || []);
+      setShowHistoryModal(true);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to fetch prompt history: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleRestorePrompt = async (historyId) => {
+    if (!selectedCompany?.id) return;
+    if (!confirm("Restore this historical prompt version into your active configuration?")) return;
+    try {
+      const updated = await restorePromptVersion(selectedCompany.id, historyId);
+      setFormData(updated);
+      setSelectedCompany(updated);
+      setCompanies(companies.map(c => c.id === updated.id ? updated : c));
+      setShowHistoryModal(false);
+      alert("Prompt version restored successfully!");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to restore prompt version: " + (err.response?.data?.detail || err.message));
+    }
+  };
 
   const runsTimerRef = useRef(null);
 
@@ -714,37 +802,165 @@ export default function RobustAutomation() {
 
           {/* Tab: LLM Configuration */}
           {activeTab === "llm" && (
-            <div style={{ maxWidth: "700px", display: "flex", flexDirection: "column", gap: "20px" }}>
-              <div style={{ padding: "16px", border: "1px solid var(--border)", borderRadius: "8px", background: "var(--bg)" }}>
-                <h4 style={{ margin: "0 0 16px 0", fontSize: "14px", fontWeight: 800 }}>LLM Provider Switchboard</h4>
-                <p style={{ fontSize: "12px", color: "var(--muted)", margin: "0 0 16px 0" }}>Map different LLMs to pipeline stages. If "None" is chosen, the step runs using legacy/fallback keyword rules without calling LLMs.</p>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div style={{ maxWidth: "800px", display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div style={{ padding: "20px", border: "1px solid var(--border)", borderRadius: "10px", background: "var(--bg)", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                   <div>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 700, marginBottom: "6px" }}>Stage 1: Keyword Relevance Verification</label>
-                    <select value={formData.llm_verification_provider} onChange={e => setFormData({ ...formData, llm_verification_provider: e.target.value })} style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--surface)" }}>
+                    <h4 style={{ margin: 0, fontSize: "15px", fontWeight: 800 }}>LLM Provider Switchboard & Custom Prompt Studio</h4>
+                    <p style={{ fontSize: "12px", color: "var(--muted)", margin: "4px 0 0 0" }}>Configure LLMs, attach brand guidelines/documents, customize prompts, and inspect historical prompt changes.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleOpenPromptHistory}
+                    style={{
+                      padding: "8px 14px",
+                      background: "var(--surface)",
+                      border: "1px solid var(--accent)",
+                      color: "var(--accent)",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px"
+                    }}
+                  >
+                    📜 Prompt History
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                  {/* Stage 1: Keyword Verification & Supporting Doc */}
+                  <div style={{ padding: "16px", border: "1px solid var(--border)", borderRadius: "8px", background: "var(--surface)" }}>
+                    <div style={{ fontSize: "13px", fontWeight: 800, color: "var(--accent)", marginBottom: "8px" }}>Stage 1: Keyword Relevance Verification & Supporting Context</div>
+                    <p style={{ fontSize: "11px", color: "var(--muted)", margin: "0 0 12px 0" }}>Attach topic PDFs (e.g. <code>Brand Details.pdf</code>) and refine prompts to reject random keyword hits.</p>
+
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 700, marginBottom: "4px" }}>Verification Provider</label>
+                    <select value={formData.llm_verification_provider} onChange={e => setFormData({ ...formData, llm_verification_provider: e.target.value })} style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", marginBottom: "16px" }}>
                       <option value="none">None (Keep all keyword matches without verifying)</option>
-                      <option value="claude">Claude (Recommended for precision)</option>
-                      <option value="groq">Groq (Recommended for cost/speed)</option>
+                      <option value="claude">Claude (Recommended for precision & brand audit)</option>
+                      <option value="groq">Groq (Recommended for speed)</option>
                     </select>
+
+                    {/* Supporting Document Upload Card */}
+                    <div style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", borderRadius: "6px", padding: "12px", marginBottom: "16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 700 }}>📄 Attached Supporting Document</div>
+                          <div style={{ fontSize: "11px", color: "var(--muted)" }}>Inject PDF/Text brand rules directly into LLM relevance checks.</div>
+                        </div>
+                        <div>
+                          {formData.verification_doc_filename ? (
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                              <span style={{ fontSize: "11px", background: "rgba(34,197,94,0.15)", color: "var(--success)", border: "1px solid var(--success)", padding: "3px 8px", borderRadius: "4px", fontWeight: 700 }}>
+                                ✓ {formData.verification_doc_filename}
+                              </span>
+                              <button type="button" onClick={() => setShowDocPreview(!showDocPreview)} style={{ padding: "4px 8px", fontSize: "10px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--bg)", cursor: "pointer", fontWeight: "700" }}>
+                                {showDocPreview ? "Hide Text" : "👁 View Formatted Text"}
+                              </button>
+                              <button type="button" onClick={() => setShowPdfModal(true)} style={{ padding: "4px 8px", fontSize: "10px", borderRadius: "4px", border: "1px solid var(--accent)", color: "var(--accent)", background: "rgba(74,158,255,0.1)", cursor: "pointer", fontWeight: "700" }}>
+                                📑 Preview Original PDF
+                              </button>
+                              <button type="button" onClick={handleDeleteDoc} style={{ padding: "4px 8px", fontSize: "10px", borderRadius: "4px", border: "1px solid var(--danger)", color: "var(--danger)", background: "none", cursor: "pointer" }}>
+                                🗑 Remove
+                              </button>
+                            </div>
+                          ) : (
+                            <label style={{ padding: "6px 12px", background: "var(--accent)", color: "#fff", borderRadius: "6px", fontSize: "11px", fontWeight: 700, cursor: docUploading ? "wait" : "pointer" }}>
+                              {docUploading ? "Uploading..." : "➕ Attach Document (PDF)"}
+                              <input type="file" accept=".pdf,.txt" onChange={handleUploadDoc} style={{ display: "none" }} disabled={docUploading} />
+                            </label>
+                          )}
+                        </div>
+                      </div>
+
+                      {showDocPreview && formData.verification_doc_text && (
+                        <div style={{
+                          marginTop: "12px", padding: "12px", background: "#0b0c10", border: "1px solid var(--border)",
+                          borderRadius: "6px", maxHeight: "350px", overflowY: "auto", overflowX: "auto",
+                          fontSize: "11px", color: "#34d399", fontFamily: "Consolas, Monaco, monospace",
+                          whiteSpace: "pre-wrap", lineHeight: "1.4", tabSize: 4
+                        }}>
+                          {formData.verification_doc_text}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Stage 1 System Prompt */}
+                    <div style={{ marginBottom: "12px" }}>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: 700, marginBottom: "4px" }}>System Prompt (Role & Guidelines)</label>
+                      <textarea
+                        rows={2}
+                        value={formData.verification_system_prompt || ""}
+                        onChange={e => setFormData({ ...formData, verification_system_prompt: e.target.value })}
+                        placeholder="Default: You are a precise news relevance auditor. Decide if the news article is genuinely relevant to the matched keyword and client topic."
+                        style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", fontSize: "12px", fontFamily: "monospace" }}
+                      />
+                    </div>
+
+                    {/* Stage 1 User Prompt */}
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: 700 }}>User Verification Prompt</label>
+                        <span style={{ fontSize: "10px", color: "var(--accent)" }}>Vars: <code>{`{title}`}</code>, <code>{`{keyword}`}</code>, <code>{`{brand_context}`}</code>, <code>{`{company_name}`}</code>, <code>{`{snippet}`}</code></span>
+                      </div>
+                      <textarea
+                        rows={4}
+                        value={formData.verification_user_prompt || ""}
+                        onChange={e => setFormData({ ...formData, verification_user_prompt: e.target.value })}
+                        placeholder="Default: Article Title: {title}&#10;Matched Keyword: {keyword}&#10;&#10;Supporting Brand/Topic Context:&#10;{brand_context}&#10;&#10;Decide if this article is genuinely relevant to {company_name}. Respond ONLY with 'yes' or 'no'."
+                        style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", fontSize: "12px", fontFamily: "monospace" }}
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 700, marginBottom: "6px" }}>Stage 2: Per-Article Summaries</label>
-                    <select value={formData.llm_summary_provider} onChange={e => setFormData({ ...formData, llm_summary_provider: e.target.value })} style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--surface)" }}>
-                      <option value="none">None (Use original article snippet / body text)</option>
-                      <option value="claude">Claude</option>
-                      <option value="groq">Groq (Haiku/Llama models)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 700, marginBottom: "6px" }}>Stage 3: Executive Brief Synthesis (Summaries & Takeaways)</label>
-                    <select value={formData.llm_executive_provider} onChange={e => setFormData({ ...formData, llm_executive_provider: e.target.value })} style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--surface)" }}>
-                      <option value="none">None (Omit executive bullets & takeaways in mailers)</option>
+                  {/* Stage 2: Per-Article Summaries */}
+                  <div style={{ padding: "16px", border: "1px solid var(--border)", borderRadius: "8px", background: "var(--surface)" }}>
+                    <div style={{ fontSize: "13px", fontWeight: 800, color: "var(--accent)", marginBottom: "8px" }}>Stage 2: Per-Article Summaries</div>
+                    
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 700, marginBottom: "4px" }}>Summary Provider</label>
+                    <select value={formData.llm_summary_provider} onChange={e => setFormData({ ...formData, llm_summary_provider: e.target.value })} style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", marginBottom: "12px" }}>
+                      <option value="none">None (Use original snippet)</option>
                       <option value="claude">Claude</option>
                       <option value="groq">Groq</option>
                     </select>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <label style={{ fontSize: "11px", fontWeight: 700 }}>Custom Summary Prompt</label>
+                      <span style={{ fontSize: "10px", color: "var(--accent)" }}>Vars: <code>{`{title}`}</code>, <code>{`{body}`}</code>, <code>{`{company_name}`}</code></span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={formData.summary_user_prompt || ""}
+                      onChange={e => setFormData({ ...formData, summary_user_prompt: e.target.value })}
+                      placeholder="Default: Summarize this news article in 30-40 words.&#10;&#10;Title: {title}&#10;Body:&#10;{body}&#10;&#10;Respond with ONLY the summary."
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", fontSize: "12px", fontFamily: "monospace" }}
+                    />
+                  </div>
+
+                  {/* Stage 3: Executive Brief Synthesis */}
+                  <div style={{ padding: "16px", border: "1px solid var(--border)", borderRadius: "8px", background: "var(--surface)" }}>
+                    <div style={{ fontSize: "13px", fontWeight: 800, color: "var(--accent)", marginBottom: "8px" }}>Stage 3: Executive Brief Synthesis</div>
+                    
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 700, marginBottom: "4px" }}>Executive Synthesis Provider</label>
+                    <select value={formData.llm_executive_provider} onChange={e => setFormData({ ...formData, llm_executive_provider: e.target.value })} style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", marginBottom: "12px" }}>
+                      <option value="none">None (Omit executive synthesis)</option>
+                      <option value="claude">Claude</option>
+                      <option value="groq">Groq</option>
+                    </select>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <label style={{ fontSize: "11px", fontWeight: 700 }}>Custom Executive Prompt</label>
+                      <span style={{ fontSize: "10px", color: "var(--accent)" }}>Vars: <code>{`{company_name}`}</code></span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={formData.executive_user_prompt || ""}
+                      onChange={e => setFormData({ ...formData, executive_user_prompt: e.target.value })}
+                      placeholder="Default: Synthesize key takeaways and executive bullet points for {company_name}."
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "6px", background: "var(--bg)", fontSize: "12px", fontFamily: "monospace" }}
+                    />
                   </div>
                 </div>
               </div>
@@ -1064,6 +1280,135 @@ export default function RobustAutomation() {
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Prompt History Modal */}
+      {showHistoryModal && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,.75)",
+          display: "flex", justifyContent: "center", alignItems: "center", zIndex: 99999, padding: "20px"
+        }}>
+          <div style={{
+            background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px",
+            width: "100%", maxWidth: "850px", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.5)"
+          }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg)" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 800 }}>📜 Prompt History & Audit Log</h3>
+                <div style={{ fontSize: "12px", color: "var(--muted)" }}>Client: <strong>{selectedCompany?.name}</strong></div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <select value={historyStageFilter} onChange={e => setHistoryStageFilter(e.target.value)} style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface)", fontSize: "12px" }}>
+                  <option value="all">All Pipeline Stages</option>
+                  <option value="verification">Verification Stage</option>
+                  <option value="summary">Summary Stage</option>
+                  <option value="executive">Executive Synthesis Stage</option>
+                </select>
+                <button onClick={() => setShowHistoryModal(false)} style={{ background: "none", border: "none", color: "var(--text)", cursor: "pointer", fontSize: "20px", fontWeight: 700 }}>✕</button>
+              </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+              {historyItems.filter(h => historyStageFilter === "all" || h.stage === historyStageFilter).length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--muted)" }}>No prompt history recorded for this client yet. Whenever you modify and save a custom prompt, a version history entry is automatically captured here.</div>
+              ) : (
+                historyItems
+                  .filter(h => historyStageFilter === "all" || h.stage === historyStageFilter)
+                  .map((item) => (
+                    <div key={item.id} style={{ border: "1px solid var(--border)", borderRadius: "8px", background: "var(--bg)", padding: "16px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{
+                            padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 800, textTransform: "uppercase",
+                            background: item.stage === "verification" ? "rgba(74,158,255,0.15)" : item.stage === "summary" ? "rgba(234,179,8,0.15)" : "rgba(168,85,247,0.15)",
+                            color: item.stage === "verification" ? "var(--accent)" : item.stage === "summary" ? "#eab308" : "#a855f7"
+                          }}>
+                            {item.stage}
+                          </span>
+                          <span style={{ fontSize: "12px", fontWeight: 700 }}>Version #{item.id}</span>
+                          <span style={{ fontSize: "11px", color: "var(--muted)" }}>• {item.version_note || "Saved update"}</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <span style={{ fontSize: "11px", color: "var(--muted)" }}>{item.created_at ? new Date(item.created_at).toLocaleString() : ""} ({item.created_by})</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRestorePrompt(item.id)}
+                            style={{
+                              padding: "4px 10px", background: "rgba(34,197,94,0.15)", border: "1px solid var(--success)",
+                              color: "var(--success)", borderRadius: "4px", fontSize: "11px", fontWeight: 700, cursor: "pointer"
+                            }}
+                          >
+                            🔄 Restore Version
+                          </button>
+                        </div>
+                      </div>
+
+                      {item.system_prompt && (
+                        <div>
+                          <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: "2px" }}>System Prompt:</div>
+                          <div style={{ padding: "8px", background: "#0b0c10", borderRadius: "4px", fontSize: "11px", color: "#a7f3d0", fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
+                            {item.system_prompt}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: "2px" }}>User Prompt:</div>
+                        <div style={{ padding: "8px", background: "#0b0c10", borderRadius: "4px", fontSize: "11px", color: "#67e8f9", fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
+                          {item.user_prompt}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Original PDF Preview Modal */}
+      {showPdfModal && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,.8)",
+          display: "flex", justifyContent: "center", alignItems: "center", zIndex: 99999, padding: "20px"
+        }}>
+          <div style={{
+            background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px",
+            width: "100%", maxWidth: "1000px", height: "88vh", display: "flex", flexDirection: "column", overflow: "hidden",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.6)"
+          }}>
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "16px" }}>📑</span>
+                <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 800 }}>Document Viewer: {formData.verification_doc_filename}</h3>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <a
+                  href={`/api/robust-automation/companies/${selectedCompany?.id}/doc/file?token=${localStorage.getItem("token") || ""}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    padding: "4px 10px", background: "var(--surface)", border: "1px solid var(--accent)",
+                    color: "var(--accent)", borderRadius: "4px", fontSize: "11px", fontWeight: 700, textDecoration: "none",
+                    display: "flex", alignItems: "center", gap: "4px"
+                  }}
+                >
+                  🔗 Open in New Tab
+                </a>
+                <button onClick={() => setShowPdfModal(false)} style={{ background: "none", border: "none", color: "var(--text)", cursor: "pointer", fontSize: "20px", fontWeight: 700 }}>✕</button>
+              </div>
+            </div>
+
+            <div style={{ flex: 1, background: "#1e1e1e", display: "flex", overflow: "hidden" }}>
+              <iframe
+                title="PDF Document Viewer"
+                src={`/api/robust-automation/companies/${selectedCompany?.id}/doc/file?token=${localStorage.getItem("token") || ""}`}
+                style={{ width: "100%", height: "100%", border: "none" }}
+              />
             </div>
           </div>
         </div>

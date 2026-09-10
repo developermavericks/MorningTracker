@@ -403,9 +403,29 @@ class RobustCompany(Base):
     monthly_takeaways_day: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     monthly_takeaways_time: Mapped[str] = mapped_column(String, default="09:00", server_default="'09:00'")
     last_monthly_takeaways_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    # Supporting Documents & Custom Prompts
+    verification_doc_filename: Mapped[Optional[str]] = mapped_column(String)
+    verification_doc_text: Mapped[Optional[str]] = mapped_column(Text)
+    verification_doc_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    verification_system_prompt: Mapped[Optional[str]] = mapped_column(Text)
+    verification_user_prompt: Mapped[Optional[str]] = mapped_column(Text)
+    summary_user_prompt: Mapped[Optional[str]] = mapped_column(Text)
+    executive_user_prompt: Mapped[Optional[str]] = mapped_column(Text)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class RobustPromptHistory(Base):
+    __tablename__ = "robust_prompt_histories"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("robust_companies.id", ondelete="CASCADE"), nullable=False)
+    stage: Mapped[str] = mapped_column(String, nullable=False)  # verification | summary | executive
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text)
+    user_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    version_note: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_by: Mapped[str] = mapped_column(String, default="Admin")
 
 class RobustRecipient(Base):
     __tablename__ = "robust_recipients"
@@ -508,13 +528,23 @@ async def init_db():
                 await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
         except: pass
 
-        # Automated Migration: Add group_by_source_sector if missing
-        try:
-            if "postgresql" in engine.url.drivername:
-                await conn.execute(text("ALTER TABLE robust_companies ADD COLUMN IF NOT EXISTS group_by_source_sector BOOLEAN DEFAULT FALSE"))
-            else:
-                await conn.execute(text("ALTER TABLE robust_companies ADD COLUMN group_by_source_sector BOOLEAN DEFAULT FALSE"))
-        except: pass
+        # Automated Migration: Add supporting document and custom prompt columns to robust_companies if missing
+        prompt_cols = [
+            ("verification_doc_filename", "VARCHAR"),
+            ("verification_doc_text", "TEXT"),
+            ("verification_doc_data", "BYTEA" if "postgresql" in engine.url.drivername else "BLOB"),
+            ("verification_system_prompt", "TEXT"),
+            ("verification_user_prompt", "TEXT"),
+            ("summary_user_prompt", "TEXT"),
+            ("executive_user_prompt", "TEXT")
+        ]
+        for col, col_type in prompt_cols:
+            try:
+                if "postgresql" in engine.url.drivername:
+                    await conn.execute(text(f"ALTER TABLE robust_companies ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE robust_companies ADD COLUMN {col} {col_type}"))
+            except Exception: pass
 
         # Automated Migration: Add missing binary and summary columns to robust_runs table if missing
         for col in ["master_doc_data", "filtered_doc_data", "master_excel_data", "filtered_excel_data", "mailer_doc_data", "fetched_csv_data", "deduped_csv_data", "pooja_csv_data", "verified_csv_data"]:
@@ -883,7 +913,26 @@ def init_db_sync():
                 except Exception: pass
     except: pass
 
-    # Automated migration: Add client_run_logs generated_excel_path, generated_excel_data if missing
+    # Automated migration: Add supporting document and custom prompt columns to robust_companies if missing
+    try:
+        with engine_sync.begin() as conn:
+            prompt_cols = [
+                ("verification_doc_filename", "VARCHAR"),
+                ("verification_doc_text", "TEXT"),
+                ("verification_doc_data", "BYTEA" if "postgresql" in engine_sync.url.drivername else "BLOB"),
+                ("verification_system_prompt", "TEXT"),
+                ("verification_user_prompt", "TEXT"),
+                ("summary_user_prompt", "TEXT"),
+                ("executive_user_prompt", "TEXT")
+            ]
+            for col, col_type in prompt_cols:
+                try:
+                    if "postgresql" in engine_sync.url.drivername:
+                        conn.execute(text(f"ALTER TABLE robust_companies ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+                    else:
+                        conn.execute(text(f"ALTER TABLE robust_companies ADD COLUMN {col} {col_type}"))
+                except Exception: pass
+    except: pass
     try:
         with engine_sync.begin() as conn:
             if "postgresql" in engine_sync.url.drivername:

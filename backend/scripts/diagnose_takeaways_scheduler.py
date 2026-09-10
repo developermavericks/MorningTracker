@@ -17,9 +17,10 @@ logger = logging.getLogger("Diagnostics")
 def check_db_schema():
     logger.info("Checking Database Table Schema...")
     try:
-        from db.database import get_db_sync, HeavyCompany, RobustCompany
+        from db.database import get_db_sync, init_db_sync, HeavyCompany, RobustCompany
         from sqlalchemy import select, inspect
         
+        init_db_sync()
         with get_db_sync() as db:
             # Inspect heavy_companies columns
             inspector = inspect(db.bind)
@@ -46,13 +47,28 @@ def check_db_schema():
                 "manual_keywords",
                 "search_mode",
                 "pooja_algo_enabled",
-                "group_by_source_sector"
+                "group_by_source_sector",
+                "verification_doc_filename",
+                "verification_doc_text",
+                "verification_doc_data",
+                "verification_system_prompt",
+                "verification_user_prompt",
+                "summary_user_prompt",
+                "executive_user_prompt"
             ]
             robust_missing = [r for r in robust_required if r not in robust_columns]
             if not robust_missing:
                 logger.info("[SUCCESS] Database has all required columns in robust_companies.")
             else:
                 logger.error(f"[FAILURE] Database robust_companies is missing columns: {robust_missing}")
+                return False
+
+            # Inspect robust_prompt_histories table
+            tables = inspector.get_table_names()
+            if "robust_prompt_histories" in tables:
+                logger.info("[SUCCESS] Database has robust_prompt_histories table.")
+            else:
+                logger.error("[FAILURE] Database is missing robust_prompt_histories table.")
                 return False
 
             # Query all enabled schedules

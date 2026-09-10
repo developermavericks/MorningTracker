@@ -6,7 +6,7 @@ import hashlib
 import base64
 import bcrypt
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -102,7 +102,7 @@ async def get_current_user(token: str):
     
     return token_data
 
-async def get_auth_user(token: str = Depends(oauth2_scheme), query_token: Optional[str] = None):
+async def get_auth_user(token: Optional[str] = Depends(oauth2_scheme), query_token: Optional[str] = Query(None, alias="token")):
     """Dependency for HTTP routes. Handles both Header and Query tokens."""
     # Priority: Query Param (for downloads) -> Header (for API)
     final_token = query_token if query_token else token

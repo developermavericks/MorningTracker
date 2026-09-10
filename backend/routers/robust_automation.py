@@ -1,3 +1,4 @@
+import io
 import json
 import os
 from datetime import datetime
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import (
     get_db_yield,
-    RobustCompany, RobustRecipient, RobustRun, RobustRunArticle,
+    RobustCompany, RobustRecipient, RobustRun, RobustRunArticle, RobustPromptHistory
 )
 from .auth_utils import get_auth_user, TokenData
 from celery_app import app as celery_app
@@ -53,6 +54,12 @@ class CompanyCreate(BaseModel):
     llm_summary_provider: str = "none"
     llm_executive_provider: str = "none"
     
+    # Custom Prompts
+    verification_system_prompt: Optional[str] = None
+    verification_user_prompt: Optional[str] = None
+    summary_user_prompt: Optional[str] = None
+    executive_user_prompt: Optional[str] = None
+    
     # Schedulers
     mail_send_mode: str = "Immediate"
     mail_send_time: Optional[str] = "08:00"
@@ -88,6 +95,8 @@ class CompanyOut(BaseModel):
     # Files metadata
     keywords_file_name: Optional[str]
     priority_media_file_name: Optional[str]
+    verification_doc_filename: Optional[str]
+    verification_doc_text: Optional[str]
     
     # Output delivery toggles
     send_email: bool
@@ -102,6 +111,12 @@ class CompanyOut(BaseModel):
     llm_verification_provider: str
     llm_summary_provider: str
     llm_executive_provider: str
+    
+    # Custom Prompts
+    verification_system_prompt: Optional[str]
+    verification_user_prompt: Optional[str]
+    summary_user_prompt: Optional[str]
+    executive_user_prompt: Optional[str]
     
     # Schedulers
     mail_send_mode: str
@@ -122,6 +137,19 @@ class CompanyOut(BaseModel):
     
     created_at: str
     recipients: List[RecipientOut]
+
+class PromptHistoryOut(BaseModel):
+    id: int
+    company_id: int
+    stage: str
+    system_prompt: Optional[str]
+    user_prompt: str
+    version_note: Optional[str]
+    created_at: str
+    created_by: str
+
+class RestorePromptIn(BaseModel):
+    history_id: int
 
 class RunOut(BaseModel):
     id: int
@@ -182,6 +210,8 @@ async def _build_company_out(company: RobustCompany, db: AsyncSession) -> Compan
         window_hours=company.window_hours,
         keywords_file_name=company.keywords_file_name,
         priority_media_file_name=company.priority_media_file_name,
+        verification_doc_filename=company.verification_doc_filename,
+        verification_doc_text=company.verification_doc_text,
         send_email=company.send_email,
         send_html_mailer=company.send_html_mailer,
         send_mailer_doc=company.send_mailer_doc,
@@ -192,6 +222,10 @@ async def _build_company_out(company: RobustCompany, db: AsyncSession) -> Compan
         llm_verification_provider=company.llm_verification_provider,
         llm_summary_provider=company.llm_summary_provider,
         llm_executive_provider=company.llm_executive_provider,
+        verification_system_prompt=company.verification_system_prompt,
+        verification_user_prompt=company.verification_user_prompt,
+        summary_user_prompt=company.summary_user_prompt,
+        executive_user_prompt=company.executive_user_prompt,
         mail_send_mode=company.mail_send_mode,
         mail_send_time=company.mail_send_time,
         frequency=company.frequency,
@@ -318,6 +352,43 @@ async def update_company_endpoint(id: int, body: CompanyCreate, db: AsyncSession
     company.pooja_algo_enabled = body.pooja_algo_enabled
     company.group_by_source_sector = body.group_by_source_sector
 
+    # Check prompt history tracking for changes
+    if body.verification_user_prompt and body.verification_user_prompt != company.verification_user_prompt:
+        hist_v = RobustPromptHistory(
+            company_id=id,
+            stage="verification",
+            system_prompt=body.verification_system_prompt,
+            user_prompt=body.verification_user_prompt,
+            version_note="Prompt updated via Switchboard",
+            created_by="Admin"
+        )
+        db.add(hist_v)
+    if body.summary_user_prompt and body.summary_user_prompt != company.summary_user_prompt:
+        hist_s = RobustPromptHistory(
+            company_id=id,
+            stage="summary",
+            system_prompt=None,
+            user_prompt=body.summary_user_prompt,
+            version_note="Summary Prompt updated via Switchboard",
+            created_by="Admin"
+        )
+        db.add(hist_s)
+    if body.executive_user_prompt and body.executive_user_prompt != company.executive_user_prompt:
+        hist_e = RobustPromptHistory(
+            company_id=id,
+            stage="executive",
+            system_prompt=None,
+            user_prompt=body.executive_user_prompt,
+            version_note="Executive Synthesis Prompt updated via Switchboard",
+            created_by="Admin"
+        )
+        db.add(hist_e)
+
+    company.verification_system_prompt = body.verification_system_prompt
+    company.verification_user_prompt = body.verification_user_prompt
+    company.summary_user_prompt = body.summary_user_prompt
+    company.executive_user_prompt = body.executive_user_prompt
+
     # Synchronize recipients
     await db.execute(delete(RobustRecipient).where(RobustRecipient.company_id == id))
     for r in body.recipients:
@@ -339,6 +410,260 @@ async def delete_company_endpoint(id: int, db: AsyncSession = Depends(get_db_yie
     await db.delete(company)
     await db.commit()
     return {"status": "ok"}
+
+
+def _smart_extract_pdf_content(content: bytes) -> str:
+    try:
+        import pdfplumber
+        import re
+        output_lines = []
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            for page in pdf.pages:
+                table_objs = page.find_tables()
+                tables_data = page.extract_tables()
+                
+                t_boxes = []
+                for t_obj, t_data in zip(table_objs, tables_data):
+                    if t_data:
+                        t_boxes.append((t_obj.bbox[1], t_obj.bbox[3], t_data))
+                
+                words = page.extract_words()
+                header_words = []
+                for w in words:
+                    inside_table = False
+                    for top, bottom, _ in t_boxes:
+                        if top - 2 <= w['top'] <= bottom + 2:
+                            inside_table = True
+                            break
+                    if not inside_table:
+                        header_words.append(w)
+                
+                header_lines = []
+                if header_words:
+                    header_words.sort(key=lambda item: (item['top'], item['x0']))
+                    current_line = []
+                    last_top = None
+                    for w in header_words:
+                        if last_top is None or abs(w['top'] - last_top) < 4:
+                            current_line.append(w['text'])
+                            last_top = w['top']
+                        else:
+                            header_lines.append((last_top, ' '.join(current_line)))
+                            current_line = [w['text']]
+                            last_top = w['top']
+                    if current_line:
+                        header_lines.append((last_top, ' '.join(current_line)))
+                
+                page_elements = []
+                for top_pos, line_text in header_lines:
+                    clean_text = line_text.strip()
+                    if clean_text:
+                        page_elements.append((top_pos, 'header', clean_text))
+                
+                for top_pos, bottom_pos, t_data in t_boxes:
+                    page_elements.append((top_pos, 'table', t_data))
+                
+                page_elements.sort(key=lambda item: item[0])
+                
+                for elem in page_elements:
+                    e_type = elem[1]
+                    data = elem[2]
+                    if e_type == 'header':
+                        output_lines.append(f"\n\n**{data}**\n")
+                    elif e_type == 'table':
+                        table_rows = []
+                        for row in data:
+                            if not row or not any(row): continue
+                            cleaned_cells = []
+                            for idx, cell in enumerate(row):
+                                cell_str = str(cell).replace('\n', ' ') if cell else ''
+                                cell_str = re.sub(r'\s+', ' ', cell_str).strip()
+                                
+                                # If this cell contains comma-separated keywords/values, perform deduplication
+                                if idx >= 1 and ',' in cell_str:
+                                    terms = [t.strip() for t in cell_str.split(',')]
+                                    dedup_terms = []
+                                    seen_lower = set()
+                                    for t in terms:
+                                        t_clean = t.strip()
+                                        if t_clean:
+                                            key = t_clean.lower().strip('"\'')
+                                            if key not in seen_lower:
+                                                seen_lower.add(key)
+                                                dedup_terms.append(t_clean)
+                                    cell_str = ', '.join(dedup_terms)
+                                
+                                cleaned_cells.append(cell_str)
+                            
+                            if any(cleaned_cells):
+                                table_rows.append(cleaned_cells)
+                        
+                        if table_rows:
+                            first_row = table_rows[0]
+                            is_header_row = any(h.lower() in ('topic', 'keywords', 'header') for h in first_row)
+                            
+                            num_cols = max(len(r) for r in table_rows)
+                            
+                            if is_header_row:
+                                headers = first_row
+                                start_idx = 1
+                            else:
+                                headers = [f"Col {i+1}" for i in range(num_cols)]
+                                start_idx = 0
+                            
+                            # Emit header if not currently continuing a markdown table
+                            if is_header_row or len(output_lines) == 0 or not output_lines[-1].startswith('|'):
+                                hdr_line = "| " + " | ".join(headers) + " |"
+                                sep_line = "| " + " | ".join(["---"] * len(headers)) + " |"
+                                output_lines.append(hdr_line)
+                                output_lines.append(sep_line)
+                            
+                            for r in table_rows[start_idx:]:
+                                while len(r) < num_cols:
+                                    r.append('')
+                                output_lines.append("| " + " | ".join(r) + " |")
+
+        if output_lines:
+            return '\n'.join(output_lines).strip()
+    except Exception as e:
+        print(f"pdfplumber extraction notice: {e}")
+
+    try:
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(content))
+        page_texts = []
+        for page in reader.pages:
+            try:
+                txt = page.extract_text(extraction_mode="layout")
+            except Exception:
+                txt = page.extract_text()
+            if txt and txt.strip():
+                page_texts.append(txt)
+        return "\n\n".join(page_texts)
+    except Exception as e:
+        return f"PDF Extraction Error: {str(e)}"
+
+
+@router.post("/companies/{id}/upload-doc", response_model=CompanyOut, dependencies=[Depends(get_admin_user)])
+async def upload_supporting_doc(id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db_yield)):
+    res = await db.execute(select(RobustCompany).where(RobustCompany.id == id))
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    content = await file.read()
+    extracted_text = ""
+    filename = file.filename or "supporting_doc.pdf"
+
+    if filename.lower().endswith(".pdf"):
+        extracted_text = _smart_extract_pdf_content(content)
+    else:
+        try:
+            extracted_text = content.decode("utf-8", errors="ignore")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Unsupported document format. Please upload PDF or text file.")
+
+    if not extracted_text.strip():
+        raise HTTPException(status_code=400, detail="The uploaded document appears to be empty or unreadable text.")
+
+    company.verification_doc_filename = filename
+    company.verification_doc_text = extracted_text.strip()
+    company.verification_doc_data = content
+    await db.commit()
+    await db.refresh(company)
+    return await _build_company_out(company, db)
+
+
+@router.get("/companies/{id}/doc/file", dependencies=[Depends(get_admin_user)])
+async def get_supporting_doc_file(id: int, db: AsyncSession = Depends(get_db_yield)):
+    res = await db.execute(select(RobustCompany).where(RobustCompany.id == id))
+    company = res.scalar_one_or_none()
+    if not company or not company.verification_doc_data:
+        raise HTTPException(status_code=404, detail="Supporting document binary file not found")
+
+    filename = company.verification_doc_filename or "document.pdf"
+    media_type = "application/pdf" if filename.lower().endswith(".pdf") else "text/plain"
+    
+    from fastapi import Response
+    return Response(
+        content=company.verification_doc_data,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'}
+    )
+
+
+@router.delete("/companies/{id}/doc", response_model=CompanyOut, dependencies=[Depends(get_admin_user)])
+async def delete_supporting_doc(id: int, db: AsyncSession = Depends(get_db_yield)):
+    res = await db.execute(select(RobustCompany).where(RobustCompany.id == id))
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    company.verification_doc_filename = None
+    company.verification_doc_text = None
+    company.verification_doc_data = None
+    await db.commit()
+    await db.refresh(company)
+    return await _build_company_out(company, db)
+
+
+@router.get("/companies/{id}/prompt-history", response_model=List[PromptHistoryOut], dependencies=[Depends(get_admin_user)])
+async def get_prompt_history(id: int, db: AsyncSession = Depends(get_db_yield)):
+    res = await db.execute(
+        select(RobustPromptHistory)
+        .where(RobustPromptHistory.company_id == id)
+        .order_by(desc(RobustPromptHistory.created_at))
+    )
+    items = res.scalars().all()
+    return [
+        PromptHistoryOut(
+            id=item.id,
+            company_id=item.company_id,
+            stage=item.stage,
+            system_prompt=item.system_prompt,
+            user_prompt=item.user_prompt,
+            version_note=item.version_note,
+            created_at=_fmt_dt(item.created_at) or "",
+            created_by=item.created_by or "Admin"
+        )
+        for item in items
+    ]
+
+
+@router.post("/companies/{id}/restore-prompt", response_model=CompanyOut, dependencies=[Depends(get_admin_user)])
+async def restore_prompt_version(id: int, body: RestorePromptIn, db: AsyncSession = Depends(get_db_yield)):
+    res = await db.execute(select(RobustCompany).where(RobustCompany.id == id))
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    h_res = await db.execute(select(RobustPromptHistory).where(RobustPromptHistory.id == body.history_id, RobustPromptHistory.company_id == id))
+    hist = h_res.scalar_one_or_none()
+    if not hist:
+        raise HTTPException(status_code=404, detail="Prompt history entry not found")
+
+    if hist.stage == "verification":
+        company.verification_system_prompt = hist.system_prompt
+        company.verification_user_prompt = hist.user_prompt
+    elif hist.stage == "summary":
+        company.summary_user_prompt = hist.user_prompt
+    elif hist.stage == "executive":
+        company.executive_user_prompt = hist.user_prompt
+
+    # Create new history entry marking restore action
+    new_hist = RobustPromptHistory(
+        company_id=id,
+        stage=hist.stage,
+        system_prompt=hist.system_prompt,
+        user_prompt=hist.user_prompt,
+        version_note=f"Restored from version #{hist.id}",
+        created_by="Admin"
+    )
+    db.add(new_hist)
+
+    await db.commit()
+    await db.refresh(company)
+    return await _build_company_out(company, db)
 
 
 @router.post("/companies/{id}/upload-keywords", dependencies=[Depends(get_admin_user)])
