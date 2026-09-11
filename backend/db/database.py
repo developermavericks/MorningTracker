@@ -674,11 +674,13 @@ async def init_db():
                 except Exception: pass
         except: pass
 
-        # Automated Migration: Add cumulative_sheet_url to clients and client_run_logs if missing
+        # Automated Migration: Add cumulative_sheet_url and precision control toggles to clients table if missing
         try:
             if "postgresql" in engine.url.drivername:
                 await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS cumulative_sheet_url VARCHAR"))
                 await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS cumulative_sheet_url VARCHAR"))
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS strict_competitor_filter BOOLEAN DEFAULT TRUE"))
+                await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS strict_section_matching BOOLEAN DEFAULT TRUE"))
             else:
                 try:
                     await conn.execute(text("ALTER TABLE clients ADD COLUMN cumulative_sheet_url VARCHAR"))
@@ -686,8 +688,14 @@ async def init_db():
                 try:
                     await conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN cumulative_sheet_url VARCHAR"))
                 except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE clients ADD COLUMN strict_competitor_filter BOOLEAN DEFAULT 1"))
+                except Exception: pass
+                try:
+                    await conn.execute(text("ALTER TABLE clients ADD COLUMN strict_section_matching BOOLEAN DEFAULT 1"))
+                except Exception: pass
         except Exception as e:
-            print(f"Migration Notice (Cumulative Sheet Schema): {e}")
+            print(f"Migration Notice (Cumulative Sheet & Precision Control Schema): {e}")
 
         # Automated Migration: Add heavy_companies pooja_priority_conf, pooja_non_priority_conf if missing
         try:
