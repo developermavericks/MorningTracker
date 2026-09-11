@@ -179,6 +179,8 @@ class Client(Base):
     region_filter: Mapped[str] = mapped_column(String, default="All", server_default="All")
     intl_exceptions: Mapped[Optional[str]] = mapped_column(Text)
     cumulative_sheet_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    strict_competitor_filter: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    strict_section_matching: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
 class ClientSection(Base):
     __tablename__ = "client_sections"
@@ -1213,12 +1215,14 @@ def init_db_sync():
     except Exception as e:
         print(f"Sync Migration Notice (Heavy Automation Schema): {e}")
 
-    # Automated migration: Add cumulative_sheet_url to clients and client_run_logs
+    # Automated migration: Add cumulative_sheet_url and precision control toggles to clients table
     try:
         with engine_sync.begin() as conn:
             if "postgresql" in engine_sync.url.drivername:
                 conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS cumulative_sheet_url VARCHAR"))
                 conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN IF NOT EXISTS cumulative_sheet_url VARCHAR"))
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS strict_competitor_filter BOOLEAN DEFAULT TRUE"))
+                conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS strict_section_matching BOOLEAN DEFAULT TRUE"))
             else:
                 try:
                     conn.execute(text("ALTER TABLE clients ADD COLUMN cumulative_sheet_url VARCHAR"))
@@ -1226,8 +1230,14 @@ def init_db_sync():
                 try:
                     conn.execute(text("ALTER TABLE client_run_logs ADD COLUMN cumulative_sheet_url VARCHAR"))
                 except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN strict_competitor_filter BOOLEAN DEFAULT 1"))
+                except Exception: pass
+                try:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN strict_section_matching BOOLEAN DEFAULT 1"))
+                except Exception: pass
     except Exception as e:
-        print(f"Sync Migration Notice (Cumulative Sheet Schema): {e}")
+        print(f"Sync Migration Notice (Cumulative Sheet & Precision Control Schema): {e}")
 
     print(f"Sync Database initialized via SQLAlchemy ({engine_sync.url.drivername})")
 

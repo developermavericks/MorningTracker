@@ -41,6 +41,8 @@ class ClientCreate(BaseModel):
     priority_media_list: Optional[str] = None
     region_filter: str = "All"
     intl_exceptions: Optional[str] = None
+    strict_competitor_filter: bool = True
+    strict_section_matching: bool = True
 
 class SectionResponse(BaseModel):
     id: int
@@ -63,6 +65,8 @@ class ClientResponse(BaseModel):
     region_filter: str = "All"
     intl_exceptions: Optional[str] = None
     cumulative_sheet_url: Optional[str] = None
+    strict_competitor_filter: bool = True
+    strict_section_matching: bool = True
 
 class RunLogResponse(BaseModel):
     id: int
@@ -127,7 +131,9 @@ async def list_clients(
                 priority_media_list=client.priority_media_list,
                 region_filter=client.region_filter or "All",
                 intl_exceptions=client.intl_exceptions,
-                cumulative_sheet_url=client.cumulative_sheet_url
+                cumulative_sheet_url=client.cumulative_sheet_url,
+                strict_competitor_filter=getattr(client, "strict_competitor_filter", True) if getattr(client, "strict_competitor_filter", True) is not None else True,
+                strict_section_matching=getattr(client, "strict_section_matching", True) if getattr(client, "strict_section_matching", True) is not None else True
             )
         )
     return response_data
@@ -152,7 +158,9 @@ async def create_client(
         summary_length=payload.summary_length,
         priority_media_list=payload.priority_media_list,
         region_filter=payload.region_filter or "All",
-        intl_exceptions=payload.intl_exceptions
+        intl_exceptions=payload.intl_exceptions,
+        strict_competitor_filter=payload.strict_competitor_filter,
+        strict_section_matching=payload.strict_section_matching
     )
     db.add(new_client)
     await db.commit()
@@ -201,7 +209,9 @@ async def create_client(
         priority_media_list=new_client.priority_media_list,
         region_filter=new_client.region_filter or "All",
         intl_exceptions=new_client.intl_exceptions,
-        cumulative_sheet_url=None
+        cumulative_sheet_url=None,
+        strict_competitor_filter=new_client.strict_competitor_filter,
+        strict_section_matching=new_client.strict_section_matching
     )
 
 @router.put("/{client_id}", response_model=ClientResponse)
@@ -226,6 +236,8 @@ async def update_client(
     client.priority_media_list = payload.priority_media_list
     client.region_filter = payload.region_filter or "All"
     client.intl_exceptions = payload.intl_exceptions
+    client.strict_competitor_filter = payload.strict_competitor_filter
+    client.strict_section_matching = payload.strict_section_matching
     
     # Update recipients (clear old first)
     await db.execute(delete(ClientRecipient).where(ClientRecipient.client_id == client_id))
@@ -279,7 +291,9 @@ async def update_client(
         priority_media_list=client.priority_media_list,
         region_filter=client.region_filter or "All",
         intl_exceptions=client.intl_exceptions,
-        cumulative_sheet_url=client.cumulative_sheet_url
+        cumulative_sheet_url=client.cumulative_sheet_url,
+        strict_competitor_filter=client.strict_competitor_filter,
+        strict_section_matching=client.strict_section_matching
     )
 
 @router.delete("/{client_id}")

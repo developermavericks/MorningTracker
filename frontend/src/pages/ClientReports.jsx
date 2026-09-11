@@ -191,6 +191,8 @@ export default function ClientReports() {
   const [priorityMediaList, setPriorityMediaList] = useState("");
   const [regionFilter, setRegionFilter] = useState("All");
   const [intlExceptions, setIntlExceptions] = useState("");
+  const [strictCompetitorFilter, setStrictCompetitorFilter] = useState(true);
+  const [strictSectionMatching, setStrictSectionMatching] = useState(true);
   
   // File Upload states
   const [uploadingTemplateId, setUploadingTemplateId] = useState(null);
@@ -242,6 +244,8 @@ export default function ClientReports() {
       setPriorityMediaList(client.priority_media_list || "");
       setRegionFilter(client.region_filter || "All");
       setIntlExceptions(client.intl_exceptions || "");
+      setStrictCompetitorFilter(client.strict_competitor_filter ?? true);
+      setStrictSectionMatching(client.strict_section_matching ?? true);
     } else {
       setSelectedClient(null);
       setClientName("");
@@ -255,6 +259,8 @@ export default function ClientReports() {
       setPriorityMediaList("");
       setRegionFilter("All");
       setIntlExceptions("");
+      setStrictCompetitorFilter(true);
+      setStrictSectionMatching(true);
     }
     setIsModalOpen(true);
   };
@@ -302,7 +308,9 @@ export default function ClientReports() {
       summary_length: parseInt(summaryLength) || 35,
       priority_media_list: priorityMediaList.trim(),
       region_filter: regionFilter,
-      intl_exceptions: intlExceptions.trim()
+      intl_exceptions: intlExceptions.trim(),
+      strict_competitor_filter: strictCompetitorFilter,
+      strict_section_matching: strictSectionMatching
     };
 
     try {
@@ -1263,6 +1271,65 @@ export default function ClientReports() {
                 <label htmlFor="active_checkbox" style={{ fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>
                   Enable automatic daily briefing schedule
                 </label>
+              </div>
+
+              {/* Pipeline Precision Controls Card */}
+              <div style={{
+                background: "rgba(147, 51, 234, 0.05)",
+                border: "1px solid rgba(147, 51, 234, 0.25)",
+                borderRadius: "12px",
+                padding: "14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+                marginTop: "4px"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "14px" }}>🎯</span>
+                  <span style={{ fontSize: "12px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--accent)" }}>
+                    Pipeline Precision Controls
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {/* Strict Competitor Filter Toggle */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                    <input
+                      type="checkbox"
+                      id="strict_comp_toggle"
+                      checked={strictCompetitorFilter}
+                      onChange={(e) => setStrictCompetitorFilter(e.target.checked)}
+                      style={{ width: "16px", height: "16px", marginTop: "2px", cursor: "pointer" }}
+                    />
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <label htmlFor="strict_comp_toggle" style={{ fontSize: "12px", fontWeight: "700", cursor: "pointer", color: "#fff" }}>
+                        Enforce Strict Competitor Keyword Guard
+                      </label>
+                      <span style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: "1.4" }}>
+                        Requires articles in Competitor sections to explicitly contain competitor brand names in text. Prevents generic AI/security news from leaking into Competitor sections.
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Section-Aware LLM Matching Toggle */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                    <input
+                      type="checkbox"
+                      id="strict_sec_toggle"
+                      checked={strictSectionMatching}
+                      onChange={(e) => setStrictSectionMatching(e.target.checked)}
+                      style={{ width: "16px", height: "16px", marginTop: "2px", cursor: "pointer" }}
+                    />
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <label htmlFor="strict_sec_toggle" style={{ fontSize: "12px", fontWeight: "700", cursor: "pointer", color: "#fff" }}>
+                        Section-Aware LLM Relevance Prompting
+                      </label>
+                      <span style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: "1.4" }}>
+                        Applies targeted AI rules per section (e.g. restricts Competitor sections strictly to competitor company moves, and Company sections strictly to client brand updates).
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Sections & Keywords Configuration */}

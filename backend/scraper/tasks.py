@@ -1019,6 +1019,8 @@ def run_client_report_task(client_id: int):
         priority_media_list = getattr(client, "priority_media_list", None)
         region_filter = getattr(client, "region_filter", "All")
         intl_exceptions = getattr(client, "intl_exceptions", None)
+        strict_competitor_filter = getattr(client, "strict_competitor_filter", True) if getattr(client, "strict_competitor_filter", True) is not None else True
+        strict_section_matching = getattr(client, "strict_section_matching", True) if getattr(client, "strict_section_matching", True) is not None else True
         
     try:
         def _update_progress(msg: str):
@@ -1570,10 +1572,52 @@ def run_client_report_task(client_id: int):
                     verdict = "uncertain"
                     reason = ""
                     score = 0.5
+                    
+                    # --- HARD GUARD: Strict Competitor Keyword Verification ---
+                    if strict_competitor_filter and "competitor" in section_name.lower():
+                        full_check_text = f"{title} {desc} {body_text}".lower()
+                        has_competitor_kw = False
+                        import re
+                        for kw in keywords:
+                            kw_clean = kw.strip().lower().replace('"', '').replace("'", "")
+                            if not kw_clean:
+                                continue
+                            pattern = r'(?<!\w)' + re.escape(kw_clean) + r'(?!\w)'
+                            if re.search(pattern, full_check_text):
+                                has_competitor_kw = True
+                                break
+                        if not has_competitor_kw:
+                            logger.info(f"Strict Competitor Filter: Article '{title}' dropped because no competitor keywords were found in text.")
+                            with get_db_sync() as db:
+                                db.merge(IrrelevantArticle(
+                                    url=normalized_url,
+                                    title=title,
+                                    description=desc or body_text[:200],
+                                    rejection_reason="No competitor keywords found in article text (strict competitor filter active)",
+                                    relevance_score=0.0,
+                                    last_seen_at=datetime.now()
+                                ))
+                                db.commit()
+                            _increment_funnel_metric(job_id, "relevance_no")
+                            from scraper.search_utils import match_publication_category
+                            return {
+                                "art_data": {
+                                    "title": title,
+                                    "url": resolved_url,
+                                    "agency": agency,
+                                    "summary": desc or (body_text[:200] + "...") if body_text else "No competitor keyword found.",
+                                    "publication_category": match_publication_category(agency, resolved_url),
+                                    "is_paywalled": False
+                                },
+                                "is_relevant_kw": True,
+                                "is_semantic_relevant": False
+                            }
+
                     from scraper.llm import check_relevance_with_groq
                     try:
                         is_semantic_relevant, verdict, reason, score = check_relevance_with_groq(
-                            title, body_text, keywords, client_name, client_context=client_context
+                            title, body_text, keywords, client_name, client_context=client_context,
+                            section_name=section_name, strict_section_matching=strict_section_matching
                         )
                     except Exception as rel_err:
                         logger.error(f"Relevance verification error for '{title}': {rel_err}")

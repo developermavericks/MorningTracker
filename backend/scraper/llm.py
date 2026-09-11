@@ -286,7 +286,28 @@ def safe_json_parse(text: str) -> dict:
         text = match.group(0)
     return json.loads(text)
 
-def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], client_name: str, client_context: Optional[str] = None, use_120b: bool = False) -> tuple[str, str, float]:
+def _build_section_rule_str(section_name: Optional[str], keywords: List[str], client_name: str, strict_section_matching: bool) -> str:
+    if not strict_section_matching or not section_name:
+        return ""
+    sec_lower = section_name.lower().strip()
+    if "competitor" in sec_lower:
+        return (
+            f"\nSTRICT COMPETITOR SECTION RULE for '{section_name}':\n"
+            f"The article MUST explicitly feature or cover one of the competitor companies ({', '.join(keywords)}).\n"
+            f"REJECT as 'not_relevant' any general AI news, wildlife protection, labor laws, or generic banking/payment fraud articles that do not explicitly discuss these competitor companies.\n"
+        )
+    elif "company" in sec_lower or client_name.lower() in sec_lower:
+        return (
+            f"\nSTRICT COMPANY NEWS RULE for '{section_name}':\n"
+            f"The article MUST explicitly mention or cover '{client_name}' or its executive leadership.\n"
+            f"REJECT as 'not_relevant' general industry updates that do not cover '{client_name}'.\n"
+        )
+    return (
+        f"\nSTRICT SECTION RULE for '{section_name}':\n"
+        f"The article MUST be directly on-topic for '{section_name}' and match topics: {', '.join(keywords)}.\n"
+    )
+
+def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], client_name: str, client_context: Optional[str] = None, use_120b: bool = False, section_name: Optional[str] = None, strict_section_matching: bool = True) -> tuple[str, str, float]:
     """
     Evaluates if the article is relevant using Groq SDK.
     Returns: (verdict, reason, score)
@@ -331,18 +352,22 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
             "- Exclude publications like Nomad Lawyer.\n\n"
         )
         
+    sec_rule_str = _build_section_rule_str(section_name, keywords, client_name, strict_section_matching)
+    
     # Stage-2 escalation uses the heavy model; Stage-1 uses the faster relevance model.
     model_name = GROQ_SECONDARY_MODEL if use_120b else GROQ_RELEVANCE_MODEL
     
     prompt = (
         f"You are an editor filtering news for the client '{client_name}'.\n\n"
         f"{context_str}"
+        f"Target Section: {section_name or 'General'}\n"
         f"Target Keywords/Topics: {', '.join(keywords)}\n\n"
         f"Article Title: {title}\n"
         f"Article Content: {body[:5000]}\n\n"
-        f"Determine if this article is relevant to '{client_name}' based on the provided context, guidelines, and target keywords.\n"
+        f"Determine if this article is relevant to '{client_name}' based on the provided context, section guidelines, and target keywords.\n"
+        f"{sec_rule_str}"
         f"RELEVANCE EVALUATION RULES:\n"
-        f"1. Priority Rule: Strictly follow any custom section rules, requirements, exclusions, and disambiguation instructions provided in the CLIENT CONTEXT above as your highest priority.\n"
+        f"1. Priority Rule: Strictly follow any custom section rules, requirements, exclusions, and disambiguation instructions provided in the CLIENT CONTEXT and SECTION RULES above as your highest priority.\n"
         f"2. Return 'relevant' if the article clearly matches the client's section rules or target keywords and would be useful to the client.\n"
         f"3. Return 'not_relevant' if the article is off-topic, violates explicit exclusions, or is not actionable/useful for the client.\n"
         f"4. Return 'uncertain' ONLY for genuinely borderline cases.\n\n"
@@ -383,7 +408,7 @@ def check_relevance_with_groq_oss(title: str, body: str, keywords: List[str], cl
             return "relevant", "Regex match relevant", 0.9
         return "uncertain", "Fallback JSON parse failure", 0.5
 
-def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: List[str], client_name: str, client_context: Optional[str] = None, use_120b: bool = False) -> tuple[str, str, float]:
+def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: List[str], client_name: str, client_context: Optional[str] = None, use_120b: bool = False, section_name: Optional[str] = None, strict_section_matching: bool = True) -> tuple[str, str, float]:
     """
     Evaluates relevance via direct HTTP call.
     Returns: (verdict, reason, score)
@@ -425,16 +450,20 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
             "- Exclude publications like Nomad Lawyer.\n\n"
         )
         
+    sec_rule_str = _build_section_rule_str(section_name, keywords, client_name, strict_section_matching)
+    
     # Stage-2 escalation uses the heavy model; Stage-1 uses the faster relevance model.
     model_name = GROQ_SECONDARY_MODEL if use_120b else GROQ_RELEVANCE_MODEL
     
     prompt = (
         f"You are an editor filtering news for the client '{client_name}'.\n\n"
         f"{context_str}"
+        f"Target Section: {section_name or 'General'}\n"
         f"Target Keywords/Topics: {', '.join(keywords)}\n\n"
         f"Article Title: {title}\n"
         f"Article Content: {body[:5000]}\n\n"
         f"Determine if this article is relevant to '{client_name}' based on the context, guidelines, and target keywords.\n"
+        f"{sec_rule_str}"
         f"RELEVANCE RULES:\n"
         f"1. Return 'relevant' ONLY if the article is clearly on-topic for the client's described sections and would be genuinely useful to the client's teams.\n"
         f"2. Return 'not_relevant' if the article is off-topic, only tangentially related, or not actionable/useful for the client.\n"
@@ -484,7 +513,7 @@ def check_relevance_with_groq_fallback_http(title: str, body: str, keywords: Lis
                 
     return "uncertain", "HTTP fetch failed", 0.5
 
-def check_relevance_with_groq(title: str, body: str, keywords: List[str], client_name: str, client_context: Optional[str] = None) -> tuple[bool, str, str, float]:
+def check_relevance_with_groq(title: str, body: str, keywords: List[str], client_name: str, client_context: Optional[str] = None, section_name: Optional[str] = None, strict_section_matching: bool = True) -> tuple[bool, str, str, float]:
     """
     Asymmetric relevance evaluator with two-stage ensembling.
     Returns: (is_relevant: bool, verdict: str, reason: str, score: float)
@@ -499,11 +528,17 @@ def check_relevance_with_groq(title: str, body: str, keywords: List[str], client
 
     # --- STAGE 1: Primary Model (70B) ---
     try:
-        verdict, reason, score = check_relevance_with_groq_oss(title, body, keywords, client_name, client_context, use_120b=False)
+        verdict, reason, score = check_relevance_with_groq_oss(
+            title, body, keywords, client_name, client_context, 
+            use_120b=False, section_name=section_name, strict_section_matching=strict_section_matching
+        )
     except Exception as e:
         log(f"Primary relevance check (Groq SDK) failed: {e}. Trying HTTP fallback...")
         try:
-            verdict, reason, score = check_relevance_with_groq_fallback_http(title, body, keywords, client_name, client_context, use_120b=False)
+            verdict, reason, score = check_relevance_with_groq_fallback_http(
+                title, body, keywords, client_name, client_context, 
+                use_120b=False, section_name=section_name, strict_section_matching=strict_section_matching
+            )
         except Exception as e2:
             log(f"Primary fallback HTTP check failed: {e2}")
             verdict = "uncertain"
@@ -513,7 +548,10 @@ def check_relevance_with_groq(title: str, body: str, keywords: List[str], client
     if verdict == "uncertain":
         log(f"Borderline / uncertain relevance detected for '{title}'. Escalating to secondary model (gpt-oss-120b)...")
         try:
-            v_esc, r_esc, s_esc = check_relevance_with_groq_oss(title, body, keywords, client_name, client_context, use_120b=True)
+            v_esc, r_esc, s_esc = check_relevance_with_groq_oss(
+                title, body, keywords, client_name, client_context, 
+                use_120b=True, section_name=section_name, strict_section_matching=strict_section_matching
+            )
             log(f"Ensemble response for '{title}': verdict={v_esc}, score={s_esc}")
             # Stage-2 is the arbiter: only explicit "relevant" keeps the article.
             if v_esc == "relevant":

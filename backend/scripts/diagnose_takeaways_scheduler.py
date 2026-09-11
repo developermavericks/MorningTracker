@@ -64,6 +64,16 @@ def check_db_schema():
                 logger.error(f"[FAILURE] Database robust_companies is missing columns: {robust_missing}")
                 return False
 
+            # Inspect clients table columns
+            client_columns = [col["name"] for col in inspector.get_columns("clients")]
+            client_required = ["strict_competitor_filter", "strict_section_matching"]
+            client_missing = [r for r in client_required if r not in client_columns]
+            if not client_missing:
+                logger.info("[SUCCESS] Database has all precision control columns in clients table.")
+            else:
+                logger.error(f"[FAILURE] Database clients is missing columns: {client_missing}")
+                return False
+
             # Inspect robust_prompt_histories table
             tables = inspector.get_table_names()
             if "robust_prompt_histories" in tables:
