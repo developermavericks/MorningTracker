@@ -432,6 +432,12 @@ export default function HistoricalAutomation() {
                       </div>
                     )}
 
+                    {isFinished && job.total_duration_seconds > 0 && (
+                      <span className="badge badge-completed">
+                        ⏱️ Duration: {formatSeconds(job.total_duration_seconds)}
+                      </span>
+                    )}
+
                     {job.has_master_excel && (
                       <button
                         type="button"

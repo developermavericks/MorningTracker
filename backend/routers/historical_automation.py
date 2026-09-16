@@ -187,6 +187,8 @@ async def list_historical_jobs(
         eta_info = calculate_eta(j, subs)
         monthly_tracker = calculate_monthly_summary(subs)
 
+        total_duration = int((j.completed_at - j.started_at).total_seconds()) if (j.completed_at and j.started_at) else eta_info["elapsed_seconds"]
+
         j_dict = {
             "id": j.id,
             "name": j.name,
@@ -198,11 +200,12 @@ async def list_historical_jobs(
             "total_sub_jobs": j.total_sub_jobs,
             "completed_sub_jobs": j.completed_sub_jobs,
             "total_articles": j.total_articles,
-            "has_master_excel": bool(j.master_excel_path and os.path.exists(j.master_excel_path)),
+            "has_master_excel": bool(j.master_excel_path or j.status == "completed"),
             "started_at": j.started_at.isoformat() if j.started_at else None,
             "completed_at": j.completed_at.isoformat() if j.completed_at else None,
             "elapsed_seconds": eta_info["elapsed_seconds"],
             "eta_seconds": eta_info["eta_seconds"],
+            "total_duration_seconds": total_duration,
             "monthly_tracker": monthly_tracker,
             "sub_jobs": [
                 {
@@ -212,9 +215,10 @@ async def list_historical_jobs(
                     "date_to": str(sj.date_to),
                     "status": sj.status,
                     "articles_found": sj.articles_found,
-                    "has_excel": bool(sj.excel_file_path and os.path.exists(sj.excel_file_path)),
+                    "has_excel": bool(sj.excel_file_path or sj.status == "completed"),
                     "started_at": sj.started_at.isoformat() if sj.started_at else None,
                     "completed_at": sj.completed_at.isoformat() if sj.completed_at else None,
+                    "execution_seconds": int((sj.completed_at - sj.started_at).total_seconds()) if (sj.started_at and sj.completed_at) else None
                 }
                 for sj in subs
             ]
@@ -316,15 +320,38 @@ async def download_master_excel(
     db: AsyncSession = Depends(get_db_yield),
     current_user: TokenData = Depends(get_auth_user)
 ):
-    """Downloads the consolidated master cumulative Excel spreadsheet."""
+    """Downloads the consolidated master cumulative Excel spreadsheet, dynamically regenerating if missing on web container."""
     res = await db.execute(select(HistoricalJob).where(HistoricalJob.id == job_id))
     job = res.scalar_one_or_none()
-    if not job or not job.master_excel_path or not os.path.exists(job.master_excel_path):
-        raise HTTPException(404, "Master Excel file not ready or not found")
+    if not job:
+        raise HTTPException(404, "Master job not found")
+
+    from scraper.historical_engine import create_excel_report, REPORTS_DIR
+    target_path = job.master_excel_path or os.path.join(REPORTS_DIR, f"historical_{job.id}_MASTER.xlsx")
+
+    if not os.path.exists(target_path):
+        # Dynamically regenerate Excel from DB records
+        res_all = await db.execute(
+            select(HistoricalArticle)
+            .where(HistoricalArticle.parent_job_id == job_id)
+            .order_by(HistoricalArticle.published_date.desc())
+        )
+        arts = [
+            {
+                "title": a.title,
+                "publication": a.publication,
+                "url": a.url,
+                "published_date": a.published_date,
+                "matched_keywords": a.matched_keywords
+            } for a in res_all.scalars().all()
+        ]
+        master_title = f"{job.name} MASTER ({job.date_from} to {job.date_to})"
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        create_excel_report(target_path, master_title, arts)
 
     filename = f"{job.name}_Cumulative_Historical_Report.xlsx".replace(" ", "_")
     return FileResponse(
-        path=job.master_excel_path,
+        path=target_path,
         filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -336,15 +363,42 @@ async def download_sub_job_excel(
     db: AsyncSession = Depends(get_db_yield),
     current_user: TokenData = Depends(get_auth_user)
 ):
-    """Downloads the 15-day window Excel spreadsheet."""
+    """Downloads the 15-day window Excel spreadsheet, dynamically regenerating if missing on web container."""
     res = await db.execute(select(HistoricalSubJob).where(HistoricalSubJob.id == sub_job_id))
     sub = res.scalar_one_or_none()
-    if not sub or not sub.excel_file_path or not os.path.exists(sub.excel_file_path):
-        raise HTTPException(404, "15-Day Excel file not ready or not found")
+    if not sub:
+        raise HTTPException(404, "15-Day window sub-job not found")
+
+    from scraper.historical_engine import create_excel_report, REPORTS_DIR
+    target_path = sub.excel_file_path or os.path.join(REPORTS_DIR, f"historical_{sub.parent_job_id}_window_{sub.window_index}.xlsx")
+
+    if not os.path.exists(target_path):
+        # Dynamically regenerate Excel from DB records for this window
+        res_arts = await db.execute(
+            select(HistoricalArticle)
+            .where(HistoricalArticle.sub_job_id == sub_job_id)
+            .order_by(HistoricalArticle.published_date.desc())
+        )
+        arts = [
+            {
+                "title": a.title,
+                "publication": a.publication,
+                "url": a.url,
+                "published_date": a.published_date,
+                "matched_keywords": a.matched_keywords
+            } for a in res_arts.scalars().all()
+        ]
+        res_parent = await db.execute(select(HistoricalJob).where(HistoricalJob.id == sub.parent_job_id))
+        parent_job = res_parent.scalar_one_or_none()
+        p_name = parent_job.name if parent_job else "Historical"
+        title_text = f"{p_name} ({sub.date_from} to {sub.date_to})"
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        create_excel_report(target_path, title_text, arts)
 
     filename = f"Historical_Window_{sub.window_index}_{sub.date_from}_to_{sub.date_to}.xlsx"
     return FileResponse(
-        path=sub.excel_file_path,
+        path=target_path,
         filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
