@@ -47,7 +47,10 @@ The following table tracks active commits, implementation authors, change summar
 | 2026-07-20 10:19 | `ed2cf29` | Divyansh Sharma | **Worker:** Overwrite local templates from database cache on worker startup to prevent rendering outdated styles. | Deployed & Active |
 | 2026-07-16 10:46 | `3729bf1 | Divyansh Sharma | **Worker:** Added automatic template fallback restorers from DB cache. | Deployed & Active |
 | 2026-07-15 16:14 | `442c5b5` | Divyansh Sharma | **Deduplication:** Implemented section-level article deduplication by canonical URL matching. | Deployed & Active |
-| 2026-07-15 11:23 | `54c7722` | Divyansh Sharma | **Database:** Added cumulative sheet URL schema updates for async SQL initializers. | Deployed & Active |
+| 2026-09-16 16:46 | `local` | Mavericks Team | **UI Alignment:** Aligned Historical Automation (`HistoricalAutomation.jsx`) 100% with global NEXUS design system (`.card`, `.stats-grid`, `.stat-card`, `.badge`, `.table-wrap`, `.btn-primary`, and CSS custom variables). | Active |
+| 2026-09-16 16:45 | `local` | Mavericks Team | **UI Redesign:** Enhanced Historical Automation (`HistoricalAutomation.jsx`) with dark glassmorphism cards, stat counters, Eruditus/Emeritus preset button, glowing focus states, animated progress bar, and tree-view styling. | Active |
+| 2026-09-16 16:25 | `local` | Mavericks Team | **Historical Automation:** Added Historical Automation tab (`HistoricalAutomation.jsx`), backend metadata-only discovery engine (`historical_engine.py`), 15-day slicing, month tracker, tree-view UI, ETA metrics, stop controls, and Excel exporter. | Active |
+| 2026-09-16 16:00 | `local` | Mavericks Team | **Scraper Utility:** Added historical backfill script (`backfill_emeritus.py`) for Eruditus/Emeritus target keywords across Oct 2024–Present. | Active |
 
 ---
 

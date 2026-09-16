@@ -4943,3 +4943,17 @@ def render_robust_html_body(run, company_name: str) -> str:
         logger.error(f"[Robust] Failed to render HTML brief: {e}", exc_info=True)
         return f"<p>Daily briefing compilation complete. Executive Summary:<br>{run.executive_summary}</p>"
 
+
+@celery_app.task(bind=True, max_retries=2)
+def run_historical_sub_job_task(self, parent_job_id: str, sub_job_id: str):
+    """Celery task to run a 15-day historical metadata-only scrape."""
+    logger.info(f"[HistoricalTask] Starting sub-job {sub_job_id} for parent {parent_job_id}")
+    try:
+        from scraper.historical_engine import run_historical_sub_job
+        res = run_historical_sub_job(parent_job_id, sub_job_id)
+        logger.info(f"[HistoricalTask] Finished sub-job {sub_job_id}: {res}")
+        return res
+    except Exception as e:
+        logger.error(f"[HistoricalTask] Exception in sub-job {sub_job_id}: {e}", exc_info=True)
+        raise self.retry(exc=e, countdown=10)
+

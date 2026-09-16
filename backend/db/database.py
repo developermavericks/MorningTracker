@@ -251,6 +251,50 @@ class ZeroResultQuery(Base):
     count: Mapped[int] = mapped_column(Integer, default=1)
     logged_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
+# ─── Historical Automation Models ─────────────────────────────────────────────
+
+class HistoricalJob(Base):
+    __tablename__ = "historical_jobs"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    keywords: Mapped[str] = mapped_column(Text, nullable=False)
+    date_from: Mapped[date] = mapped_column(Date, nullable=False)
+    date_to: Mapped[date] = mapped_column(Date, nullable=False)
+    window_days: Mapped[int] = mapped_column(Integer, default=15)
+    status: Mapped[str] = mapped_column(String, default="pending")  # pending, running, completed, paused, cancelled
+    total_sub_jobs: Mapped[int] = mapped_column(Integer, default=0)
+    completed_sub_jobs: Mapped[int] = mapped_column(Integer, default=0)
+    total_articles: Mapped[int] = mapped_column(Integer, default=0)
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    master_excel_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+class HistoricalSubJob(Base):
+    __tablename__ = "historical_sub_jobs"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    parent_job_id: Mapped[str] = mapped_column(String, ForeignKey("historical_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    window_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    date_from: Mapped[date] = mapped_column(Date, nullable=False)
+    date_to: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="pending")  # pending, running, completed, paused, cancelled
+    articles_found: Mapped[int] = mapped_column(Integer, default=0)
+    excel_file_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+class HistoricalArticle(Base):
+    __tablename__ = "historical_articles"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    parent_job_id: Mapped[str] = mapped_column(String, ForeignKey("historical_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    sub_job_id: Mapped[str] = mapped_column(String, ForeignKey("historical_sub_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    publication: Mapped[str] = mapped_column(String, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    published_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    matched_keywords: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
 class DirectFeed(Base):
     __tablename__ = "direct_feeds"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
