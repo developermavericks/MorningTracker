@@ -835,26 +835,81 @@ async def init_db():
         except Exception as e:
             print(f"Migration Notice (Brand Cleanup): {e}")
 
-        # Seed default feeds if empty
+        # Seed default feeds (all 58 publications)
         try:
-            feed_count = (await conn.execute(text("SELECT COUNT(*) FROM direct_feeds"))).scalar()
-            if feed_count == 0:
-                default_feeds = [
-                    {"publication_name": "Reuters", "feed_url": "https://news.google.com/rss/search?q=source:Reuters", "category": "A", "is_active": True},
-                    {"publication_name": "Bloomberg", "feed_url": "https://news.google.com/rss/search?q=source:Bloomberg", "category": "A", "is_active": True},
-                    {"publication_name": "The Economic Times", "feed_url": "https://economictimes.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
-                    {"publication_name": "Livemint", "feed_url": "https://www.livemint.com/rss/news", "category": "A", "is_active": True},
-                    {"publication_name": "The Hindu", "feed_url": "https://www.thehindu.com/feeder/default.rss", "category": "A", "is_active": True},
-                    {"publication_name": "The Times of India", "feed_url": "https://timesofindia.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
-                    {"publication_name": "The Indian Express", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Indian%20Express%22", "category": "A", "is_active": True},
-                    {"publication_name": "Moneycontrol", "feed_url": "https://www.moneycontrol.com/rss/latestnews.xml", "category": "A", "is_active": True}
-                ]
-                for f in default_feeds:
+            default_feeds = [
+                {"publication_name": "Reuters", "feed_url": "https://news.google.com/rss/search?q=source:Reuters", "category": "A", "is_active": True},
+                {"publication_name": "Bloomberg", "feed_url": "https://news.google.com/rss/search?q=source:Bloomberg", "category": "A", "is_active": True},
+                {"publication_name": "The Economic Times", "feed_url": "https://economictimes.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
+                {"publication_name": "Livemint", "feed_url": "https://www.livemint.com/rss/news", "category": "A", "is_active": True},
+                {"publication_name": "The Hindu", "feed_url": "https://www.thehindu.com/feeder/default.rss", "category": "A", "is_active": True},
+                {"publication_name": "The Times of India", "feed_url": "https://timesofindia.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
+                {"publication_name": "The Indian Express", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Indian%20Express%22", "category": "A", "is_active": True},
+                {"publication_name": "Moneycontrol", "feed_url": "https://www.moneycontrol.com/rss/latestnews.xml", "category": "A", "is_active": True},
+                {"publication_name": "Financial Express", "feed_url": "https://news.google.com/rss/search?q=source:%22Financial%20Express%22", "category": "A", "is_active": True},
+                {"publication_name": "ET CISO", "feed_url": "https://news.google.com/rss/search?q=source:%22ET%20CISO%22", "category": "A", "is_active": True},
+                {"publication_name": "Express Computer", "feed_url": "https://news.google.com/rss/search?q=source:%22Express%20Computer%22", "category": "A", "is_active": True},
+                {"publication_name": "IT Voice", "feed_url": "https://news.google.com/rss/search?q=source:%22IT%20Voice%22", "category": "A", "is_active": True},
+                {"publication_name": "NewsBytes", "feed_url": "https://news.google.com/rss/search?q=source:NewsBytes", "category": "A", "is_active": True},
+                {"publication_name": "Tech Funding News", "feed_url": "https://news.google.com/rss/search?q=source:%22Tech%20Funding%20News%22", "category": "A", "is_active": True},
+                {"publication_name": "The Next Web", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Next%20Web%22", "category": "A", "is_active": True},
+                {"publication_name": "Analytics Insight", "feed_url": "https://news.google.com/rss/search?q=source:%22Analytics%20Insight%22", "category": "A", "is_active": True},
+                {"publication_name": "PTI", "feed_url": "https://news.google.com/rss/search?q=source:PTI", "category": "A", "is_active": True},
+                {"publication_name": "YourStory", "feed_url": "https://news.google.com/rss/search?q=source:YourStory", "category": "A", "is_active": True},
+                {"publication_name": "Fortune India", "feed_url": "https://news.google.com/rss/search?q=source:%22Fortune%20India%22", "category": "A", "is_active": True},
+                {"publication_name": "Zee News", "feed_url": "https://news.google.com/rss/search?q=source:%22Zee%20News%22", "category": "A", "is_active": True},
+                {"publication_name": "IANS", "feed_url": "https://news.google.com/rss/search?q=source:IANS", "category": "A", "is_active": True},
+                {"publication_name": "Business Standard", "feed_url": "https://news.google.com/rss/search?q=source:%22Business%20Standard%22", "category": "A", "is_active": True},
+                {"publication_name": "Inc42", "feed_url": "https://news.google.com/rss/search?q=source:Inc42", "category": "A", "is_active": True},
+                {"publication_name": "Forbes India", "feed_url": "https://news.google.com/rss/search?q=source:%22Forbes%20India%22", "category": "A", "is_active": True},
+                {"publication_name": "NDTV", "feed_url": "https://news.google.com/rss/search?q=source:NDTV", "category": "A", "is_active": True},
+                {"publication_name": "ANI", "feed_url": "https://news.google.com/rss/search?q=source:ANI", "category": "A", "is_active": True},
+                {"publication_name": "Hindustan Times", "feed_url": "https://news.google.com/rss/search?q=source:%22Hindustan%20Times%22", "category": "A", "is_active": True},
+                {"publication_name": "Business Today", "feed_url": "https://news.google.com/rss/search?q=source:%22Business%20Today%22", "category": "A", "is_active": True},
+                {"publication_name": "CNN-News18", "feed_url": "https://news.google.com/rss/search?q=source:%22CNN-News18%22", "category": "A", "is_active": True},
+                {"publication_name": "TechCrunch", "feed_url": "https://news.google.com/rss/search?q=source:TechCrunch", "category": "A", "is_active": True},
+                {"publication_name": "BusinessWorld", "feed_url": "https://news.google.com/rss/search?q=source:BusinessWorld", "category": "A", "is_active": True},
+                {"publication_name": "Times Now", "feed_url": "https://news.google.com/rss/search?q=source:%22Times%20Now%22", "category": "A", "is_active": True},
+                {"publication_name": "The Telegraph", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Telegraph%22", "category": "A", "is_active": True},
+                {"publication_name": "CNBC TV18", "feed_url": "https://news.google.com/rss/search?q=source:%22CNBC%20TV18%22", "category": "A", "is_active": True},
+                {"publication_name": "Tech in Asia", "feed_url": "https://news.google.com/rss/search?q=source:%22Tech%20in%20Asia%22", "category": "A", "is_active": True},
+                {"publication_name": "Outlook Business", "feed_url": "https://news.google.com/rss/search?q=source:%22Outlook%20Business%22", "category": "A", "is_active": True},
+                {"publication_name": "Republic TV", "feed_url": "https://news.google.com/rss/search?q=source:%22Republic%20TV%22", "category": "A", "is_active": True},
+                {"publication_name": "The New Indian Express", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20New%20Indian%20Express%22", "category": "A", "is_active": True},
+                {"publication_name": "Mid-Day", "feed_url": "https://news.google.com/rss/search?q=source:%22Mid-Day%22", "category": "A", "is_active": True},
+                {"publication_name": "Entrepreneur India", "feed_url": "https://news.google.com/rss/search?q=source:%22Entrepreneur%20India%22", "category": "A", "is_active": True},
+                {"publication_name": "India Today", "feed_url": "https://news.google.com/rss/search?q=source:%22India%20Today%22", "category": "A", "is_active": True},
+                {"publication_name": "Deccan Herald", "feed_url": "https://news.google.com/rss/search?q=source:%22Deccan%20Herald%22", "category": "A", "is_active": True},
+                {"publication_name": "The Hindu BusinessLine", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Hindu%20BusinessLine%22", "category": "A", "is_active": True},
+                {"publication_name": "WION", "feed_url": "https://news.google.com/rss/search?q=source:WION", "category": "A", "is_active": True},
+                {"publication_name": "The Tribune", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Tribune%22", "category": "A", "is_active": True},
+                {"publication_name": "NDTV Profit", "feed_url": "https://news.google.com/rss/search?q=source:%22NDTV%20Profit%22", "category": "A", "is_active": True},
+                {"publication_name": "Deccan Chronicle", "feed_url": "https://news.google.com/rss/search?q=source:%22Deccan%20Chronicle%22", "category": "A", "is_active": True},
+                {"publication_name": "The Week", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Week%22", "category": "A", "is_active": True},
+                {"publication_name": "ET Now", "feed_url": "https://news.google.com/rss/search?q=source:%22ET%20Now%22", "category": "A", "is_active": True},
+                {"publication_name": "The Pioneer", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Pioneer%22", "category": "A", "is_active": True},
+                {"publication_name": "The Ken", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Ken%22", "category": "A", "is_active": True},
+                {"publication_name": "Mirror Now", "feed_url": "https://news.google.com/rss/search?q=source:%22Mirror%20Now%22", "category": "A", "is_active": True},
+                {"publication_name": "The Statesman", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Statesman%22", "category": "A", "is_active": True},
+                {"publication_name": "Analytics India Magazine", "feed_url": "https://news.google.com/rss/search?q=source:%22Analytics%20India%20Magazine%22", "category": "A", "is_active": True},
+                {"publication_name": "DD News", "feed_url": "https://news.google.com/rss/search?q=source:%22DD%20News%22", "category": "A", "is_active": True},
+                {"publication_name": "The Asian Age", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Asian%20Age%22", "category": "A", "is_active": True},
+                {"publication_name": "The Print", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Print%22", "category": "A", "is_active": True},
+                {"publication_name": "NewsX", "feed_url": "https://news.google.com/rss/search?q=source:NewsX", "category": "A", "is_active": True}
+            ]
+            for f in default_feeds:
+                if "postgresql" in engine.url.drivername:
                     await conn.execute(text(
                         "INSERT INTO direct_feeds (publication_name, feed_url, category, is_active, created_at) "
+                        "VALUES (:publication_name, :feed_url, :category, :is_active, :created_at) "
+                        "ON CONFLICT (feed_url) DO NOTHING"
+                    ), {**f, "created_at": datetime.now()})
+                else:
+                    await conn.execute(text(
+                        "INSERT OR IGNORE INTO direct_feeds (publication_name, feed_url, category, is_active, created_at) "
                         "VALUES (:publication_name, :feed_url, :category, :is_active, :created_at)"
                     ), {**f, "created_at": datetime.now()})
-                print("Database: Seeded default direct feeds.")
+            print("Database: Seeded 58 default direct feeds.")
         except Exception as seed_err:
             print(f"Migration Notice (Seed Direct Feeds): {seed_err}")
                 
@@ -1175,7 +1230,15 @@ def init_db_sync():
                     {"publication_name": "The Hindu", "feed_url": "https://www.thehindu.com/feeder/default.rss", "category": "A", "is_active": True},
                     {"publication_name": "The Times of India", "feed_url": "https://timesofindia.indiatimes.com/rssfeedstopstories.cms", "category": "A", "is_active": True},
                     {"publication_name": "The Indian Express", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Indian%20Express%22", "category": "A", "is_active": True},
-                    {"publication_name": "Moneycontrol", "feed_url": "https://www.moneycontrol.com/rss/latestnews.xml", "category": "A", "is_active": True}
+                    {"publication_name": "Moneycontrol", "feed_url": "https://www.moneycontrol.com/rss/latestnews.xml", "category": "A", "is_active": True},
+                    {"publication_name": "Financial Express", "feed_url": "https://news.google.com/rss/search?q=source:%22Financial%20Express%22", "category": "A", "is_active": True},
+                    {"publication_name": "ET CISO", "feed_url": "https://news.google.com/rss/search?q=source:%22ET%20CISO%22", "category": "A", "is_active": True},
+                    {"publication_name": "Express Computer", "feed_url": "https://news.google.com/rss/search?q=source:%22Express%20Computer%22", "category": "A", "is_active": True},
+                    {"publication_name": "IT Voice", "feed_url": "https://news.google.com/rss/search?q=source:%22IT%20Voice%22", "category": "A", "is_active": True},
+                    {"publication_name": "NewsBytes", "feed_url": "https://news.google.com/rss/search?q=source:NewsBytes", "category": "A", "is_active": True},
+                    {"publication_name": "Tech Funding News", "feed_url": "https://news.google.com/rss/search?q=source:%22Tech%20Funding%20News%22", "category": "A", "is_active": True},
+                    {"publication_name": "The Next Web", "feed_url": "https://news.google.com/rss/search?q=source:%22The%20Next%20Web%22", "category": "A", "is_active": True},
+                    {"publication_name": "Analytics Insight", "feed_url": "https://news.google.com/rss/search?q=source:%22Analytics%20Insight%22", "category": "A", "is_active": True}
                 ]
                 for f in default_feeds:
                     conn.execute(text(

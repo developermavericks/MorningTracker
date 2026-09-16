@@ -33,7 +33,7 @@ def test_pdf_extractor():
     logger.info("✓ PDF Extractor fallback returned clean result.")
 
 async def test_full_pipeline():
-    logger.info("--- 2. Testing Database Initializer & Startup Schema ---")
+    logger.info("--- 2. Testing Database Initializer & Startup Schema ---")  
     from db.database import init_db_sync, get_db_sync, RobustCompany, RobustPromptHistory
     from sqlalchemy import select, delete
     

@@ -109,10 +109,11 @@ def match_publication_category(agency_name: str, url: str) -> str:
             r"hindustantimes", r"hindustan times", r"ht brunch", r"htbrunch",
             r"\bindianexpress\.com", r"(?<!new\s)indian express",
             r"thehindu\.com", r"the hindu",
-            r"economictimes", r"economic times", r"et now", r"etnow", r"et prime", r"etprime", r"et wealth", r"etwealth", r"ettravelworld", r"et travelworld", r"ethospitalityworld", r"et hospitalityworld",
+            r"economictimes", r"economic times", r"et now", r"etnow", r"et prime", r"etprime", r"et wealth", r"etwealth", r"ettravelworld", r"et travelworld", r"ethospitalityworld", r"et hospitalityworld", r"etciso", r"et ciso", r"etbfsi", r"et bfsi", r"etcio", r"et cio",
+            r"expresscomputer", r"express computer", r"itvoice", r"it voice", r"newsbytes", r"newsbytesapp", r"techfundingnews", r"tech funding news", r"thenextweb", r"analyticsinsight", r"analytics insight", r"rediff\.com", r"\brediff\b", r"mid-day", r"midday", r"youtube\.com", r"\byoutube\b",
             r"indiatoday", r"india today",
             r"zeenews", r"zee news",
-            r"news18",
+            r"news18", r"cnn-news18", r"cnn news18",
             r"zeebiz", r"zee business",
             r"cnbctv18", r"cnbc tv18",
             r"moneycontrol",
@@ -124,7 +125,7 @@ def match_publication_category(agency_name: str, url: str) -> str:
             r"fortuneindia", r"fortune india",
             r"businesstoday", r"business today",
             r"theweek\.in", r"\bthe week\b",
-            r"outlookmoney", r"outlook money",
+            r"outlookmoney", r"outlook money", r"outlookbusiness", r"outlook business",
             r"pti\.in", r"\bpti\b", r"press trust of india",
             r"cntraveller", r"condé nast", r"conde nast",
             r"natgeotraveller", r"national geographic",
@@ -139,9 +140,10 @@ def match_publication_category(agency_name: str, url: str) -> str:
             r"harpersbazaar", r"harper’s bazaar", r"harper's bazaar",
             r"story18",
             r"peoplematters", r"people matters",
-            r"ians\.in", r"\bians\b",
+            r"ians\.in", r"\bians\b", r"\bani\b", r"ani\.in",
             r"indulgeexpress", r"indulge \(the new indian express\)", r"indulge",
-            r"autocar", r"bike india", r"bikeindia", r"overdrive", r"powerdrift", r"zigwheels"
+            r"autocar", r"bike india", r"bikeindia", r"overdrive", r"powerdrift", r"zigwheels",
+            r"techcrunch", r"businessworld", r"times now", r"timesnow", r"tech in asia", r"techinasia", r"republic tv", r"republictv", r"entrepreneur", r"wion", r"ndtv profit", r"ndtvprofit", r"the pioneer", r"pioneer", r"mirror now", r"mirrornow", r"the statesman", r"statesman", r"analytics india magazine", r"analyticsindiamag", r"dd news", r"ddnews", r"the asian age", r"asian age", r"the print", "theprint", r"newsx"
         ]
     ]
 

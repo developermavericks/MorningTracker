@@ -290,7 +290,7 @@ def _build_section_rule_str(section_name: Optional[str], keywords: List[str], cl
     if not strict_section_matching or not section_name:
         return ""
     sec_lower = section_name.lower().strip()
-    if "competitor" in sec_lower:
+    if "competitor" in sec_lower or "competition" in sec_lower:
         return (
             f"\nSTRICT COMPETITOR SECTION RULE for '{section_name}':\n"
             f"The article MUST explicitly feature or cover one of the competitor companies ({', '.join(keywords)}).\n"

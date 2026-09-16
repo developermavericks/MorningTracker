@@ -1574,7 +1574,8 @@ def run_client_report_task(client_id: int):
                     score = 0.5
                     
                     # --- HARD GUARD: Strict Competitor Keyword Verification ---
-                    if strict_competitor_filter and "competitor" in section_name.lower():
+                    sec_name_lower = section_name.lower()
+                    if strict_competitor_filter and ("competitor" in sec_name_lower or "competition" in sec_name_lower):
                         full_check_text = f"{title} {desc} {body_text}".lower()
                         has_competitor_kw = False
                         import re

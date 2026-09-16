@@ -347,6 +347,12 @@ def discover_articles(keywords: List[str], day: Optional[date], geo: str, region
                 q_alt = f"({truncated_brand_or}) AND \"{topic}\""
                 if len(q_alt) <= 256:
                     window_queries.append(q_alt)
+        # Event & Video Tier: Catch event panel coverage (GFF, conclaves) and video podcasts (YouTube, Moneycontrol)
+        core_brand_str = " OR ".join([quote_keyword(b) for b in cleaned_kws[:3]]) if cleaned_kws else ""
+        if core_brand_str:
+            event_q = f"({core_brand_str}) AND (\"Global Fintech Fest\" OR GFF OR video OR interview OR panel OR \"Moneycontrol\")"
+            if len(event_q) <= 256:
+                window_queries.append(event_q)
     else:
         # Sector tracking (non-brand)
         tier1_kws = []
@@ -407,6 +413,11 @@ def discover_articles(keywords: List[str], day: Optional[date], geo: str, region
                 q = f"({chunk_t2_str}) AND ({cat_a_domains_query})"
                 if len(q) <= 256:
                     window_queries.append(q)
+
+        # Funding & Peer Spotlight Query Chunk: Discover major cybersecurity startup funding, Series A/B, and M&A deals
+        funding_q = "(\"Cybersecurity startup\" OR \"Mobile Security\" OR RASP OR \"AI security\") AND (funding OR raised OR valuation OR secures)"
+        if len(funding_q) <= 256:
+            window_queries.append(funding_q)
 
     # Deduplicate queries to avoid double fetches
     window_queries = list(dict.fromkeys(window_queries))
