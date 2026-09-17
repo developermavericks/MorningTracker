@@ -23,6 +23,7 @@ class HistoricalJobCreate(BaseModel):
     date_from: date
     date_to: date
     window_days: int = 15
+    resolve_urls: bool = False
 
 CLIENT_HISTORICAL_PRESETS = [
     {
@@ -162,6 +163,7 @@ async def start_historical_job(
         completed_sub_jobs=0,
         total_articles=0,
         user_id=current_user.id,
+        resolve_urls=req.resolve_urls,
         started_at=now
     )
     db.add(new_parent)

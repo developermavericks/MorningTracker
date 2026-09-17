@@ -57,6 +57,11 @@ def identify_matched_keywords(text: str, keywords: List[str]) -> List[str]:
                 matched.append(kw_clean)
         elif match_keyword(text, kw_clean):
             matched.append(kw_clean)
+        else:
+            # Multi-word keyword fallback (e.g., "UPI MDR" matching text with both "UPI" and "MDR")
+            words = [w.strip() for w in kw_clean.split() if len(w.strip()) >= 2]
+            if len(words) > 1 and all(match_keyword(text, w) for w in words):
+                matched.append(kw_clean)
     return matched
 
 
@@ -202,9 +207,22 @@ def run_historical_sub_job(parent_job_id: str, sub_job_id: str) -> Dict[str, Any
                 if not url or not title:
                     continue
 
-                # Identify matched keywords
-                matched = identify_matched_keywords(title, keywords)
-                matched_str = ", ".join(matched) if matched else parent_job.name
+                # Optional URL resolution if user enabled resolve_urls flag for job
+                if url and getattr(parent_job, "resolve_urls", False) and "news.google.com" in url:
+                    from scraper.google_news import resolve_google_news_url_sync
+                    resolved = resolve_google_news_url_sync(url)
+                    if resolved:
+                        url = resolved
+
+                # Identify matched keywords across title and description/summary snippet
+                desc = item.get("description") or ""
+                full_text = f"{title} {desc}"
+                matched = identify_matched_keywords(full_text, keywords)
+                
+                # RELEVANCE GUARD: Drop articles that do not match any of the target keywords
+                if not matched:
+                    continue
+                matched_str = ", ".join(matched)
 
                 agency = item.get("agency") or item.get("source") or "Google News"
                 pub_date_str = curr_date.strftime("%Y-%m-%d")

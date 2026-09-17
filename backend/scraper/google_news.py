@@ -89,6 +89,47 @@ def decode_google_news_url(url: str) -> Optional[str]:
     return None
 
 
+def decode_google_news_batchexecute(url: str) -> Optional[str]:
+    """
+    Decodes Google News RSS/articles URL using data-n-a-sg / data-n-a-ts RPC tokens.
+    """
+    try:
+        if "/articles/" not in url:
+            return None
+        import requests
+        import urllib.parse
+        import json
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=8)
+        if "news.google.com" not in resp.url:
+            return str(resp.url)
+        sg_match = re.search(r'data-n-a-sg="([^"]+)"', resp.text)
+        ts_match = re.search(r'data-n-a-ts="([^"]+)"', resp.text)
+        if sg_match and ts_match:
+            sg = sg_match.group(1)
+            ts = ts_match.group(1)
+            base64_str = url.split('/articles/')[1].split('?')[0]
+            payload = [
+                "Fbv4je",
+                f'["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],"{base64_str}",{ts},"{sg}"]'
+            ]
+            post_resp = requests.post(
+                "https://news.google.com/_/DotsSplashUi/data/batchexecute",
+                data=f"f.req={urllib.parse.quote(json.dumps([[payload]]))}",
+                headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+                timeout=8
+            )
+            parsed = json.loads(post_resp.text.split("\n\n")[1])[:-2]
+            decoded_url = json.loads(parsed[0][2])[1]
+            if decoded_url and not _is_google_domain(decoded_url):
+                return decoded_url
+    except Exception as e:
+        _logger.debug(f"batchexecute decoder error for {url}: {e}")
+    return None
+
+
 def resolve_google_news_url_sync(url: str) -> str:
     """
     Resolves a Google News RSS redirect URL to the actual article URL.
@@ -101,7 +142,14 @@ def resolve_google_news_url_sync(url: str) -> str:
 
     is_google_news = "news.google.com" in url
 
-    # 1. Try googlenewsdecoder library
+    # 1. Try batchexecute RPC decoder
+    if is_google_news:
+        batch_res = decode_google_news_batchexecute(url)
+        if batch_res:
+            _logger.info(f"Batchexecute decoded Google News URL: {batch_res}")
+            return batch_res
+
+    # 2. Try googlenewsdecoder library
     if is_google_news:
         try:
             from scraper.engine import load_proxies
@@ -113,12 +161,10 @@ def resolve_google_news_url_sync(url: str) -> str:
                 resolved = res["decoded_url"]
                 if not _is_google_domain(resolved):
                     return resolved
-            else:
-                _logger.warning(f"googlenewsdecoder failed: {res.get('message') or res}")
         except Exception as e:
-            _logger.error(f"googlenewsdecoder error: {e}", exc_info=True)
+            _logger.debug(f"googlenewsdecoder error: {e}")
 
-    # 2. Base64 decoder fallback (offline, no network)
+    # 3. Base64 decoder fallback (offline, no network)
     if is_google_news:
         decoded = decode_google_news_url(url)
         if decoded:

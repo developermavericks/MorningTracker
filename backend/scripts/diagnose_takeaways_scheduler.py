@@ -74,6 +74,14 @@ def check_db_schema():
                 logger.error(f"[FAILURE] Database clients is missing columns: {client_missing}")
                 return False
 
+            # Inspect historical_jobs table columns
+            if "historical_jobs" in inspector.get_table_names():
+                hist_columns = [col["name"] for col in inspector.get_columns("historical_jobs")]
+                if "resolve_urls" in hist_columns:
+                    logger.info("[SUCCESS] Database historical_jobs table has 'resolve_urls' column.")
+                else:
+                    logger.warning("[NOTICE] 'resolve_urls' column missing in historical_jobs table (will auto-create on next init).")
+
             # Inspect robust_prompt_histories table
             tables = inspector.get_table_names()
             if "robust_prompt_histories" in tables:

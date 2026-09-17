@@ -414,12 +414,7 @@ def discover_articles(keywords: List[str], day: Optional[date], geo: str, region
                 if len(q) <= 256:
                     window_queries.append(q)
 
-        # Funding & Peer Spotlight Query Chunk: Discover major cybersecurity startup funding, Series A/B, and M&A deals
-        funding_q = "(\"Cybersecurity startup\" OR \"Mobile Security\" OR RASP OR \"AI security\") AND (funding OR raised OR valuation OR secures)"
-        if len(funding_q) <= 256:
-            window_queries.append(funding_q)
-
-    # Deduplicate queries to avoid double fetches
+        # Deduplicate queries to avoid double fetches
     window_queries = list(dict.fromkeys(window_queries))
     random.shuffle(window_queries)
     

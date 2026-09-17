@@ -267,6 +267,7 @@ class HistoricalJob(Base):
     total_articles: Mapped[int] = mapped_column(Integer, default=0)
     user_id: Mapped[str] = mapped_column(String, nullable=False)
     master_excel_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolve_urls: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
@@ -1309,6 +1310,7 @@ def init_db_sync():
                 conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS monthly_takeaways_day INTEGER DEFAULT 1"))
                 conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS monthly_takeaways_time VARCHAR DEFAULT '09:00'"))
                 conn.execute(text("ALTER TABLE heavy_companies ADD COLUMN IF NOT EXISTS last_monthly_takeaways_sent_at TIMESTAMP WITHOUT TIME ZONE"))
+                conn.execute(text("ALTER TABLE historical_jobs ADD COLUMN IF NOT EXISTS resolve_urls BOOLEAN DEFAULT FALSE"))
             else:
                 for col_sql in [
                     "ALTER TABLE heavy_companies ADD COLUMN updated_at DATETIME",
@@ -1323,6 +1325,7 @@ def init_db_sync():
                     "ALTER TABLE heavy_companies ADD COLUMN monthly_takeaways_day INTEGER DEFAULT 1",
                     "ALTER TABLE heavy_companies ADD COLUMN monthly_takeaways_time VARCHAR DEFAULT '09:00'",
                     "ALTER TABLE heavy_companies ADD COLUMN last_monthly_takeaways_sent_at DATETIME",
+                    "ALTER TABLE historical_jobs ADD COLUMN resolve_urls BOOLEAN DEFAULT 0",
                 ]:
                     try:
                         conn.execute(text(col_sql))

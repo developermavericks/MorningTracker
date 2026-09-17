@@ -23,6 +23,7 @@ export default function HistoricalAutomation() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [windowDays, setWindowDays] = useState(15);
+  const [resolveUrls, setResolveUrls] = useState(false);
   
   // Feedback & Info Modal State
   const [errorMsg, setErrorMsg] = useState("");
@@ -63,7 +64,8 @@ export default function HistoricalAutomation() {
         keywords: keywords.trim(),
         date_from: dateFrom,
         date_to: dateTo,
-        window_days: parseInt(windowDays, 10)
+        window_days: parseInt(windowDays, 10),
+        resolve_urls: resolveUrls
       };
 
       const res = await api.post("/historical-automation/start", payload);
@@ -363,6 +365,18 @@ export default function HistoricalAutomation() {
             <button type="submit" className="btn btn-primary" disabled={creating} style={{ height: "42px", padding: "0 24px", textTransform: "none" }}>
               {creating ? "Launching..." : "Launch Backfill"}
             </button>
+          </div>
+
+          <div style={{ marginTop: "12px" }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px", color: "var(--muted)", userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={resolveUrls}
+                onChange={(e) => setResolveUrls(e.target.checked)}
+                style={{ cursor: "pointer", accentColor: "var(--accent)", width: "14px", height: "14px" }}
+              />
+              <span>Resolve URLs to original publisher links</span>
+            </label>
           </div>
         </form>
       </div>

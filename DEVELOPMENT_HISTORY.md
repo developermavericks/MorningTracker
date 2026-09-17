@@ -81,6 +81,8 @@ The following table tracks active commits, implementation authors, change summar
 * **Search Mode & Pooja Algo Toggles:** Added options to toggle the custom Pooja filtering logic and switch search modes between Title Only vs. Title & Full Body.
 * **Console Logs & Stage-Wise Downloads:** Designed a terminal-like console log viewer (green-on-black color scheme) with clickable download triggers for intermediate stages (fetch, dedup, Pooja filtering, LLM verification).
 * **Case-Insensitive File Restoration:** Standardized comparison paths on the backend download router to be case-insensitive, fixing file recovery failures when files are deleted from server disks.
+* **Optional URL Resolution Toggle (`resolve_urls`):** Added a `resolve_urls: bool` configuration toggle to historical scraping jobs and database schema (`HistoricalJob.resolve_urls`). Users can choose whether to keep raw Google News RSS links or automatically un-redirect and resolve target publisher URLs (`ndtvprofit.com`, `livemint.com`, `gujaratsamachar.com`, etc.) via RPC `batchexecute` decoding. (Timestamp: 2026-09-17 16:42 IST | Author: Antigravity | Status: Deployed locally).
+* **Strict Historical Relevance Guard & Query Leak Cleanup:** Removed a hardcoded leftover cybersecurity funding query (`funding_q`) in `discover_articles` that was leaking unrelated tech startup news into non-brand historical scrapes. Enhanced `identify_matched_keywords` to support multi-word term matching and added a strict relevance guard in `historical_engine.py` to drop irrelevant articles that do not match target keywords instead of mislabeling them. (Timestamp: 2026-09-17 16:51 IST | Author: Antigravity | Status: Deployed locally).
 
 
 ---
