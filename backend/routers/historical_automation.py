@@ -24,6 +24,51 @@ class HistoricalJobCreate(BaseModel):
     date_to: date
     window_days: int = 15
 
+CLIENT_HISTORICAL_PRESETS = [
+    {
+        "id": "eruditus",
+        "name": "Eruditus / Emeritus Backfill",
+        "keywords": "Emeritus, Eruditus, Ashwin Damera, Chaitanya Kalipatnapu, Bhushan Heda, Avnish Singhal, Jawahir Morarji",
+        "window_days": 15
+    },
+    {
+        "id": "google",
+        "name": "Google India Backfill",
+        "keywords": "\"Google India\", \"Sundar Pichai\", Google Pay + India, Google Cloud + India, YouTube + India, Google AI",
+        "window_days": 15
+    },
+    {
+        "id": "protectt_ai",
+        "name": "Protectt.ai Security Backfill",
+        "keywords": "\"Protectt.ai\", \"mobile threat defense\", App Protection - gaming, RASP security, cybersecurity + banking",
+        "window_days": 15
+    },
+    {
+        "id": "scapia",
+        "name": "Scapia Cards Backfill",
+        "keywords": "Scapia, \"Scapia Federal Credit Card\", travel credit card + India, Anil Goteti",
+        "window_days": 15
+    },
+    {
+        "id": "wadhwani_ai",
+        "name": "Wadhwani AI Healthcare Backfill",
+        "keywords": "\"Wadhwani AI\", AI + healthcare + India, maternal health + AI, pest management + AI",
+        "window_days": 15
+    },
+    {
+        "id": "murf_ai",
+        "name": "Murf AI Backfill",
+        "keywords": "\"Murf AI\", \"voice generator\", text to speech + AI, Ankur Edkie",
+        "window_days": 15
+    }
+]
+
+@router.get("/client-presets")
+async def get_client_presets():
+    """Returns available client historical automation presets."""
+    return {"presets": CLIENT_HISTORICAL_PRESETS}
+
+
 def calculate_monthly_summary(sub_jobs: List[HistoricalSubJob]) -> List[dict]:
     """Generates month-by-month status badges for the monthly tracker."""
     months = {}
@@ -297,21 +342,33 @@ async def purge_historical_job_data(
 @router.delete("/jobs/{job_id}")
 async def delete_historical_job(
     job_id: str,
+    keep_data: bool = False,
     db: AsyncSession = Depends(get_db_yield),
     current_user: TokenData = Depends(get_auth_user)
 ):
-    """Deletes historical job, sub-jobs, articles, and generated Excel files."""
+    """Deletes historical job and sub-jobs. If keep_data is True, scraped articles remain in database."""
     res = await db.execute(select(HistoricalJob).where(HistoricalJob.id == job_id))
     job = res.scalar_one_or_none()
     if not job:
         raise HTTPException(404, "Job not found")
 
-    await db.execute(delete(HistoricalArticle).where(HistoricalArticle.parent_job_id == job_id))
+    if keep_data:
+        # Unlink articles from job so they remain preserved in DB
+        await db.execute(
+            update(HistoricalArticle)
+            .where(HistoricalArticle.parent_job_id == job_id)
+            .values(parent_job_id=None, sub_job_id=None)
+        )
+    else:
+        # Delete articles along with job
+        await db.execute(delete(HistoricalArticle).where(HistoricalArticle.parent_job_id == job_id))
+
     await db.execute(delete(HistoricalSubJob).where(HistoricalSubJob.parent_job_id == job_id))
     await db.delete(job)
     await db.commit()
 
-    return {"deleted_job": job_id}
+    return {"deleted_job": job_id, "keep_data": keep_data}
+
 
 
 @router.get("/jobs/{job_id}/download")

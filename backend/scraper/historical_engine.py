@@ -14,7 +14,7 @@ from db.database import (
     get_db_sync, HistoricalJob, HistoricalSubJob, HistoricalArticle
 )
 from scraper.engine import discover_articles, discover_direct_feeds, sanitize_search_keyword
-from scraper.search_utils import match_keyword, match_publication_category
+from scraper.search_utils import match_keyword, match_publication_category, verify_boolean_relevance
 
 logger = logging.getLogger("scraper.historical_engine")
 
@@ -43,7 +43,7 @@ def check_sub_job_cancellation(db, parent_job_id: str, sub_job_id: str) -> str:
 
 
 def identify_matched_keywords(text: str, keywords: List[str]) -> List[str]:
-    """Identify which target keywords match the article title or metadata."""
+    """Identify which target keywords match the article title or metadata, handling +, -, and exact quote syntax."""
     if not text or not keywords:
         return []
     matched = []
@@ -51,7 +51,11 @@ def identify_matched_keywords(text: str, keywords: List[str]) -> List[str]:
         kw_clean = kw.strip()
         if not kw_clean:
             continue
-        if match_keyword(text, kw_clean):
+        # If keyword has boolean modifiers (+, -) or exact quotes
+        if "+" in kw_clean or "-" in kw_clean or kw_clean.startswith('"'):
+            if verify_boolean_relevance(text, [kw_clean]):
+                matched.append(kw_clean)
+        elif match_keyword(text, kw_clean):
             matched.append(kw_clean)
     return matched
 

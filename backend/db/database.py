@@ -286,8 +286,8 @@ class HistoricalSubJob(Base):
 class HistoricalArticle(Base):
     __tablename__ = "historical_articles"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    parent_job_id: Mapped[str] = mapped_column(String, ForeignKey("historical_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
-    sub_job_id: Mapped[str] = mapped_column(String, ForeignKey("historical_sub_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_job_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("historical_jobs.id", ondelete="SET NULL"), nullable=True, index=True)
+    sub_job_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("historical_sub_jobs.id", ondelete="SET NULL"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     publication: Mapped[str] = mapped_column(String, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
