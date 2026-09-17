@@ -1,7 +1,10 @@
 import os
 import uuid
+import logging
 from datetime import date, datetime, timedelta
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
@@ -74,8 +77,13 @@ def calculate_monthly_summary(sub_jobs: List[HistoricalSubJob]) -> List[dict]:
     """Generates month-by-month status badges for the monthly tracker."""
     months = {}
     for sj in sub_jobs:
-        # Month string e.g. "Oct 2024"
-        m_key = sj.date_from.strftime("%b %Y")
+        if not sj.date_from:
+            continue
+        try:
+            m_key = sj.date_from.strftime("%b %Y") if hasattr(sj.date_from, 'strftime') else str(sj.date_from)[:7]
+        except Exception:
+            m_key = "Unknown Month"
+
         if m_key not in months:
             months[m_key] = {"month": m_key, "completed": 0, "total": 0, "statuses": set()}
         months[m_key]["total"] += 1
@@ -210,15 +218,6 @@ async def list_historical_jobs(
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
 
     query = select(HistoricalJob)
-    if not current_user.is_admin:
-        from sqlalchemy import or_
-        query = query.where(
-            or_(
-                HistoricalJob.user_id == current_user.id,
-                HistoricalJob.user_id.in_(["admin", "default_user", "system", "legacy", "guest"])
-            )
-        )
-
     if sort_by == "date_from":
         query = query.order_by(asc(HistoricalJob.date_from) if order == "asc" else desc(HistoricalJob.date_from))
     else:
@@ -229,54 +228,57 @@ async def list_historical_jobs(
 
     output = []
     for j in jobs:
-        # Load sub-jobs to compute metrics
-        res_subs = await db.execute(
-            select(HistoricalSubJob)
-            .where(HistoricalSubJob.parent_job_id == j.id)
-            .order_by(HistoricalSubJob.window_index.asc())
-        )
-        subs = res_subs.scalars().all()
+        try:
+            # Load sub-jobs to compute metrics
+            res_subs = await db.execute(
+                select(HistoricalSubJob)
+                .where(HistoricalSubJob.parent_job_id == j.id)
+                .order_by(HistoricalSubJob.window_index.asc())
+            )
+            subs = res_subs.scalars().all()
 
-        eta_info = calculate_eta(j, subs)
-        monthly_tracker = calculate_monthly_summary(subs)
+            eta_info = calculate_eta(j, subs)
+            monthly_tracker = calculate_monthly_summary(subs)
 
-        total_duration = int((j.completed_at - j.started_at).total_seconds()) if (j.completed_at and j.started_at) else eta_info["elapsed_seconds"]
+            total_duration = int((j.completed_at - j.started_at).total_seconds()) if (j.completed_at and j.started_at) else eta_info["elapsed_seconds"]
 
-        j_dict = {
-            "id": j.id,
-            "name": j.name,
-            "keywords": j.keywords,
-            "date_from": str(j.date_from),
-            "date_to": str(j.date_to),
-            "window_days": j.window_days,
-            "status": j.status,
-            "total_sub_jobs": j.total_sub_jobs,
-            "completed_sub_jobs": j.completed_sub_jobs,
-            "total_articles": j.total_articles,
-            "has_master_excel": bool(j.master_excel_path or j.status == "completed"),
-            "started_at": j.started_at.isoformat() if j.started_at else None,
-            "completed_at": j.completed_at.isoformat() if j.completed_at else None,
-            "elapsed_seconds": eta_info["elapsed_seconds"],
-            "eta_seconds": eta_info["eta_seconds"],
-            "total_duration_seconds": total_duration,
-            "monthly_tracker": monthly_tracker,
-            "sub_jobs": [
-                {
-                    "id": sj.id,
-                    "window_index": sj.window_index,
-                    "date_from": str(sj.date_from),
-                    "date_to": str(sj.date_to),
-                    "status": sj.status,
-                    "articles_found": sj.articles_found,
-                    "has_excel": bool(sj.excel_file_path or sj.status == "completed"),
-                    "started_at": sj.started_at.isoformat() if sj.started_at else None,
-                    "completed_at": sj.completed_at.isoformat() if sj.completed_at else None,
-                    "execution_seconds": int((sj.completed_at - sj.started_at).total_seconds()) if (sj.started_at and sj.completed_at) else None
-                }
-                for sj in subs
-            ]
-        }
-        output.append(j_dict)
+            j_dict = {
+                "id": j.id,
+                "name": j.name,
+                "keywords": j.keywords,
+                "date_from": str(j.date_from) if j.date_from else "",
+                "date_to": str(j.date_to) if j.date_to else "",
+                "window_days": j.window_days,
+                "status": j.status,
+                "total_sub_jobs": j.total_sub_jobs,
+                "completed_sub_jobs": j.completed_sub_jobs,
+                "total_articles": j.total_articles,
+                "has_master_excel": bool(j.master_excel_path or j.status == "completed"),
+                "started_at": j.started_at.isoformat() if j.started_at else None,
+                "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+                "elapsed_seconds": eta_info["elapsed_seconds"],
+                "eta_seconds": eta_info["eta_seconds"],
+                "total_duration_seconds": total_duration,
+                "monthly_tracker": monthly_tracker,
+                "sub_jobs": [
+                    {
+                        "id": sj.id,
+                        "window_index": sj.window_index,
+                        "date_from": str(sj.date_from) if sj.date_from else "",
+                        "date_to": str(sj.date_to) if sj.date_to else "",
+                        "status": sj.status,
+                        "articles_found": sj.articles_found,
+                        "has_excel": bool(sj.excel_file_path or sj.status == "completed"),
+                        "started_at": sj.started_at.isoformat() if sj.started_at else None,
+                        "completed_at": sj.completed_at.isoformat() if sj.completed_at else None,
+                        "execution_seconds": int((sj.completed_at - sj.started_at).total_seconds()) if (sj.started_at and sj.completed_at) else None
+                    }
+                    for sj in subs
+                ]
+            }
+            output.append(j_dict)
+        except Exception as job_err:
+            logger.error(f"Error formatting historical job {j.id}: {job_err}")
 
     return {"jobs": output}
 
