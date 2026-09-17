@@ -10,6 +10,9 @@ backend/google_credentials.json
 *.db
 *.db-shm
 *.db-wal
+backend/reports/
+reports/
+backend/celerybeat-schedule*
 
 # Debug Scripts & Temporary Files
 backend/*_check.py

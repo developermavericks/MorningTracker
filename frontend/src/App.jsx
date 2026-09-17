@@ -14,6 +14,7 @@ import AdminJobDetail from "./pages/AdminJobDetail";
 import ClientReports from "./pages/ClientReports";
 import HeavyAutomation from "./pages/HeavyAutomation";
 import RobustAutomation from "./pages/RobustAutomation";
+import HistoricalAutomation from "./pages/HistoricalAutomation";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -23,6 +24,7 @@ import "./index.css";
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "◈", adminOnly: true },
   { id: "articles", label: "Articles", icon: "≡", adminOnly: true },
+  { id: "historical-automation", label: "Historical Automation", icon: "⏳", adminOnly: true },
   { id: "client-reports", label: "Client Automation", icon: "⚡", adminOnly: true },
   { id: "heavy-automation", label: "Heavy Automation", icon: "🔬", adminOnly: true },
   { id: "robust-automation", label: "Robust Automation", icon: "💎", adminOnly: true },
@@ -187,6 +189,7 @@ function ProtectedApp() {
       <main className="main-content">
         {page === "dashboard" && <Dashboard onNavigate={navigateWithContext} />}
         {page === "articles" && <ArticlesBrowser initialFilters={navContext} />}
+        {page === "historical-automation" && <HistoricalAutomation />}
         {page === "client-reports" && <ClientReports />}
         {page === "heavy-automation" && <HeavyAutomation />}
         {page === "robust-automation" && <RobustAutomation />}
