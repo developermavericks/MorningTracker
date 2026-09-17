@@ -852,6 +852,17 @@ async def init_db():
         except Exception as e:
             print(f"Migration Notice (Heavy Automation Schema): {e}")
 
+        # Automated Migration: Historical Jobs resolve_urls column
+        try:
+            if "postgresql" in engine.url.drivername:
+                await conn.execute(text("ALTER TABLE historical_jobs ADD COLUMN IF NOT EXISTS resolve_urls BOOLEAN DEFAULT FALSE"))
+            else:
+                try:
+                    await conn.execute(text("ALTER TABLE historical_jobs ADD COLUMN resolve_urls BOOLEAN DEFAULT 0"))
+                except Exception: pass
+        except Exception as e:
+            print(f"Migration Notice (Historical Jobs Schema): {e}")
+
 
         # Automated Cleanup: Duplicate Brands
         try:
