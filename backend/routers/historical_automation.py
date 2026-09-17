@@ -134,9 +134,6 @@ async def start_historical_job(
     current_user: TokenData = Depends(get_auth_user)
 ):
     """Starts a fast historical metadata scrape with auto 15-day window slicing."""
-    if not current_user.is_admin:
-        raise HTTPException(403, "Access denied: Historical Automation is strictly reserved for Administrators.")
-
     if req.date_from > req.date_to:
         raise HTTPException(400, "Start date cannot be after end date")
 
@@ -212,10 +209,16 @@ async def list_historical_jobs(
     """Lists historical jobs with ETA metrics, month trackers, and sub-process counts."""
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
 
-    if not current_user.is_admin:
-        raise HTTPException(403, "Access denied: Historical Automation is strictly reserved for Administrators.")
-
     query = select(HistoricalJob)
+    if not current_user.is_admin:
+        from sqlalchemy import or_
+        query = query.where(
+            or_(
+                HistoricalJob.user_id == current_user.id,
+                HistoricalJob.user_id.in_(["admin", "default_user", "system", "legacy", "guest"])
+            )
+        )
+
     if sort_by == "date_from":
         query = query.order_by(asc(HistoricalJob.date_from) if order == "asc" else desc(HistoricalJob.date_from))
     else:
