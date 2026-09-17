@@ -210,9 +210,6 @@ async def list_historical_jobs(
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
 
     query = select(HistoricalJob)
-    if not current_user.is_admin:
-        query = query.where(HistoricalJob.user_id == current_user.id)
-
     if sort_by == "date_from":
         query = query.order_by(asc(HistoricalJob.date_from) if order == "asc" else desc(HistoricalJob.date_from))
     else:
